@@ -1,0 +1,184 @@
+{
+  "users": [
+    {
+      "id": "b77b",
+      "name": "Keshav K Das",
+      "email": "keshavkdas23@gmail.com",
+      "role": "Agent",
+      "active": true,
+      "confirmed": true,
+      "phone": "09460822915",
+      "password": "Keshav@1523",
+      "status": "Active"
+    },
+    {
+      "id": "o3949260b",
+      "name": "Jai Guru Dev",
+      "email": "keshavkdas15@gmail.com",
+      "phone": "9460822915",
+      "password": "Keshav@1523",
+      "role": "Admin",
+      "active": true,
+      "status": "Active",
+      "confirmed": true
+    }
+  ],
+  "orgs": [
+    {
+      "id": "1",
+      "name": "Acme Corp",
+      "domain": "acme.com",
+      "phone": "555-0101"
+    },
+    {
+      "id": "2",
+      "name": "TechStart Inc",
+      "domain": "techstart.io",
+      "phone": "555-0102"
+    },
+    {
+      "id": "3",
+      "name": "Global Systems",
+      "domain": "globalsys.com",
+      "phone": "555-0103"
+    },
+    {
+      "id": "4",
+      "name": "RetailMax",
+      "domain": "retailmax.com",
+      "phone": "555-0104"
+    },
+    {
+      "id": "5",
+      "name": "HealthFirst",
+      "domain": "healthfirst.org",
+      "phone": "555-0105"
+    },
+    {
+      "id": "6",
+      "name": "EduLearn",
+      "domain": "edulearn.net",
+      "phone": "555-0106"
+    },
+    {
+      "id": "22c1",
+      "name": "ICT",
+      "domain": "aol.ict.in",
+      "phone": "896-098"
+    }
+  ],
+  "categories": [
+    {
+      "id": "1",
+      "name": "Hardware",
+      "color": "#f97316"
+    },
+    {
+      "id": "2",
+      "name": "Software",
+      "color": "#3b82f6"
+    },
+    {
+      "id": "3",
+      "name": "Network",
+      "color": "#8b5cf6"
+    },
+    {
+      "id": "4",
+      "name": "Account Access",
+      "color": "#ec4899"
+    },
+    {
+      "id": "5",
+      "name": "Email",
+      "color": "#14b8a6"
+    },
+    {
+      "id": "6",
+      "name": "Security",
+      "color": "#ef4444"
+    },
+    {
+      "id": "7",
+      "name": "Printer",
+      "color": "#f59e0b"
+    },
+    {
+      "id": "8",
+      "name": "VPN",
+      "color": "#6366f1"
+    },
+    {
+      "id": "9",
+      "name": "Other",
+      "color": "#94a3b8"
+    },
+    {
+      "id": "6bac",
+      "name": "Desk",
+      "color": "#f73b3b"
+    }
+  ],
+  "customAttrs": [
+    {
+      "id": "1",
+      "name": "Asset Tag",
+      "type": "text",
+      "options": [],
+      "required": false
+    },
+    {
+      "id": "2",
+      "name": "Location",
+      "type": "text",
+      "options": [],
+      "required": false
+    },
+    {
+      "id": "3",
+      "name": "Impact Level",
+      "type": "select",
+      "options": [
+        "Low",
+        "Medium",
+        "High"
+      ],
+      "required": false
+    }
+  ],
+  "tickets": [
+    {
+      "id": "TKT-1001",
+      "org": "ICT",
+      "department": "IT",
+      "contact": "M",
+      "reportedBy": "J",
+      "summary": "Computer not working",
+      "description": "some issue",
+      "assignees": [
+        {
+          "id": "b77b",
+          "name": "Keshav K Das",
+          "email": "keshavkdas23@gmail.com",
+          "role": "Admin",
+          "active": true
+        }
+      ],
+      "cc": [
+        "keshavkdas23@gmail.com"
+      ],
+      "priority": "High",
+      "category": "Software",
+      "customAttrs": {
+        "Impact Level": "High",
+        "Location": "Recieption"
+      },
+      "status": "Open",
+      "created": "2026-03-13T05:10:11.201Z",
+      "updated": "2026-03-13T06:15:35.084Z",
+      "comments": []
+    }
+  ],
+  "projects": [],
+  "$schema": "./node_modules/json-server/schema.json"
+}
