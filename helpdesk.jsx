@@ -175,6 +175,30 @@ export default function HelpDesk() {
   const priorityDist = useMemo(() => PRIORITIES.map(p => ({ label: p, value: fbr.filter(t => t.priority === p).length, color: PRIORITY_COLOR[p] })), [fbr]);
   const categoryDist = useMemo(() => categories.slice(0, 6).map(c => ({ label: c.name, value: fbr.filter(t => t.category === c.name).length, color: c.color })), [fbr, categories]);
 
+  const handleImportCSV = (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = async (event) => {
+      const rows = event.target.result.split("\n").slice(1); // Skip header
+      for (const row of rows) {
+        const cols = row.split(",");
+        if (cols[1]) { // If summary exists
+          await TICKETS_API.create({
+            summary: cols[1].replace(/"/g, ""),
+            org: cols[2] || "Imported",
+            status: "Open",
+            created: new Date().toISOString(),
+            updated: new Date().toISOString()
+          });
+        }
+      }
+      loadData(); // Refresh the list
+      alert("Import complete!");
+    };
+    reader.readAsText(file);
+  };
+
   const handleSubmit = async () => {
     if (!form.summary || !form.org) return alert("Organisation and Summary are required");
     const newT = {
@@ -226,6 +250,8 @@ export default function HelpDesk() {
     setCustomAttrs([...customAttrs, created]); setNewAttr({ name: "", type: "text", options: "", required: false });
   };
 
+  const [projects, setProjects] = useState([]);
+
   const sideNav = [{ id: "dashboard", label: "Dashboard", icon: "▦" }, { id: "projects", label: "Projects", icon: "📁" }, { id: "tickets", label: "All Tickets", icon: "◈" }, { id: "reports", label: "Reports", icon: "◉" }, { id: "users", label: "Agents", icon: "◎" }, { id: "settings", label: "Settings", icon: "⚙" }];
   const stabs = [{ id: "ticketviews", label: "Ticket Views", icon: "👁" }, { id: "organisations", label: "Organisations", icon: "🏢" }, { id: "categories", label: "Categories", icon: "🏷" }, { id: "usermgmt", label: "User Management", icon: "👥" }, { id: "customattrs", label: "Custom Attributes", icon: "✏️" }, { id: "dbmgmt", label: "Database Mgmt", icon: "💾" }];
 
@@ -256,38 +282,59 @@ export default function HelpDesk() {
   const [fwdVendorName, setFwdVendorName] = useState("");
   const [fwdVendorEmail, setFwdVendorEmail] = useState("");
 
-  const handleForward = async () => {
-    if (!fwdReason.trim()) return alert("Reason is required to forward a ticket.");
-    if (fwdType === "Agent" && !fwdTargetAgent) return alert("Please select an agent.");
-    if (fwdType === "Vendor" && (!fwdVendorName || !fwdVendorEmail)) return alert("Vendor Name and Email are required.");
+  // ADD THESE TWO IN PLACE OF THE OLD handleForward
+  const handleForwardToAgent = async (agentId) => {
+    if (!fwdReason.trim()) return alert("Reason is required.");
+    if (!agentId) return alert("Please select an agent.");
 
     const t = selTicket;
-    if (!t) return;
-
     try {
-      const nowISO = new Date().toISOString();
-      let note = fwdReason;
-      let newAssignees = t.assignees || [];
-      let newVendor = t.vendor;
-      let actionText = "";
+      const agent = users.find(u => u.id === agentId);
+      const now = new Date().toISOString();
 
-      if (fwdType === "Agent") {
-        const agnt = users.find(u => u.id === fwdTargetAgent);
-        actionText = `Forwarded to Agent: ${agnt.name}`;
-        newAssignees = [agnt]; // replace assignees with the new target
-      } else {
-        actionText = `Forwarded to Vendor: ${fwdVendorName} (${fwdVendorEmail})`;
-        newVendor = { name: fwdVendorName, email: fwdVendorEmail };
-      }
+      const update = {
+        ...t,
+        assignees: [agent],
+        updated: now,
+        timeline: [...(t.timeline || []), {
+          action: `Forwarded to Agent: ${agent.name}`,
+          by: currentUser.name,
+          date: now,
+          note: fwdReason
+        }]
+      };
 
-      const newEv = { action: actionText, by: currentUser.name, date: nowISO, note };
-      const updatedT = { ...t, updated: nowISO, assignees: newAssignees, vendor: newVendor, timeline: [...(t.timeline || []), newEv] };
+      await TICKETS_API.update(t.id, update);
+      setTickets(p => p.map(x => x.id === t.id ? { ...update, updated: new Date(now) } : x));
+      setSelTicket(update);
+      setShowForward(false);
+      setFwdReason("");
+    } catch (e) { alert("Forwarding failed"); }
+  };
 
-      await TICKETS_API.update(t.id, updatedT);
-      setTickets(p => p.map(x => x.id === t.id ? { ...updatedT, updated: new Date(nowISO) } : x));
-      setSelTicket(updatedT);
-      setShowForward(false); setFwdReason(""); setFwdTargetAgent(""); setFwdVendorName(""); setFwdVendorEmail("");
-    } catch (e) { alert("Failed to forward ticket"); }
+  const handleSendForRepair = async (vendorName, contactInfo) => {
+    if (!vendorName) return alert("Vendor name is required.");
+
+    const t = selTicket;
+    try {
+      const now = new Date().toISOString();
+      const update = {
+        ...t,
+        status: "Pending", // Or your preferred status for repair
+        updated: now,
+        timeline: [...(t.timeline || []), {
+          action: `Sent for Repair: ${vendorName}`,
+          by: currentUser.name,
+          date: now,
+          note: `Contact: ${contactInfo}`
+        }]
+      };
+
+      await TICKETS_API.update(t.id, update);
+      setTickets(p => p.map(x => x.id === t.id ? { ...update, updated: new Date(now) } : x));
+      setSelTicket(update);
+      // Add logic here to close the Repair modal if you have one
+    } catch (e) { alert("Repair update failed"); }
   };
 
   const handleLogin = async (e) => {
@@ -445,10 +492,6 @@ export default function HelpDesk() {
             </div>
             {authForm.confirm && authForm.password !== authForm.confirm && <div style={{ color: "#ef4444", fontSize: 11, marginTop: -6, marginBottom: 10 }}>Passwords do not match</div>}
             <button type="submit" disabled={authForm.password !== authForm.confirm} style={{ ...bP, width: "100%", marginTop: 4, padding: 12, opacity: authForm.password !== authForm.confirm ? 0.5 : 1 }}>Sign Up</button>
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginTop: 16 }}>
-              <button type="button" onClick={requestAccess} style={{ ...bG, border: "none", color: "#3b82f6", padding: 0, fontSize: 12 }}>Request Access</button>
-              <button type="button" onClick={confirmEmailMock} style={{ ...bG, border: "none", color: "#6366f1", padding: 0, fontSize: 12 }}>(Mock) Confirm Email</button>
-            </div>
             <div style={{ marginTop: 12, textAlign: 'center' }}>
               <button type="button" onClick={() => { setAuthForm({ email: "", password: "", firstName: "", middleName: "", lastName: "", countryCode: "+1", phone: "", confirm: "", requestRole: "Admin" }); setIsLogin(true); setAuthError(""); setAuthMessage(""); }} style={{ ...bG, border: "none", color: "#64748b", padding: 0, fontSize: 12 }}>Already have an account? Log in</button>
             </div>
@@ -861,6 +904,16 @@ export default function HelpDesk() {
                       };
                       reader.readAsText(file);
                     }} />
+                  </label>
+                  {/* New CSV Import Button for Item 10 */}
+                  <label style={{ ...bG, display: "flex", alignItems: "center", gap: 6, cursor: "pointer", border: "1.5px solid #3b82f6", color: "#3b82f6" }}>
+                    Import Tickets (CSV)
+                    <input
+                      type="file"
+                      accept=".csv"
+                      style={{ display: "none" }}
+                      onChange={handleImportCSV}
+                    />
                   </label>
                 </div>
               </div>}
