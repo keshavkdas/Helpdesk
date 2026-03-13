@@ -252,7 +252,7 @@ export default function HelpDesk() {
 
   const [projects, setProjects] = useState([]);
 
-  const sideNav = [{ id: "dashboard", label: "Dashboard", icon: "▦" }, { id: "projects", label: "Projects", icon: "📁" }, { id: "tickets", label: "All Tickets", icon: "◈" }, { id: "reports", label: "Reports", icon: "◉" }, { id: "users", label: "Agents", icon: "◎" }, { id: "settings", label: "Settings", icon: "⚙" }];
+  const sideNav = [{ id: "dashboard", label: "Dashboard", icon: "▦" }, { id: "projects", label: "Projects", icon: "⎙" }, { id: "tickets", label: "All Tickets", icon: "◈" }, { id: "reports", label: "Reports", icon: "◉" }, { id: "users", label: "Agents", icon: "◎" }, { id: "settings", label: "Settings", icon: "⚙" }];
   const stabs = [{ id: "ticketviews", label: "Ticket Views", icon: "👁" }, { id: "organisations", label: "Organisations", icon: "🏢" }, { id: "categories", label: "Categories", icon: "🏷" }, { id: "usermgmt", label: "User Management", icon: "👥" }, { id: "customattrs", label: "Custom Attributes", icon: "✏️" }, { id: "dbmgmt", label: "Database Mgmt", icon: "💾" }];
 
   // Auth UI State
