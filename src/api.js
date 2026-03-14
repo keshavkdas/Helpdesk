@@ -1,7 +1,7 @@
 import axios from 'axios';
 
 const api = axios.create({
-  baseURL: 'http://localhost:3001'
+  baseURL: 'http://localhost:5000/api'
 });
 
 export const USERS_API = {
@@ -22,17 +22,17 @@ export const AUTH_API = {
   signup: async (userData) => {
     const users = await USERS_API.getAll();
     const existing = users.find(u => u.email === userData.email);
-    
+
     // If the user already exists AND has a password, they are already registered.
     if (existing && existing.password) {
       throw new Error("User with this email already exists");
     }
-    
+
     // If the user exists and does NOT have a password, they are likely
     // an Agent pre-registered by an Admin. The frontend logic handles
     // this update with a PUT request.
 
-    return userData; 
+    return userData;
   }
 };
 
@@ -84,19 +84,19 @@ export const DB_API = {
     // As a simple REST approach for now:
     // Delete all existing and post new.
     const current = await DB_API.getAllData();
-    
+
     // Clear old data
-    for(const u of current.users) await USERS_API.delete(u.id);
-    for(const o of current.orgs) await ORGS_API.delete(o.id);
-    for(const c of current.categories) await CATEGORIES_API.delete(c.id);
-    for(const a of current.customAttrs) await CUSTOM_ATTRS_API.delete(a.id);
-    for(const t of current.tickets) await TICKETS_API.delete(t.id);
-    
+    for (const u of current.users) await USERS_API.delete(u.id);
+    for (const o of current.orgs) await ORGS_API.delete(o.id);
+    for (const c of current.categories) await CATEGORIES_API.delete(c.id);
+    for (const a of current.customAttrs) await CUSTOM_ATTRS_API.delete(a.id);
+    for (const t of current.tickets) await TICKETS_API.delete(t.id);
+
     // Insert new data
-    for(const u of data.users || []) await USERS_API.create(u);
-    for(const o of data.orgs || []) await ORGS_API.create(o);
-    for(const c of data.categories || []) await CATEGORIES_API.create(c);
-    for(const a of data.customAttrs || []) await CUSTOM_ATTRS_API.create(a);
-    for(const t of data.tickets || []) await TICKETS_API.create(t);
+    for (const u of data.users || []) await USERS_API.create(u);
+    for (const o of data.orgs || []) await ORGS_API.create(o);
+    for (const c of data.categories || []) await CATEGORIES_API.create(c);
+    for (const a of data.customAttrs || []) await CUSTOM_ATTRS_API.create(a);
+    for (const t of data.tickets || []) await TICKETS_API.create(t);
   }
 };
