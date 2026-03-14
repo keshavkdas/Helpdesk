@@ -1,5 +1,19 @@
 import { useState, useMemo, useEffect, useRef } from "react";
-import { USERS_API, ORGS_API, CATEGORIES_API, CUSTOM_ATTRS_API, TICKETS_API, DB_API, AUTH_API } from "./src/api";
+import axios from "axios";
+
+// --- SERVER CONFIGURATION ---
+const SERVER_IP = "192.168.137.1";
+const BASE_URL = `http://${SERVER_IP}:5000/api`;
+
+// --- API ENDPOINTS ---
+const TICKETS_API = `${BASE_URL}/tickets`;
+const ORGS_API = `${BASE_URL}/orgs`;
+const CATEGORIES_API = `${BASE_URL}/categories`;
+const CUSTOM_ATTRS_API = `${BASE_URL}/customAttrs`;
+const USERS_API = `${BASE_URL}/users`;
+const DB_API = `${BASE_URL}/all-data`;
+const AUTH_API = `${BASE_URL}/auth/login`;
+const IMPORT_API = `${BASE_URL}/import`;
 
 // ─── CONSTANTS ────────────────────────────────────────────────────────────────
 const DEPARTMENTS = ["IT", "HR", "Finance", "Operations", "Sales", "Marketing", "Legal", "Support"];
@@ -10,6 +24,7 @@ const LOCATIONS = ["Amphitheater", "Main Hall", "Outdoor Ground", "Conference Ce
 const SATSANG_TYPES = ["G Satsang", "Weekly Satsang", "Special Satsang", "Youth Satsang", "Children Satsang"];
 const PROJECT_STATUSES = ["Open", "In Progress", "Pending", "Resolved", "Closed"];
 const PROJECT_PRIORITIES = ["Low", "Medium", "High", "Critical"];
+
 
 const PRIORITY_COLOR = { Low: "#22c55e", Medium: "#f59e0b", High: "#f97316", Critical: "#ef4444" };
 const STATUS_COLOR = {
@@ -371,6 +386,9 @@ export default function HelpDesk() {
   const [customAttrs, setCustomAttrs] = useState([]);
   const [tickets, setTickets] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [targetTable, setTargetTable] = useState("tickets");
+  const [loginEmail, setLoginEmail] = useState("");
+  const [loginPassword, setLoginPassword] = useState("");
   // Restore from localStorage session — survives page reload
   const [currentUser, setCurrentUser] = useState(() => loadSession());
 
@@ -527,20 +545,96 @@ export default function HelpDesk() {
   const categoryDist = useMemo(() => categories.slice(0, 6).map(c => ({ label: c.name, value: fbr.filter(t => t.category === c.name).length, color: c.color })), [fbr, categories]);
 
   // ─── TICKET HANDLERS (v1 API) ──────────────────────────────────────────────
-  const handleImportCSV = (e) => {
-    const file = e.target.files[0]; if (!file) return;
+  const handleSelectiveImport = (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+
     const reader = new FileReader();
     reader.onload = async (event) => {
-      const rows = event.target.result.split("\n").slice(1);
-      for (const row of rows) {
-        const cols = row.split(",");
-        if (cols[1]) {
-          await TICKETS_API.create({ summary: cols[1].replace(/"/g, ""), org: cols[2] || "Imported", status: "Open", created: new Date().toISOString(), updated: new Date().toISOString() });
+      try {
+        let payload = [];
+        const content = event.target.result;
+
+        if (file.name.endsWith(".csv")) {
+          const lines = content.split("\n").filter(l => l.trim() !== "");
+          const headers = lines[0].split(",").map(h => h.trim().toLowerCase());
+
+          payload = lines.slice(1).map(line => {
+            const values = line.split(",");
+            let row = headers.reduce((obj, header, i) => {
+              let val = values[i]?.trim() || "";
+              if (val.startsWith('"') && val.endsWith('"')) val = val.slice(1, -1);
+
+              // FIX: Map "organization" to "org" so Sequelize recognizes it
+              if (header === "organization") {
+                obj["org"] = val;
+              } else if (header !== "password") {
+                obj[header] = val;
+              }
+              return obj;
+            }, {});
+
+            if (targetTable === "users") {
+              row.password = "TEMP_UNSET_" + Math.random().toString(36).slice(-8);
+
+              // Ensure Role matches your DB ENUM (Capitalized)
+              if (row.role) {
+                const validRoles = ["Admin", "Manager", "Agent", "Viewer"];
+                const cleaned = row.role.charAt(0).toUpperCase() + row.role.slice(1).toLowerCase();
+                row.role = validRoles.includes(cleaned) ? cleaned : "Viewer";
+              } else {
+                row.role = "Viewer";
+              }
+            }
+            return row;
+          });
+        } else {
+          payload = JSON.parse(content);
         }
+
+        const API_MAP = {
+          tickets: TICKETS_API,
+          users: USERS_API,
+          orgs: ORGS_API,
+          categories: CATEGORIES_API
+        };
+
+        await axios.post(`${IMPORT_API}/${targetTable}`, payload);
+        alert(`${targetTable} imported successfully!`);
+        loadData();
+        e.target.value = null;
+      } catch (err) {
+        console.error(err);
+        alert("Import failed: " + (err.response?.data?.error || err.message));
       }
-      loadData(); alert("Import complete!");
     };
     reader.readAsText(file);
+  };
+
+  const handleExport = () => {
+    // Map target to the state variables you already have
+    const DATA_MAP = {
+      tickets: tickets,
+      users: users,
+      orgs: orgs,
+      categories: categories
+    };
+
+    const dataToExport = DATA_MAP[targetTable] || [];
+
+    if (dataToExport.length === 0) {
+      alert(`No ${targetTable} data to export.`);
+      return;
+    }
+
+    const blob = new Blob([JSON.stringify(dataToExport, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `${targetTable}_export_${new Date().toISOString().split('T')[0]}.json`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
   };
 
   const handleSubmit = async () => {
@@ -1484,27 +1578,31 @@ export default function HelpDesk() {
                 ))}
                 {customAttrs.length === 0 && <div style={{ textAlign: "center", color: "#94a3b8", padding: 28 }}>No custom attributes yet.</div>}
               </div>}
-              {settingsTab === "dbmgmt" && <div style={{ background: "#fff", borderRadius: 12, padding: 22, boxShadow: "0 1px 4px rgba(0,0,0,0.06)" }}>
-                <h3 style={{ margin: "0 0 4px", fontSize: 15, fontWeight: 700 }}>Database Management</h3>
-                <p style={{ margin: "0 0 14px", fontSize: 12, color: "#64748b" }}>Import or export the entire helpdesk database (JSON format).</p>
-                <div style={{ display: "flex", gap: 14, marginTop: 20, flexWrap: "wrap" }}>
-                  <button onClick={async () => { const data = await DB_API.getAllData(); const a = document.createElement("a"); a.href = URL.createObjectURL(new Blob([JSON.stringify(data, null, 2)], { type: "application/json" })); a.download = "helpdesk_backup.json"; a.click(); }} style={bP}>Export Database</button>
-                  <label style={{ ...bG, display: "flex", alignItems: "center", gap: 6, cursor: "pointer" }}>
-                    Import Data File
-                    <input type="file" accept=".json" style={{ display: "none" }} onChange={e => {
-                      const file = e.target.files[0]; if (!file) return;
-                      const reader = new FileReader();
-                      reader.onload = async (ev) => {
-                        try { const json = JSON.parse(ev.target.result); if (confirm("This will overwrite existing database. Are you sure?")) { setLoading(true); await DB_API.replaceData(json); await loadData(); alert("Import successful!"); } }
-                        catch (err) { alert("Invalid JSON file or error during import."); setLoading(false); }
-                      }; reader.readAsText(file);
-                    }} />
-                  </label>
-                  <label style={{ ...bG, display: "flex", alignItems: "center", gap: 6, cursor: "pointer", border: "1.5px solid #3b82f6", color: "#3b82f6" }}>
-                    Import Tickets (CSV)
-                    <input type="file" accept=".csv" style={{ display: "none" }} onChange={handleImportCSV} />
-                  </label>
-                </div>
+              {settingsTab === "dbmgmt" && <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '20px' }}>
+                <select
+                  value={targetTable}
+                  onChange={(e) => setTargetTable(e.target.value)}
+                  style={{ padding: '8px', borderRadius: '5px', border: '1px solid #ccc' }}
+                >
+                  <option value="tickets">Tickets</option>
+                  <option value="users">Users</option>
+                  <option value="orgs">Organizations</option>
+                  <option value="categories">Categories</option>
+                </select>
+
+                {/* Export Button */}
+                <button
+                  onClick={handleExport}
+                  style={{ padding: '8px 15px', backgroundColor: '#22c55e', color: 'white', border: 'none', borderRadius: '5px', cursor: 'pointer' }}
+                >
+                  Export {targetTable}
+                </button>
+
+                {/* Import Button */}
+                <label style={{ padding: '8px 15px', backgroundColor: '#3b82f6', color: 'white', borderRadius: '5px', cursor: 'pointer' }}>
+                  Import {targetTable}
+                  <input type="file" accept=".csv,.json" onChange={handleSelectiveImport} style={{ display: 'none' }} />
+                </label>
               </div>}
             </div>
           </div>}
