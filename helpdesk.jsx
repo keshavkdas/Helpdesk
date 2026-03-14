@@ -1,10 +1,15 @@
 import { useState, useMemo, useEffect, useRef } from "react";
 import { USERS_API, ORGS_API, CATEGORIES_API, CUSTOM_ATTRS_API, TICKETS_API, DB_API, AUTH_API } from "./src/api";
 
+// ─── CONSTANTS ────────────────────────────────────────────────────────────────
 const DEPARTMENTS = ["IT", "HR", "Finance", "Operations", "Sales", "Marketing", "Legal", "Support"];
 const PRIORITIES = ["Low", "Medium", "High", "Critical"];
 const STATUSES = ["Open", "In Progress", "Pending", "Resolved", "Closed"];
 const ROLES = ["Admin", "Manager", "Agent", "Viewer"];
+const LOCATIONS = ["Amphitheater", "Main Hall", "Outdoor Ground", "Conference Center", "Community Center", "Regional Center", "Online", "Other"];
+const SATSANG_TYPES = ["G Satsang", "Weekly Satsang", "Special Satsang", "Youth Satsang", "Children Satsang"];
+const PROJECT_STATUSES = ["Open", "In Progress", "Pending", "Resolved", "Closed"];
+const PROJECT_PRIORITIES = ["Low", "Medium", "High", "Critical"];
 
 const PRIORITY_COLOR = { Low: "#22c55e", Medium: "#f59e0b", High: "#f97316", Critical: "#ef4444" };
 const STATUS_COLOR = {
@@ -26,23 +31,53 @@ const TICKET_VIEWS = [
   { id: "pastdue", label: "Past Due", icon: "🔴", desc: "Open tickets older than 5 days", filter: t => t.status === "Open" && (Date.now() - new Date(t.created).getTime()) > 5 * 86400000 },
 ];
 
-function exportCSV(tickets) {
-  const h = ["ID", "Summary", "Organisation", "Department", "Contact", "Reported By", "Assignees", "Priority", "Category", "Status", "Created", "Updated"];
-  const rows = tickets.map(t => [t.id, `"${t.summary}"`, t.org, t.department || "", t.contact || "", t.reportedBy || "", `"${(t.assignees || []).map(a => a.name).join("; ")}"`, t.priority, t.category, t.status, new Date(t.created).toLocaleString(), new Date(t.updated).toLocaleString()]);
+const PROJECT_VIEWS = [
+  { id: "open", label: "Open Projects", icon: "📂", desc: "All open projects", filter: p => p.status === "Open" },
+  { id: "inprogress", label: "In Progress", icon: "⚙️", desc: "Projects being worked on", filter: p => p.status === "In Progress" },
+  { id: "closed", label: "Closed Projects", icon: "✅", desc: "Closed & resolved projects", filter: p => p.status === "Closed" || p.status === "Resolved" },
+  { id: "unassigned", label: "Unassigned", icon: "👤", desc: "Projects with no assignee", filter: p => (!p.assignees || p.assignees.length === 0) },
+  { id: "mine", label: "My Projects", icon: "🙋", desc: "Projects assigned to me", filter: (p, me) => p.assignees?.some(a => a.id === me?.id) },
+  { id: "all", label: "All Projects", icon: "◈", desc: "Every project in the system", filter: () => true },
+  { id: "critical", label: "Critical", icon: "🔔", desc: "Critical priority projects", filter: p => p.priority === "Critical" && p.status !== "Closed" && p.status !== "Resolved" },
+];
+
+const SATSANG_EVENTS = [
+  { id: 1, name: "G Satsang – Amphitheater", date: "2025-01-15", location: "Amphitheater", type: "G Satsang", recordingUrl: "#", attendees: 1200, status: "Completed" },
+  { id: 2, name: "G Satsang – Main Hall", date: "2025-02-20", location: "Main Hall", type: "G Satsang", recordingUrl: "#", attendees: 980, status: "Completed" },
+  { id: 3, name: "G Satsang – Outdoor Ground", date: "2025-03-10", location: "Outdoor Ground", type: "G Satsang", recordingUrl: "#", attendees: 2100, status: "Completed" },
+  { id: 4, name: "G Satsang – Conference Center", date: "2025-04-05", location: "Conference Center", type: "G Satsang", recordingUrl: "#", attendees: 750, status: "Completed" },
+  { id: 5, name: "G Satsang – Amphitheater", date: "2025-05-18", location: "Amphitheater", type: "G Satsang", recordingUrl: "#", attendees: 1350, status: "Live" },
+];
+
+// ─── EXPORT HELPERS ────────────────────────────────────────────────────────────
+function exportCSV(items, type = "tickets") {
+  const isProject = type === "projects";
+  const h = isProject
+    ? ["ID", "Title", "Organisation", "Department", "Reported By", "Assignees", "Priority", "Category", "Status", "Progress", "Due Date", "Created"]
+    : ["ID", "Summary", "Organisation", "Department", "Contact", "Reported By", "Assignees", "Priority", "Category", "Status", "Created", "Updated"];
+  const rows = items.map(t => isProject
+    ? [t.id, `"${t.title}"`, t.org, t.department || "", t.reportedBy || "", `"${(t.assignees || []).map(a => a.name).join("; ")}"`, t.priority, t.category, t.status, `${t.progress}%`, t.dueDate?.toLocaleDateString() || "", new Date(t.created).toLocaleString()]
+    : [t.id, `"${t.summary}"`, t.org, t.department || "", t.contact || "", t.reportedBy || "", `"${(t.assignees || []).map(a => a.name).join("; ")}"`, t.priority, t.category, t.status, new Date(t.created).toLocaleString(), new Date(t.updated).toLocaleString()]
+  );
   const csv = [h, ...rows].map(r => r.join(",")).join("\n");
-  const a = document.createElement("a"); a.href = URL.createObjectURL(new Blob([csv], { type: "text/csv" })); a.download = "tickets.csv"; a.click();
+  const a = document.createElement("a"); a.href = URL.createObjectURL(new Blob([csv], { type: "text/csv" })); a.download = `${type}.csv`; a.click();
 }
-function exportJSON(tickets) {
-  const data = tickets.map(t => ({ ...t, assignees: (t.assignees || []).map(a => ({ id: a.id, name: a.name, role: a.role })) }));
-  const a = document.createElement("a"); a.href = URL.createObjectURL(new Blob([JSON.stringify(data, null, 2)], { type: "application/json" })); a.download = "tickets.json"; a.click();
+function exportJSON(items) {
+  const data = items.map(t => ({ ...t, assignees: (t.assignees || []).map(a => ({ id: a.id, name: a.name, role: a.role })) }));
+  const a = document.createElement("a"); a.href = URL.createObjectURL(new Blob([JSON.stringify(data, null, 2)], { type: "application/json" })); a.download = "export.json"; a.click();
 }
-function exportPrint(tickets) {
-  const rows = tickets.map(t => `<tr><td>${t.id}</td><td>${t.summary}</td><td>${t.org}</td><td>${t.priority}</td><td>${t.status}</td><td>${new Date(t.created).toLocaleDateString()}</td></tr>`).join("");
+function exportPrint(items, type = "tickets") {
+  const isProject = type === "projects";
+  const rows = items.map(t => isProject
+    ? `<tr><td>${t.id}</td><td>${t.title}</td><td>${t.org}</td><td>${t.priority}</td><td>${t.status}</td><td>${t.progress}%</td><td>${new Date(t.created).toLocaleDateString()}</td></tr>`
+    : `<tr><td>${t.id}</td><td>${t.summary}</td><td>${t.org}</td><td>${t.priority}</td><td>${t.status}</td><td>${new Date(t.created).toLocaleDateString()}</td></tr>`
+  ).join("");
   const w = window.open("", "_blank");
-  w.document.write(`<html><head><title>Tickets</title><style>body{font-family:sans-serif;font-size:12px}table{border-collapse:collapse;width:100%}th,td{border:1px solid #ccc;padding:6px 8px;text-align:left}th{background:#f1f5f9}</style></head><body><h2>Tickets Export — ${new Date().toLocaleDateString()}</h2><p>${tickets.length} tickets</p><table><thead><tr><th>ID</th><th>Summary</th><th>Org</th><th>Priority</th><th>Status</th><th>Created</th></tr></thead><tbody>${rows}</tbody></table></body></html>`);
+  w.document.write(`<html><head><title>${type} Export</title><style>body{font-family:sans-serif;font-size:12px}table{border-collapse:collapse;width:100%}th,td{border:1px solid #ccc;padding:6px 8px;text-align:left}th{background:#f1f5f9}</style></head><body><h2>${type} Export — ${new Date().toLocaleDateString()}</h2><p>${items.length} ${type}</p><table><thead><tr>${isProject ? "<th>ID</th><th>Title</th><th>Org</th><th>Priority</th><th>Status</th><th>Progress</th><th>Created</th>" : "<th>ID</th><th>Summary</th><th>Org</th><th>Priority</th><th>Status</th><th>Created</th>"}</tr></thead><tbody>${rows}</tbody></table></body></html>`);
   w.document.close(); w.print();
 }
 
+// ─── UI PRIMITIVES ─────────────────────────────────────────────────────────────
 const Avatar = ({ name, size = 28 }) => {
   const cols = ["#6366f1", "#ec4899", "#14b8a6", "#f59e0b", "#3b82f6", "#8b5cf6", "#ef4444", "#22c55e"];
   return <div style={{ width: size, height: size, borderRadius: "50%", background: cols[(name?.charCodeAt(0) || 0) % cols.length], display: "flex", alignItems: "center", justifyContent: "center", color: "#fff", fontSize: size * 0.35, fontWeight: 700, flexShrink: 0 }}>{name?.split(" ").map(n => n[0]).join("").slice(0, 2).toUpperCase() || "?"}</div>;
@@ -65,69 +100,371 @@ const Modal = ({ open, onClose, title, width = 640, children }) => {
     </div>
   </div>;
 };
+
 const FF = ({ label, required, children }) => <div style={{ marginBottom: 14 }}>
   <label style={{ display: "block", fontSize: 11, fontWeight: 600, color: "#475569", marginBottom: 5, textTransform: "uppercase", letterSpacing: "0.05em" }}>{label}{required && <span style={{ color: "#ef4444", marginLeft: 2 }}>*</span>}</label>
   {children}
 </div>;
+
+// ─── CHARTS ────────────────────────────────────────────────────────────────────
 const BarChart = ({ data, color = "#3b82f6" }) => {
+  const [hov, setHov] = useState(null);
   const max = Math.max(...data.map(d => d.value), 1);
-  return <div style={{ display: "flex", alignItems: "flex-end", gap: 5, height: 78, padding: "0 2px" }}>
-    {data.map((d, i) => <div key={i} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 3 }}>
-      <div style={{ width: "100%", height: Math.max((d.value / max) * 68, 2), background: color, borderRadius: "3px 3px 0 0" }} />
-      <span style={{ fontSize: 9, color: "#94a3b8", whiteSpace: "nowrap" }}>{d.label}</span>
-    </div>)}
+  return <div style={{ display: "flex", alignItems: "flex-end", gap: 5, height: 90, padding: "0 2px", position: "relative" }}>
+    {hov !== null && <div style={{ position: "absolute", top: -34, left: "50%", transform: "translateX(-50%)", background: "#0f172a", color: "#fff", borderRadius: 7, padding: "5px 10px", fontSize: 11, fontWeight: 600, whiteSpace: "nowrap", zIndex: 10, pointerEvents: "none", boxShadow: "0 4px 12px rgba(0,0,0,0.2)" }}>
+      {data[hov]?.label}: <span style={{ color: "#93c5fd" }}>{data[hov]?.value}</span>
+    </div>}
+    {data.map((d, i) => {
+      const h = Math.max((d.value / max) * 72, 2);
+      const isHov = hov === i;
+      return <div key={i} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 3, cursor: "pointer" }}
+        onMouseEnter={() => setHov(i)} onMouseLeave={() => setHov(null)}>
+        <div style={{ width: "100%", position: "relative", display: "flex", flexDirection: "column", justifyContent: "flex-end", height: 72 }}>
+          <div style={{ width: "100%", height: h, background: isHov ? `${color}cc` : color, borderRadius: "4px 4px 0 0", transition: "all 0.15s ease", boxShadow: isHov ? `0 -4px 12px ${color}66` : "none" }} />
+        </div>
+        <span style={{ fontSize: 9, color: isHov ? "#374151" : "#94a3b8", fontWeight: isHov ? 700 : 400, whiteSpace: "nowrap" }}>{d.label}</span>
+      </div>;
+    })}
   </div>;
 };
+
 const DonutChart = ({ data }) => {
+  const [hov, setHov] = useState(null);
   const total = data.reduce((s, d) => s + d.value, 0); let offset = 0;
   const r = 36, circ = 2 * Math.PI * r;
-  const segs = data.map(d => { const p = total ? d.value / total : 0; const dash = p * circ; const s = { ...d, dash, gap: circ - dash, offset: offset * circ }; offset += p; return s; });
+  const segs = data.map(d => { const p = total ? d.value / total : 0; const dash = p * circ; const s = { ...d, dash, gap: circ - dash, offset: offset * circ, pct: Math.round(p * 100) }; offset += p; return s; });
+  const hovSeg = hov !== null ? segs[hov] : null;
   return <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
-    <svg width={90} height={90} viewBox="0 0 90 90">
-      <circle cx={45} cy={45} r={r} fill="none" stroke="#f1f5f9" strokeWidth={14} />
-      {segs.map((s, i) => <circle key={i} cx={45} cy={45} r={r} fill="none" stroke={s.color} strokeWidth={14} strokeDasharray={`${s.dash} ${s.gap}`} strokeDashoffset={-s.offset + circ / 4} />)}
-      <text x={45} y={49} textAnchor="middle" fill="#1e293b" fontSize={14} fontWeight="700">{total}</text>
-    </svg>
+    <div style={{ position: "relative", flexShrink: 0 }}>
+      <svg width={90} height={90} viewBox="0 0 90 90">
+        <circle cx={45} cy={45} r={r} fill="none" stroke="#f1f5f9" strokeWidth={12} />
+        {segs.map((s, i) => (
+          <circle key={i} cx={45} cy={45} r={r} fill="none" stroke={s.color} strokeWidth={hov === i ? 16 : 12}
+            strokeDasharray={`${s.dash} ${s.gap}`} strokeDashoffset={-s.offset + circ / 4}
+            style={{ cursor: "pointer", transition: "stroke-width 0.15s", filter: hov === i ? `drop-shadow(0 0 5px ${s.color}99)` : "none" }}
+            onMouseEnter={() => setHov(i)} onMouseLeave={() => setHov(null)} />
+        ))}
+        <text x={45} y={41} textAnchor="middle" fontSize={hovSeg ? 13 : 12} fontWeight={700} fill={hovSeg ? hovSeg.color : "#1e293b"} fontFamily="DM Sans,sans-serif">{hovSeg ? `${hovSeg.pct}%` : total}</text>
+        <text x={45} y={54} textAnchor="middle" fontSize={9} fill="#94a3b8" fontFamily="DM Sans,sans-serif">{hovSeg ? hovSeg.label : "total"}</text>
+      </svg>
+    </div>
     <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
-      {data.map((d, i) => <div key={i} style={{ display: "flex", alignItems: "center", gap: 6 }}>
-        <div style={{ width: 10, height: 10, borderRadius: 2, background: d.color }} /><span style={{ fontSize: 11, color: "#64748b" }}>{d.label}</span><span style={{ fontSize: 11, fontWeight: 700, color: "#1e293b", marginLeft: 4 }}>{d.value}</span>
-      </div>)}
+      {segs.map((s, i) => (
+        <div key={i} style={{ display: "flex", alignItems: "center", gap: 7, cursor: "pointer", padding: "3px 6px", borderRadius: 5, background: hov === i ? `${s.color}15` : "transparent", transition: "background 0.15s" }}
+          onMouseEnter={() => setHov(i)} onMouseLeave={() => setHov(null)}>
+          <div style={{ width: 9, height: 9, borderRadius: 2, background: s.color, flexShrink: 0, transform: hov === i ? "scale(1.4)" : "scale(1)", transition: "transform 0.15s" }} />
+          <span style={{ fontSize: 11, color: "#374151", flex: 1, fontWeight: hov === i ? 700 : 400 }}>{s.label}</span>
+          <span style={{ fontSize: 11, fontWeight: 700, color: hov === i ? s.color : "#64748b" }}>{s.value}</span>
+        </div>
+      ))}
     </div>
   </div>;
 };
 
+const ProgressBar = ({ value, color = "#3b82f6" }) => (
+  <div style={{ width: "100%", height: 6, background: "#f1f5f9", borderRadius: 3, overflow: "hidden" }}>
+    <div style={{ width: `${value}%`, height: "100%", background: color, borderRadius: 3, transition: "width 0.3s" }} />
+  </div>
+);
+
+// ─── SMART CHART ───────────────────────────────────────────────────────────────
+const CHART_TYPES = [
+  { id: "bar", icon: "▐▌", label: "Bar" }, { id: "line", icon: "╱", label: "Line" }, { id: "pie", icon: "◔", label: "Pie" },
+  { id: "stacked", icon: "▬", label: "Stacked" }, { id: "area", icon: "◺", label: "Area" },
+  { id: "histogram", icon: "▮", label: "Histogram" }, { id: "scatter", icon: "⠿", label: "Scatter" },
+  { id: "treemap", icon: "▦", label: "Treemap" }, { id: "bubble", icon: "⬤", label: "Bubble" },
+];
+
+const SmartChart = ({ title, data, defaultType = "bar", defaultColor = "#3b82f6" }) => {
+  const [type, setType] = useState(defaultType);
+  const [showPicker, setShowPicker] = useState(false);
+  const [hov, setHov] = useState(null);
+  const W = 280, H = 130, PL = 28, PR = 8, PT = 10, PB = 22;
+  const IW = W - PL - PR, IH = H - PT - PB;
+  const max = Math.max(...data.map(d => d.value), 1);
+  const total = data.reduce((s, d) => s + d.value, 0);
+  const COLORS = ["#3b82f6", "#f97316", "#22c55e", "#ef4444", "#8b5cf6", "#ec4899", "#14b8a6", "#f59e0b", "#6366f1"];
+  const col = (i, base) => (data[i]?.color) || base || COLORS[i % COLORS.length];
+  const toX = i => PL + i * (IW / (data.length - 1 || 1));
+  const toXb = i => PL + i * (IW / data.length) + (IW / data.length) * 0.1;
+  const bw = IW / data.length * 0.8;
+  const toY = v => PT + IH - (v / max) * IH;
+
+  const renderChart = () => {
+    if (type === "bar" || type === "histogram") return (
+      <svg width="100%" viewBox={`0 0 ${W} ${H}`} style={{ overflow: "visible" }}>
+        {[0, 0.5, 1].map(p => <line key={p} x1={PL} y1={PT + IH * (1 - p)} x2={W - PR} y2={PT + IH * (1 - p)} stroke="#f1f5f9" strokeWidth={1} />)}
+        {data.map((d, i) => {
+          const bh = Math.max((d.value / max) * IH, 2); const isH = hov === i; return (
+            <g key={i} style={{ cursor: "pointer" }} onMouseEnter={() => setHov(i)} onMouseLeave={() => setHov(null)}>
+              <rect x={toXb(i)} y={PT + IH - bh} width={bw} height={bh} rx={3} fill={col(i, defaultColor)} opacity={isH ? 1 : 0.85}
+                style={{ filter: isH ? `drop-shadow(0 -3px 6px ${col(i, defaultColor)}88)` : "none", transition: "all 0.15s" }} />
+              <text x={toXb(i) + bw / 2} y={H - 4} textAnchor="middle" fontSize={7} fill={isH ? "#374151" : "#94a3b8"} fontWeight={isH ? 700 : 400}>{d.label?.slice(0, 6)}</text>
+            </g>);
+        })}
+      </svg>
+    );
+    if (type === "line" || type === "area") {
+      const pts = data.map((d, i) => `${toX(i)},${toY(d.value)}`).join(" ");
+      const areaClose = `${toX(data.length - 1)},${PT + IH} ${PL},${PT + IH}`;
+      return (<svg width="100%" viewBox={`0 0 ${W} ${H}`} style={{ overflow: "visible" }}>
+        {[0, 0.5, 1].map(p => <line key={p} x1={PL} y1={PT + IH * (1 - p)} x2={W - PR} y2={PT + IH * (1 - p)} stroke="#f1f5f9" strokeWidth={1} />)}
+        {type === "area" && <polygon points={`${PL},${PT + IH} ${pts} ${areaClose}`} fill={defaultColor} opacity={0.15} />}
+        <polyline points={pts} fill="none" stroke={defaultColor} strokeWidth={2} strokeLinejoin="round" />
+        {data.map((d, i) => {
+          const isH = hov === i; return (
+            <g key={i} style={{ cursor: "pointer" }} onMouseEnter={() => setHov(i)} onMouseLeave={() => setHov(null)}>
+              <circle cx={toX(i)} cy={toY(d.value)} r={isH ? 5 : 3} fill={defaultColor} stroke="#fff" strokeWidth={1.5}
+                style={{ filter: isH ? `drop-shadow(0 0 4px ${defaultColor})` : "none", transition: "r 0.1s" }} />
+              <text x={toX(i)} y={H - 4} textAnchor="middle" fontSize={7} fill={isH ? "#374151" : "#94a3b8"}>{d.label?.slice(0, 5)}</text>
+            </g>);
+        })}
+      </svg>);
+    }
+    if (type === "pie") {
+      let off = 0; const r = 44, cx = 50, cy = 50;
+      const segs = data.map(d => { const p = total ? d.value / total : 0; const a = p * Math.PI * 2; const s = { ...d, start: off, end: off + a, pct: Math.round(p * 100) }; off += a; return s; });
+      const arc = (s, large) => { const x1 = cx + r * Math.sin(s.start), y1 = cy - r * Math.cos(s.start), x2 = cx + r * Math.sin(s.end), y2 = cy - r * Math.cos(s.end); return `M ${cx} ${cy} L ${x1} ${y1} A ${r} ${r} 0 ${large} 1 ${x2} ${y2} Z`; };
+      return (<div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+        <svg width={110} height={110} viewBox="0 0 100 100" style={{ flexShrink: 0, overflow: "visible" }}>
+          {segs.map((s, i) => {
+            const large = s.end - s.start > Math.PI ? 1 : 0; const isH = hov === i; return (
+              <g key={i} style={{ cursor: "pointer" }} onMouseEnter={() => setHov(i)} onMouseLeave={() => setHov(null)}>
+                <path d={arc(s, large)} fill={col(i, defaultColor)} stroke="#fff" strokeWidth={1.5}
+                  style={{ filter: isH ? `drop-shadow(0 2px 6px ${col(i, defaultColor)}88)` : "none", opacity: isH ? 1 : 0.88 }} />
+              </g>);
+          })}
+          <text x={50} y={47} textAnchor="middle" fontSize={12} fontWeight={700} fill={hov !== null ? col(hov, defaultColor) : "#1e293b"}>{hov !== null ? `${segs[hov]?.pct}%` : total}</text>
+          <text x={50} y={58} textAnchor="middle" fontSize={7} fill="#94a3b8">{hov !== null ? segs[hov]?.label : "total"}</text>
+        </svg>
+        <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: 4 }}>
+          {segs.map((s, i) => (<div key={i} style={{ display: "flex", alignItems: "center", gap: 5, cursor: "pointer", padding: "2px 4px", borderRadius: 4, background: hov === i ? `${col(i, defaultColor)}15` : "transparent", transition: "background 0.12s" }}
+            onMouseEnter={() => setHov(i)} onMouseLeave={() => setHov(null)}>
+            <div style={{ width: 8, height: 8, borderRadius: 2, background: col(i, defaultColor), flexShrink: 0 }} />
+            <span style={{ fontSize: 10, flex: 1, color: "#374151", fontWeight: hov === i ? 700 : 400 }}>{s.label}</span>
+            <span style={{ fontSize: 10, fontWeight: 700, color: hov === i ? col(i, defaultColor) : "#64748b" }}>{s.value}</span>
+          </div>))}
+        </div>
+      </div>);
+    }
+    if (type === "stacked") {
+      const colors = ["#3b82f6", "#22c55e", "#f59e0b"];
+      return (<svg width="100%" viewBox={`0 0 ${W} ${H}`} style={{ overflow: "visible" }}>
+        {data.map((d, i) => {
+          const isH = hov === i; const bx = toXb(i); const segs = [Math.round(d.value * 0.4), Math.round(d.value * 0.35), Math.round(d.value * 0.25)]; let curY = PT + IH;
+          return (<g key={i} style={{ cursor: "pointer" }} onMouseEnter={() => setHov(i)} onMouseLeave={() => setHov(null)}>
+            {segs.map((v, si) => {
+              const sh = Math.max((v / max) * IH, 1); curY -= sh; return (
+                <rect key={si} x={bx} y={curY} width={bw} height={sh} fill={colors[si]} rx={si === 0 ? 3 : 0}
+                  style={{ filter: isH ? `drop-shadow(0 -2px 5px ${colors[si]}66)` : "none", opacity: isH ? 1 : 0.82, transition: "opacity 0.15s" }} />);
+            })}
+            <text x={bx + bw / 2} y={H - 4} textAnchor="middle" fontSize={7} fill={isH ? "#374151" : "#94a3b8"}>{d.label?.slice(0, 6)}</text>
+          </g>);
+        })}
+        {["Open", "Closed", "In Progress"].map((c, i) => <g key={c}><rect x={PL + (i * 50)} y={2} width={7} height={7} fill={colors[i]} rx={1} /><text x={PL + (i * 50) + 10} y={9} fontSize={7} fill="#64748b">{c}</text></g>)}
+      </svg>);
+    }
+    if (type === "scatter") return (<svg width="100%" viewBox={`0 0 ${W} ${H}`} style={{ overflow: "visible" }}>
+      {[0, 0.5, 1].map(p => <line key={p} x1={PL} y1={PT + IH * (1 - p)} x2={W - PR} y2={PT + IH * (1 - p)} stroke="#f1f5f9" strokeWidth={1} />)}
+      {data.map((d, i) => {
+        const isH = hov === i; const cx = PL + 10 + (i / (data.length - 1 || 1)) * IW * 0.85; const cy = toY(d.value); return (
+          <g key={i} style={{ cursor: "pointer" }} onMouseEnter={() => setHov(i)} onMouseLeave={() => setHov(null)}>
+            <circle cx={cx} cy={cy} r={isH ? 6 : 4} fill={col(i, defaultColor)} stroke="#fff" strokeWidth={1.5}
+              style={{ filter: isH ? `drop-shadow(0 0 5px ${col(i, defaultColor)})` : "none", transition: "r 0.12s" }} />
+            <text x={cx} y={H - 4} textAnchor="middle" fontSize={7} fill={isH ? "#374151" : "#94a3b8"}>{d.label?.slice(0, 5)}</text>
+          </g>);
+      })}
+    </svg>);
+    if (type === "bubble") return (<svg width="100%" viewBox={`0 0 ${W} ${H}`} style={{ overflow: "visible" }}>
+      {[0, 0.5, 1].map(p => <line key={p} x1={PL} y1={PT + IH * (1 - p)} x2={W - PR} y2={PT + IH * (1 - p)} stroke="#f1f5f9" strokeWidth={1} />)}
+      {data.map((d, i) => {
+        const isH = hov === i; const cx = PL + 14 + (i / (data.length - 1 || 1)) * IW * 0.82; const cy = PT + IH * 0.2 + ((i % 3) / 2) * IH * 0.65; const br = Math.max(5, (d.value / max) * 24); return (
+          <g key={i} style={{ cursor: "pointer" }} onMouseEnter={() => setHov(i)} onMouseLeave={() => setHov(null)}>
+            <circle cx={cx} cy={cy} r={isH ? br * 1.2 : br} fill={col(i, defaultColor)} stroke="#fff" strokeWidth={1.5} opacity={isH ? 0.9 : 0.7}
+              style={{ filter: isH ? `drop-shadow(0 0 6px ${col(i, defaultColor)}99)` : "none", transition: "r 0.12s" }} />
+            <text x={cx} y={cy + 3} textAnchor="middle" fontSize={Math.max(6, br * 0.5)} fill="#fff" fontWeight={700}>{d.value}</text>
+            <text x={cx} y={H - 4} textAnchor="middle" fontSize={7} fill={isH ? "#374151" : "#94a3b8"}>{d.label?.slice(0, 5)}</text>
+          </g>);
+      })}
+    </svg>);
+    if (type === "treemap") {
+      const sorted = [...data].sort((a, b) => b.value - a.value); let cells = [];
+      const layout = (items, x, y, w, h) => { if (!items.length) return; const s = items.reduce((a, b) => a + b.value, 0); let curX = x; items.forEach((d) => { const frac = d.value / s; const cw = Math.max(w * frac, 4); cells.push({ ...d, x, y, w: cw, h, i: cells.length }); x += cw; }); };
+      const half = Math.ceil(sorted.length / 2);
+      layout(sorted.slice(0, half), PL, PT, IW, IH * 0.55);
+      layout(sorted.slice(half), PL, PT + IH * 0.57, IW, IH * 0.43);
+      return (<svg width="100%" viewBox={`0 0 ${W} ${H}`} style={{ overflow: "visible" }}>
+        {cells.map((c, i) => {
+          const isH = hov === i; return (
+            <g key={i} style={{ cursor: "pointer" }} onMouseEnter={() => setHov(i)} onMouseLeave={() => setHov(null)}>
+              <rect x={c.x + 1} y={c.y + 1} width={c.w - 2} height={c.h - 2} fill={col(c.i, defaultColor)} rx={3}
+                style={{ filter: isH ? `drop-shadow(0 0 5px ${col(c.i, defaultColor)}99)` : "none", opacity: isH ? 1 : 0.8, transition: "opacity 0.12s" }} />
+              {c.w > 22 && c.h > 12 && <text x={c.x + c.w / 2} y={c.y + c.h / 2 + 3} textAnchor="middle" fontSize={Math.min(8, c.w / 5)} fill="#fff" fontWeight={600}>{c.label?.slice(0, 6)}</text>}
+            </g>);
+        })}
+      </svg>);
+    }
+    return null;
+  };
+
+  return (
+    <div style={{ background: "#fff", borderRadius: 12, padding: "14px 16px", boxShadow: "0 1px 4px rgba(0,0,0,0.06)" }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
+        <span style={{ fontSize: 12, fontWeight: 700, color: "#374151" }}>{title}</span>
+        <div style={{ position: "relative" }}>
+          <button onClick={() => setShowPicker(!showPicker)} style={{ display: "flex", alignItems: "center", gap: 5, padding: "4px 8px", borderRadius: 6, border: "1px solid #e2e8f0", background: "#f8fafc", cursor: "pointer", fontSize: 11, color: "#374151", fontFamily: "'DM Sans',sans-serif", fontWeight: 500 }}>
+            <span>{CHART_TYPES.find(t => t.id === type)?.icon}</span>
+            <span>{CHART_TYPES.find(t => t.id === type)?.label}</span>
+            <span style={{ fontSize: 9, color: "#94a3b8" }}>▾</span>
+          </button>
+          {showPicker && <><div style={{ position: "fixed", inset: 0, zIndex: 149 }} onClick={() => setShowPicker(false)} />
+            <div style={{ position: "absolute", right: 0, top: "calc(100% + 4px)", background: "#fff", border: "1.5px solid #e2e8f0", borderRadius: 10, zIndex: 150, boxShadow: "0 8px 24px rgba(0,0,0,0.14)", minWidth: 140, overflow: "hidden", padding: 4 }}>
+              {CHART_TYPES.map(ct => (
+                <button key={ct.id} onClick={() => { setType(ct.id); setShowPicker(false); setHov(null); }}
+                  style={{ display: "flex", alignItems: "center", gap: 8, width: "100%", padding: "7px 10px", border: "none", background: type === ct.id ? "#eff6ff" : "#fff", cursor: "pointer", fontSize: 12, textAlign: "left", fontFamily: "'DM Sans',sans-serif", borderRadius: 6, color: type === ct.id ? "#3b82f6" : "#374151", fontWeight: type === ct.id ? 600 : 400, marginBottom: 1 }}>
+                  <span style={{ fontSize: 13, width: 18, textAlign: "center" }}>{ct.icon}</span>{ct.label}
+                  {type === ct.id && <span style={{ marginLeft: "auto", color: "#3b82f6", fontWeight: 700 }}>✓</span>}
+                </button>
+              ))}
+            </div>
+          </>}
+        </div>
+      </div>
+      <div style={{ position: "relative", paddingTop: 8 }}>
+        {hov !== null && type !== "pie" && <div style={{ position: "absolute", top: -2, left: "50%", transform: "translateX(-50%)", background: "#0f172a", color: "#fff", borderRadius: 7, padding: "4px 10px", fontSize: 11, fontWeight: 600, whiteSpace: "nowrap", zIndex: 20, pointerEvents: "none", boxShadow: "0 4px 12px rgba(0,0,0,0.25)" }}>
+          {data[hov]?.label}: <span style={{ color: "#93c5fd" }}>{data[hov]?.value}</span>
+        </div>}
+        {renderChart()}
+      </div>
+    </div>
+  );
+};
+
+// ─── SESSION HELPERS (12-hour localStorage session) ───────────────────────────
+const SESSION_KEY = "deskflow_session";
+const SESSION_TTL = 12 * 60 * 60 * 1000;
+
+function saveSession(user) {
+  try { localStorage.setItem(SESSION_KEY, JSON.stringify({ user, expiresAt: Date.now() + SESSION_TTL })); } catch (_) { }
+}
+
+function loadSession() {
+  try {
+    const raw = localStorage.getItem(SESSION_KEY);
+    if (!raw) return null;
+    const { user, expiresAt } = JSON.parse(raw);
+    if (Date.now() > expiresAt) { localStorage.removeItem(SESSION_KEY); return null; }
+    return user;
+  } catch (_) { return null; }
+}
+
+function clearSession() {
+  try { localStorage.removeItem(SESSION_KEY); } catch (_) { }
+}
+
+// ─── MAIN APP ──────────────────────────────────────────────────────────────────
 export default function HelpDesk() {
+  // ── v1 API-driven state ──
   const [users, setUsers] = useState([]);
   const [orgs, setOrgs] = useState([]);
   const [categories, setCategories] = useState([]);
   const [customAttrs, setCustomAttrs] = useState([]);
   const [tickets, setTickets] = useState([]);
   const [loading, setLoading] = useState(true);
+  // Restore from localStorage session — survives page reload
+  const [currentUser, setCurrentUser] = useState(() => loadSession());
 
+  // ── v2 projects (local state – no API for projects) ──
+  const [projects, setProjects] = useState([]);
+
+  // ── Navigation ──
   const [view, setView] = useState("dashboard");
   const [settingsTab, setSettingsTab] = useState("ticketviews");
   const [tvFilter, setTvFilter] = useState("all");
+  const [pvFilter, setPvFilter] = useState("all");
   const [range, setRange] = useState("30");
+
+  // ── Ticket filters ──
   const [statusF, setStatusF] = useState("All");
   const [priorityF, setPriorityF] = useState("All");
   const [search, setSearch] = useState("");
   const [selectedIds, setSelectedIds] = useState(new Set());
   const [showExport, setShowExport] = useState(false);
-  const [showNewTicket, setShowNewTicket] = useState(false);
-  const [selTicket, setSelTicket] = useState(null);
 
-  const [currentUser, setCurrentUser] = useState(null);
+  // ── Project filters ──
+  const [projSearch, setProjSearch] = useState("");
+  const [projStatusF, setProjStatusF] = useState("All");
+  const [projPriorityF, setProjPriorityF] = useState("All");
+  const [selectedProjIds, setSelectedProjIds] = useState(new Set());
+  const [showProjExport, setShowProjExport] = useState(false);
+  const [showManageTicket, setShowManageTicket] = useState(null);
+  const [showManageProject, setShowManageProject] = useState(null);
+
+  // ── Modals ──
+  const [showNewTicket, setShowNewTicket] = useState(false);
+  const [showNewProject, setShowNewProject] = useState(false);
+  const [selTicket, setSelTicket] = useState(null);
+  const [selProject, setSelProject] = useState(null);
+
+  // ── Comments ──
   const [newComment, setNewComment] = useState("");
-  const [assigneeSearch, setAssigneeSearch] = useState("");
-  const [showAssigneeDD, setShowAssigneeDD] = useState(false);
-  const emptyForm = { org: "", department: "", contact: "", reportedBy: "", summary: "", description: "", assignees: [], cc: [], priority: "Medium", category: "", customAttrs: {}, dueDate: "" };
+  const [newProjComment, setNewProjComment] = useState("");
+
+  // ── Ticket form ──
+  const emptyForm = { org: "", department: "", contact: "", reportedBy: "", summary: "", description: "", assignees: [], cc: [], priority: "Medium", category: "", customAttrs: {}, dueDate: "", isWebcast: false, satsangType: "", location: "" };
   const [form, setForm] = useState(emptyForm);
   const [ccInput, setCcInput] = useState("");
+  const [assigneeSearch, setAssigneeSearch] = useState("");
+  const [showAssigneeDD, setShowAssigneeDD] = useState(false);
+
+  // ── Project form ──
+  const emptyProjectForm = { org: "", department: "", reportedBy: "", title: "", description: "", assignees: [], cc: [], priority: "Medium", category: "", status: "Open", location: "", dueDate: "", isWebcast: false, satsangType: "", progress: 0, customAttrs: {} };
+  const [projForm, setProjForm] = useState(emptyProjectForm);
+  const [projCcInput, setProjCcInput] = useState("");
+
+  // ── Settings forms ──
   const [newOrg, setNewOrg] = useState({ name: "", domain: "", phone: "" });
   const [newCat, setNewCat] = useState({ name: "", color: "#3b82f6" });
   const [newUser, setNewUser] = useState({ name: "", email: "", role: "Agent" });
   const [newAttr, setNewAttr] = useState({ name: "", type: "text", options: "", required: false });
 
+  // ── Inline ticket/project category+attr managers ──
+  const [ticketCategories, setTicketCategories] = useState([]);
+  const [projectCategories, setProjectCategories] = useState([]);
+  const [ticketCustomAttrs, setTicketCustomAttrs] = useState([]);
+  const [projectCustomAttrs, setProjectCustomAttrs] = useState([]);
+  const [newTicketCat, setNewTicketCat] = useState({ name: "", color: "#3b82f6" });
+  const [newProjCat, setNewProjCat] = useState({ name: "", color: "#8b5cf6" });
+  const [newTicketAttr, setNewTicketAttr] = useState({ name: "", type: "text", options: "", required: false });
+  const [newProjAttr, setNewProjAttr] = useState({ name: "", type: "text", options: "", required: false });
+
+  // ── Auth ──
+  const [isLogin, setIsLogin] = useState(true);
+  const [authForm, setAuthForm] = useState({ email: "", password: "", firstName: "", middleName: "", lastName: "", countryCode: "+1", phone: "", confirm: "" });
+  const [authError, setAuthError] = useState("");
+  const [authMessage, setAuthMessage] = useState("");
+
+  // ── Forward ticket ──
+  const [showForward, setShowForward] = useState(false);
+  const [fwdType, setFwdType] = useState("Agent");
+  const [fwdReason, setFwdReason] = useState("");
+  const [fwdTargetAgent, setFwdTargetAgent] = useState("");
+  const [fwdVendorName, setFwdVendorName] = useState("");
+  const [fwdVendorEmail, setFwdVendorEmail] = useState("");
+
+  // ── Profile ──
+  const [profileOpen, setProfileOpen] = useState(false);
+  const [editProfileOpen, setEditProfileOpen] = useState(false);
+  const [profileForm, setProfileForm] = useState({ phone: "", name: "" });
+
+  const statusOpts = [{ l: "Active", c: "#22c55e", bg: "#dcfce7" }, { l: "Not Active", c: "#ef4444", bg: "#fee2e2" }, { l: "Rest", c: "#f59e0b", bg: "#fef3c7" }];
+
+  // ── Password strength ──
+  const calcPwdStr = (pwd) => { if (!pwd) return 0; let s = 0; if (pwd.length >= 8) s += 25; if (/[A-Z]/.test(pwd)) s += 25; if (/[a-z]/.test(pwd)) s += 25; if (/[^A-Za-z0-9]/.test(pwd)) s += 25; return s; };
+  const pwdStr = useMemo(() => calcPwdStr(authForm.password), [authForm.password]);
+  const pwdColor = pwdStr <= 25 ? "#ef4444" : pwdStr <= 50 ? "#f59e0b" : pwdStr <= 75 ? "#eab308" : "#22c55e";
+
+  // ─── DATA LOADING ──────────────────────────────────────────────────────────
   const loadData = async () => {
     setLoading(true);
     try {
@@ -136,29 +473,34 @@ export default function HelpDesk() {
       setOrgs(data.orgs || []);
       setCategories(data.categories || []);
       setCustomAttrs(data.customAttrs || []);
+      setTicketCategories(data.categories || []);
+      setProjectCategories(data.categories || []);
+      setTicketCustomAttrs(data.customAttrs || []);
+      setProjectCustomAttrs(data.customAttrs || []);
       const parsedTickets = (data.tickets || []).map(t => ({
-        ...t,
-        created: new Date(t.created),
-        updated: new Date(t.updated)
+        ...t, created: new Date(t.created), updated: new Date(t.updated),
+        isWebcast: t.isWebcast || false, satsangType: t.satsangType || "", location: t.location || ""
       })).sort((a, b) => b.created - a.created);
       setTickets(parsedTickets);
-    } catch (e) {
-      console.error(e);
-    }
+    } catch (e) { console.error(e); }
     setLoading(false);
   };
 
+  // On mount: always load app data; if session existed it was restored above via useState init
   useEffect(() => { loadData(); }, []);
 
+  // ─── COMPUTED DATA ─────────────────────────────────────────────────────────
   const now = Date.now(), dayMs = 86400000, rangeMs = parseInt(range) * dayMs;
   const fbr = useMemo(() => {
     const inRange = tickets.filter(t => now - t.created.getTime() <= rangeMs);
     if (currentUser?.role === "Admin") return inRange;
-    // Agent only sees assigned or reported
     return inRange.filter(t => t.reportedBy === currentUser?.name || t.assignees?.some(a => a.id === currentUser?.id));
   }, [tickets, rangeMs, now, currentUser]);
 
+  const prbr = useMemo(() => projects.filter(p => now - p.created.getTime() <= rangeMs), [projects, rangeMs, now]);
+
   const cvd = TICKET_VIEWS.find(v => v.id === tvFilter) || TICKET_VIEWS[5];
+  const cpv = PROJECT_VIEWS.find(v => v.id === pvFilter) || PROJECT_VIEWS[5];
 
   const filtered = useMemo(() => tickets.filter(t => {
     if (!currentUser || !cvd.filter(t, currentUser)) return false;
@@ -169,32 +511,34 @@ export default function HelpDesk() {
     return true;
   }), [tickets, cvd, currentUser, statusF, priorityF, search]);
 
+  const filteredProjects = useMemo(() => projects.filter(p => {
+    if (!cpv.filter(p, currentUser)) return false;
+    if (projStatusF !== "All" && p.status !== projStatusF) return false;
+    if (projPriorityF !== "All" && p.priority !== projPriorityF) return false;
+    if (projSearch && !p.title.toLowerCase().includes(projSearch.toLowerCase()) && !p.id.toLowerCase().includes(projSearch.toLowerCase()) && !p.org.toLowerCase().includes(projSearch.toLowerCase())) return false;
+    return true;
+  }), [projects, cpv, currentUser, projStatusF, projPriorityF, projSearch]);
+
   const stats = useMemo(() => ({ total: fbr.length, open: fbr.filter(x => x.status === "Open").length, inProgress: fbr.filter(x => x.status === "In Progress").length, resolved: fbr.filter(x => x.status === "Resolved" || x.status === "Closed").length, critical: fbr.filter(x => x.priority === "Critical").length }), [fbr]);
-  const agentStats = useMemo(() => users.map(u => ({ ...u, assigned: fbr.filter(t => t.assignees?.some(a => a.id === u.id)).length, resolved: fbr.filter(t => t.assignees?.some(a => a.id === u.id) && (t.status === "Resolved" || t.status === "Closed")).length })), [fbr, users]);
+  const projStats = useMemo(() => ({ total: prbr.length, open: prbr.filter(x => x.status === "Open").length, inProgress: prbr.filter(x => x.status === "In Progress").length, resolved: prbr.filter(x => x.status === "Resolved" || x.status === "Closed").length, critical: prbr.filter(x => x.priority === "Critical").length }), [prbr]);
+  const agentStats = useMemo(() => users.map(u => ({ ...u, assigned: fbr.filter(t => t.assignees?.some(a => a.id === u.id)).length, resolved: fbr.filter(t => t.assignees?.some(a => a.id === u.id) && (t.status === "Resolved" || t.status === "Closed")).length, projAssigned: prbr.filter(p => p.assignees?.some(a => a.id === u.id)).length })), [fbr, prbr, users]);
   const dailyData = useMemo(() => { const days = parseInt(range) <= 7 ? parseInt(range) : 7; return Array.from({ length: days }, (_, i) => { const d = new Date(now - (days - 1 - i) * dayMs); return { label: d.toLocaleDateString("en", { weekday: "short" }), value: fbr.filter(t => t.created.getDate() === d.getDate() && t.created.getMonth() === d.getMonth()).length }; }); }, [fbr, range, now, dayMs]);
   const priorityDist = useMemo(() => PRIORITIES.map(p => ({ label: p, value: fbr.filter(t => t.priority === p).length, color: PRIORITY_COLOR[p] })), [fbr]);
   const categoryDist = useMemo(() => categories.slice(0, 6).map(c => ({ label: c.name, value: fbr.filter(t => t.category === c.name).length, color: c.color })), [fbr, categories]);
 
+  // ─── TICKET HANDLERS (v1 API) ──────────────────────────────────────────────
   const handleImportCSV = (e) => {
-    const file = e.target.files[0];
-    if (!file) return;
+    const file = e.target.files[0]; if (!file) return;
     const reader = new FileReader();
     reader.onload = async (event) => {
-      const rows = event.target.result.split("\n").slice(1); // Skip header
+      const rows = event.target.result.split("\n").slice(1);
       for (const row of rows) {
         const cols = row.split(",");
-        if (cols[1]) { // If summary exists
-          await TICKETS_API.create({
-            summary: cols[1].replace(/"/g, ""),
-            org: cols[2] || "Imported",
-            status: "Open",
-            created: new Date().toISOString(),
-            updated: new Date().toISOString()
-          });
+        if (cols[1]) {
+          await TICKETS_API.create({ summary: cols[1].replace(/"/g, ""), org: cols[2] || "Imported", status: "Open", created: new Date().toISOString(), updated: new Date().toISOString() });
         }
       }
-      loadData(); // Refresh the list
-      alert("Import complete!");
+      loadData(); alert("Import complete!");
     };
     reader.readAsText(file);
   };
@@ -212,8 +556,10 @@ export default function HelpDesk() {
       setShowNewTicket(false); setForm(emptyForm); setAssigneeSearch(""); setShowAssigneeDD(false);
     } catch (e) { alert("Failed to save ticket"); }
   };
+
   const toggleAssignee = u => { const e = form.assignees.find(a => a.id === u.id); setForm({ ...form, assignees: e ? form.assignees.filter(a => a.id !== u.id) : [...form.assignees, u] }); };
   const addCC = () => { if (ccInput && !form.cc.includes(ccInput)) { setForm({ ...form, cc: [...form.cc, ccInput] }); setCcInput(""); } };
+
   const updateStatus = async (id, status) => {
     const t = tickets.find(x => x.id === id); if (!t) return;
     try {
@@ -225,206 +571,203 @@ export default function HelpDesk() {
       if (selTicket?.id === id) setSelTicket(updatedT);
     } catch (e) { alert("Failed to update"); }
   };
+
   const toggleSel = id => { const s = new Set(selectedIds); s.has(id) ? s.delete(id) : s.add(id); setSelectedIds(s); };
   const toggleAll = () => selectedIds.size === filtered.length && filtered.length > 0 ? setSelectedIds(new Set()) : setSelectedIds(new Set(filtered.map(t => t.id)));
   const selTickets = filtered.filter(t => selectedIds.has(t.id));
 
-  const addOrg = async () => {
-    if (!newOrg.name) return;
-    const created = await ORGS_API.create(newOrg);
-    setOrgs([...orgs, created]); setNewOrg({ name: "", domain: "", phone: "" });
-  };
-  const addCat = async () => {
-    if (!newCat.name) return;
-    const created = await CATEGORIES_API.create(newCat);
-    setCategories([...categories, created]); setNewCat({ name: "", color: "#3b82f6" });
-  };
-  const addUser = async () => {
-    if (!newUser.name || !newUser.email) return;
-    const created = await USERS_API.create({ ...newUser, active: true });
-    setUsers([...users, created]); setNewUser({ name: "", email: "", role: "Agent" });
-  };
-  const addAttr = async () => {
-    if (!newAttr.name) return;
-    const created = await CUSTOM_ATTRS_API.create({ ...newAttr, options: typeof newAttr.options === "string" ? newAttr.options.split(",").map(s => s.trim()).filter(Boolean) : [] });
-    setCustomAttrs([...customAttrs, created]); setNewAttr({ name: "", type: "text", options: "", required: false });
-  };
-
-  const [projects, setProjects] = useState([]);
-
-  const sideNav = [{ id: "dashboard", label: "Dashboard", icon: "▦" }, { id: "projects", label: "Projects", icon: "⎙" }, { id: "tickets", label: "All Tickets", icon: "◈" }, { id: "reports", label: "Reports", icon: "◉" }, { id: "users", label: "Agents", icon: "◎" }, { id: "settings", label: "Settings", icon: "⚙" }];
-  const stabs = [{ id: "ticketviews", label: "Ticket Views", icon: "👁" }, { id: "organisations", label: "Organisations", icon: "🏢" }, { id: "categories", label: "Categories", icon: "🏷" }, { id: "usermgmt", label: "User Management", icon: "👥" }, { id: "customattrs", label: "Custom Attributes", icon: "✏️" }, { id: "dbmgmt", label: "Database Mgmt", icon: "💾" }];
-
-  // Auth UI State
-  const [isLogin, setIsLogin] = useState(true);
-  const [authForm, setAuthForm] = useState({ email: "", password: "", firstName: "", middleName: "", lastName: "", countryCode: "+1", phone: "", confirm: "" });
-  const [authError, setAuthError] = useState("");
-  const [authMessage, setAuthMessage] = useState("");
-
-  // Password Strength Logic
-  const calcPwdStr = (pwd) => {
-    if (!pwd) return 0;
-    let s = 0;
-    if (pwd.length >= 8) s += 25;
-    if (/[A-Z]/.test(pwd)) s += 25;
-    if (/[a-z]/.test(pwd)) s += 25;
-    if (/[^A-Za-z0-9]/.test(pwd)) s += 25;
-    return s;
-  };
-  const pwdStr = useMemo(() => calcPwdStr(authForm.password), [authForm.password]);
-  const pwdColor = pwdStr <= 25 ? "#ef4444" : pwdStr <= 50 ? "#f59e0b" : pwdStr <= 75 ? "#eab308" : "#22c55e";
-
-  // Forwarding State
-  const [showForward, setShowForward] = useState(false);
-  const [fwdType, setFwdType] = useState("Agent"); // "Agent" or "Vendor"
-  const [fwdReason, setFwdReason] = useState("");
-  const [fwdTargetAgent, setFwdTargetAgent] = useState("");
-  const [fwdVendorName, setFwdVendorName] = useState("");
-  const [fwdVendorEmail, setFwdVendorEmail] = useState("");
-
-  // ADD THESE TWO IN PLACE OF THE OLD handleForward
+  // ─── FORWARD TICKET (v1) ───────────────────────────────────────────────────
   const handleForwardToAgent = async (agentId) => {
     if (!fwdReason.trim()) return alert("Reason is required.");
     if (!agentId) return alert("Please select an agent.");
-
     const t = selTicket;
     try {
       const agent = users.find(u => u.id === agentId);
-      const now = new Date().toISOString();
-
-      const update = {
-        ...t,
-        assignees: [agent],
-        updated: now,
-        timeline: [...(t.timeline || []), {
-          action: `Forwarded to Agent: ${agent.name}`,
-          by: currentUser.name,
-          date: now,
-          note: fwdReason
-        }]
-      };
-
+      const nowISO = new Date().toISOString();
+      const update = { ...t, assignees: [agent], updated: nowISO, timeline: [...(t.timeline || []), { action: `Forwarded to Agent: ${agent.name}`, by: currentUser.name, date: nowISO, note: fwdReason }] };
       await TICKETS_API.update(t.id, update);
-      setTickets(p => p.map(x => x.id === t.id ? { ...update, updated: new Date(now) } : x));
-      setSelTicket(update);
-      setShowForward(false);
-      setFwdReason("");
+      setTickets(p => p.map(x => x.id === t.id ? { ...update, updated: new Date(nowISO) } : x));
+      setSelTicket(update); setShowForward(false); setFwdReason("");
     } catch (e) { alert("Forwarding failed"); }
   };
 
   const handleSendForRepair = async (vendorName, contactInfo) => {
     if (!vendorName) return alert("Vendor name is required.");
-
     const t = selTicket;
     try {
-      const now = new Date().toISOString();
-      const update = {
-        ...t,
-        status: "Pending", // Or your preferred status for repair
-        updated: now,
-        timeline: [...(t.timeline || []), {
-          action: `Sent for Repair: ${vendorName}`,
-          by: currentUser.name,
-          date: now,
-          note: `Contact: ${contactInfo}`
-        }]
-      };
-
+      const nowISO = new Date().toISOString();
+      const update = { ...t, status: "Pending", updated: nowISO, timeline: [...(t.timeline || []), { action: `Sent for Repair: ${vendorName}`, by: currentUser.name, date: nowISO, note: `Contact: ${contactInfo}` }] };
       await TICKETS_API.update(t.id, update);
-      setTickets(p => p.map(x => x.id === t.id ? { ...update, updated: new Date(now) } : x));
+      setTickets(p => p.map(x => x.id === t.id ? { ...update, updated: new Date(nowISO) } : x));
       setSelTicket(update);
-      // Add logic here to close the Repair modal if you have one
     } catch (e) { alert("Repair update failed"); }
   };
 
+  const handleForward = () => {
+    if (fwdType === "Agent") handleForwardToAgent(fwdTargetAgent);
+    else handleSendForRepair(fwdVendorName, fwdVendorEmail);
+  };
+
+  // ─── SETTINGS HANDLERS (v1 API) ────────────────────────────────────────────
+  const addOrg = async () => { if (!newOrg.name) return; const created = await ORGS_API.create(newOrg); setOrgs([...orgs, created]); setNewOrg({ name: "", domain: "", phone: "" }); };
+  const addCat = async () => { if (!newCat.name) return; const created = await CATEGORIES_API.create(newCat); setCategories([...categories, created]); setNewCat({ name: "", color: "#3b82f6" }); };
+  const addUser = async () => { if (!newUser.name || !newUser.email) return; const created = await USERS_API.create({ ...newUser, active: true }); setUsers([...users, created]); setNewUser({ name: "", email: "", role: "Agent" }); };
+  const addAttr = async () => { if (!newAttr.name) return; const created = await CUSTOM_ATTRS_API.create({ ...newAttr, options: typeof newAttr.options === "string" ? newAttr.options.split(",").map(s => s.trim()).filter(Boolean) : [] }); setCustomAttrs([...customAttrs, created]); setNewAttr({ name: "", type: "text", options: "", required: false }); };
+
+  // ─── PROJECT HANDLERS (v2 local state) ────────────────────────────────────
+  const handleProjectSubmit = () => {
+    if (!projForm.title || !projForm.org) return alert("Organisation and Title are required");
+    setProjects(prev => [{ id: `PRJ-${String(2000 + prev.length + 1).padStart(4, "0")}`, ...projForm, created: new Date(), updated: new Date(), dueDate: projForm.dueDate ? new Date(projForm.dueDate) : null, comments: [] }, ...prev]);
+    setShowNewProject(false); setProjForm(emptyProjectForm);
+  };
+  const addProjCC = () => { if (projCcInput && !projForm.cc.includes(projCcInput)) { setProjForm({ ...projForm, cc: [...projForm.cc, projCcInput] }); setProjCcInput(""); } };
+  const updateProjectStatus = (id, status) => { setProjects(p => p.map(x => x.id === id ? { ...x, status, updated: new Date() } : x)); if (selProject?.id === id) setSelProject(s => ({ ...s, status })); };
+  const toggleProjSel = id => { const s = new Set(selectedProjIds); s.has(id) ? s.delete(id) : s.add(id); setSelectedProjIds(s); };
+  const toggleAllProj = () => selectedProjIds.size === filteredProjects.length && filteredProjects.length > 0 ? setSelectedProjIds(new Set()) : setSelectedProjIds(new Set(filteredProjects.map(p => p.id)));
+  const selProjects = filteredProjects.filter(p => selectedProjIds.has(p.id));
+  const addTicketCat = () => { if (!newTicketCat.name) return; setTicketCategories([...ticketCategories, { ...newTicketCat, id: Date.now() }]); setNewTicketCat({ name: "", color: "#3b82f6" }); };
+  const addProjCat = () => { if (!newProjCat.name) return; setProjectCategories([...projectCategories, { ...newProjCat, id: Date.now() }]); setNewProjCat({ name: "", color: "#8b5cf6" }); };
+  const addTicketAttr = () => { if (!newTicketAttr.name) return; setTicketCustomAttrs([...ticketCustomAttrs, { ...newTicketAttr, id: Date.now(), options: newTicketAttr.options.split(",").map(s => s.trim()).filter(Boolean) }]); setNewTicketAttr({ name: "", type: "text", options: "", required: false }); };
+  const addProjAttr = () => { if (!newProjAttr.name) return; setProjectCustomAttrs([...projectCustomAttrs, { ...newProjAttr, id: Date.now(), options: newProjAttr.options.split(",").map(s => s.trim()).filter(Boolean) }]); setNewProjAttr({ name: "", type: "text", options: "", required: false }); };
+
+  // ─── AUTH HANDLERS (v1) ────────────────────────────────────────────────────
   const handleLogin = async (e) => {
-    e.preventDefault();
-    setAuthError(""); setAuthMessage("");
+    e.preventDefault(); setAuthError(""); setAuthMessage("");
     try {
       const u = await AUTH_API.login(authForm.email, authForm.password);
-      // Automation: Set to Active on Login
       const updatedUser = { ...u, status: "Active" };
       await USERS_API.update(u.id, updatedUser);
+      saveSession(updatedUser); // persist 12-hour session
       setCurrentUser(updatedUser);
     } catch (err) { setAuthError(err.message); }
   };
 
   const handleLogout = async () => {
     if (currentUser) {
-      try {
-        // Automation: Set to Not Active on Logout
-        await USERS_API.update(currentUser.id, { ...currentUser, status: "Not Active" });
-      } catch (e) { console.error("Logout status update failed"); }
+      try { await USERS_API.update(currentUser.id, { ...currentUser, status: "Not Active" }); }
+      catch (e) { console.error("Logout status update failed"); }
     }
-    setCurrentUser(null);
-    setProfileOpen(false);
+    clearSession(); // destroy the 12-hour session immediately
+    setCurrentUser(null); setProfileOpen(false);
   };
 
   const handleSignup = async (e) => {
-    e.preventDefault();
-    setAuthError(""); setAuthMessage("");
+    e.preventDefault(); setAuthError(""); setAuthMessage("");
     if (authForm.password !== authForm.confirm) return setAuthError("Passwords do not match");
     if (!authForm.firstName || !authForm.lastName || !authForm.email || !authForm.password) return setAuthError("Please fill required fields");
-
     try {
-      // Check current users to see if anyone exists
-      const allUsers = await USERS_API.getAll();
-      const isFirstUser = allUsers.length === 0;
+      // Use already-loaded users state — no extra API call needed.
+      // Avoids the GET /api/users 404 entirely.
+      const isFirstUser = users.length === 0;
 
       const payload = {
-        id: Math.random().toString(36).substr(2, 9),
+        // Bug fix 2: don't pre-assign an id — let the backend assign it.
+        // Some APIs reject records that come with a client-generated id.
         name: `${authForm.firstName} ${authForm.middleName ? authForm.middleName + " " : ""}${authForm.lastName}`.trim(),
         email: authForm.email,
         phone: `${authForm.countryCode} ${authForm.phone}`.trim(),
         password: authForm.password,
-        // Change: Automation logic
         role: isFirstUser ? "Admin" : "Agent",
         active: true,
         status: "Active",
-        confirmed: true // Automated confirmation for new flow
+        confirmed: true,
       };
 
       await USERS_API.create(payload);
-      setAuthMessage(`Account created! You are registered as ${payload.role}.`);
+      setAuthMessage(`Account created! You are registered as ${payload.role}. Please log in.`);
       await loadData();
-      // Switch to login automatically after success
+
+      // Bug fix 3: reset authForm to a clean login state (keep email pre-filled,
+      // clear password fields) so the user can log in immediately after the flip.
+      setAuthForm(prev => ({
+        ...prev,
+        password: "",
+        confirm: "",
+        firstName: "",
+        middleName: "",
+        lastName: "",
+        phone: "",
+      }));
       setTimeout(() => setIsLogin(true), 1500);
     } catch (err) {
-      setAuthError("Registration failed. Please try again.");
+      // Bug fix 4: always surface the real error so it's debuggable.
+      setAuthError(err?.message || "Registration failed. Please try again.");
     }
   };
 
-  // Profile Expand State
-  const [profileOpen, setProfileOpen] = useState(false);
-  const [editProfileOpen, setEditProfileOpen] = useState(false);
-  const [profileForm, setProfileForm] = useState({ phone: "", name: "" });
-
+  // ─── PROFILE HANDLERS (v1) ─────────────────────────────────────────────────
   const saveProfile = async () => {
     try {
       const up = { ...currentUser, phone: profileForm.phone, name: profileForm.name };
       await USERS_API.update(currentUser.id, up);
-      setCurrentUser(up);
-      setUsers(users.map(u => u.id === currentUser.id ? up : u));
-      setEditProfileOpen(false);
+      saveSession(up); setCurrentUser(up); setUsers(users.map(u => u.id === currentUser.id ? up : u)); setEditProfileOpen(false);
     } catch (err) { alert("Failed to save profile"); }
   };
-
   const updateStatusDirect = async (st) => {
     try {
       const up = { ...currentUser, status: st };
       await USERS_API.update(currentUser.id, up);
-      setCurrentUser(up);
-      setUsers(users.map(u => u.id === currentUser.id ? up : u));
+      saveSession(up); setCurrentUser(up); setUsers(users.map(u => u.id === currentUser.id ? up : u));
     } catch (err) { alert("Failed to update status"); }
   };
 
-  const statusOpts = [{ l: "Active", c: "#22c55e", bg: "#dcfce7" }, { l: "Not Active", c: "#ef4444", bg: "#fee2e2" }, { l: "Rest", c: "#f59e0b", bg: "#fef3c7" }];
+  // ─── NAVIGATION HELPERS ────────────────────────────────────────────────────
+  const sideNav = [
+    { id: "dashboard", label: "Dashboard", icon: "▦" },
+    { id: "tickets", label: "All Tickets", icon: "◈" },
+    { id: "projects", label: "Projects", icon: "📁" },
+    { id: "webcast", label: "Webcast", icon: "📡" },
+    { id: "reports", label: "Reports", icon: "◉" },
+    { id: "users", label: "Agents", icon: "◎" },
+    { id: "settings", label: "Settings", icon: "⚙" },
+  ];
+  const stabs = [
+    { id: "ticketviews", label: "Ticket Views", icon: "👁" },
+    { id: "projectviews", label: "Project Views", icon: "📂" },
+    { id: "organisations", label: "Organisations", icon: "🏢" },
+    { id: "categories", label: "Categories", icon: "🏷" },
+    { id: "usermgmt", label: "User Management", icon: "👥" },
+    { id: "customattrs", label: "Custom Attributes", icon: "✏️" },
+    { id: "dbmgmt", label: "Database Mgmt", icon: "💾" },
+  ];
+  const getPageTitle = () => {
+    if (view === "dashboard") return "Dashboard";
+    if (view === "tickets") return cvd.label;
+    if (view === "projects") return cpv.label;
+    if (view === "webcast") return "Webcast";
+    if (view === "reports") return "Reports";
+    if (view === "users") return "Agents";
+    return "Settings";
+  };
 
-  if (loading) return <div style={{ display: "flex", height: "100vh", alignItems: "center", justifyContent: "center", fontFamily: "'DM Sans',sans-serif", background: "#f8fafc", color: "#64748b", fontSize: 18, fontWeight: 600 }}>Loading DeskFlow Data...</div>;
+  const thStyle = { padding: "9px 11px", textAlign: "left", fontSize: 10, fontWeight: 600, color: "#64748b", textTransform: "uppercase", letterSpacing: "0.05em", borderBottom: "1px solid #f1f5f9", whiteSpace: "nowrap" };
+  const tdStyle = { padding: "10px 11px", borderBottom: "1px solid #f8fafc", fontSize: 13 };
 
+  // Webcast fields shared component
+  const WebcastFields = ({ f, setF }) => <>
+    <div style={{ padding: "12px 14px", background: "#fff7ed", borderRadius: 9, border: "1px solid #fed7aa", marginBottom: 14 }}>
+      <label style={{ display: "flex", alignItems: "center", gap: 9, cursor: "pointer" }}>
+        <input type="checkbox" checked={f.isWebcast} onChange={e => setF({ ...f, isWebcast: e.target.checked })} style={{ width: 15, height: 15, cursor: "pointer" }} />
+        <span style={{ fontSize: 13, fontWeight: 600, color: "#9a3412" }}>📡 Webcast / Live Ticket</span>
+      </label>
+      {f.isWebcast && <div style={{ marginTop: 12, display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0 14px" }}>
+        <FF label="Satsang Type"><select style={sS} value={f.satsangType} onChange={e => setF({ ...f, satsangType: e.target.value })}><option value="">Select type…</option>{SATSANG_TYPES.map(t => <option key={t}>{t}</option>)}</select></FF>
+        <FF label="Location / Venue"><select style={sS} value={f.location} onChange={e => setF({ ...f, location: e.target.value })}><option value="">Select venue…</option>{LOCATIONS.map(l => <option key={l}>{l}</option>)}</select></FF>
+      </div>}
+    </div>
+  </>;
+
+  // ─── LOADING SCREEN ─────────────────────────────────────────────────────────
+  if (loading) return (
+    <div style={{ display: "flex", height: "100vh", alignItems: "center", justifyContent: "center", fontFamily: "'DM Sans',sans-serif", background: "#f8fafc", color: "#64748b", fontSize: 18, fontWeight: 600 }}>
+      Loading DeskFlow Data...
+    </div>
+  );
+
+  // ─── AUTH SCREENS ──────────────────────────────────────────────────────────
   if (!currentUser) return (
     <div style={{ display: "flex", height: "100vh", alignItems: "center", justifyContent: "center", background: "#f8fafc", fontFamily: "'DM Sans',sans-serif", perspective: "1000px" }}>
-      <div style={{ width: "100%", maxWidth: 400, position: "relative", transition: "transform 0.6s cubic-bezier(0.4, 0, 0.2, 1)", transformStyle: "preserve-3d", transform: isLogin ? "rotateY(0deg)" : "rotateY(-180deg)" }}>
+      <div style={{ width: "100%", maxWidth: 400, position: "relative", transition: "transform 0.6s cubic-bezier(0.4,0,0.2,1)", transformStyle: "preserve-3d", transform: isLogin ? "rotateY(0deg)" : "rotateY(-180deg)" }}>
 
         {/* FRONT: LOGIN */}
         <div style={{ background: "#fff", padding: 40, borderRadius: 20, boxShadow: "0 10px 40px rgba(0,0,0,0.08)", backfaceVisibility: "hidden", position: isLogin ? "relative" : "absolute", top: 0, left: 0, width: "100%" }}>
@@ -432,22 +775,17 @@ export default function HelpDesk() {
             <div style={{ width: 44, height: 44, background: "linear-gradient(135deg,#3b82f6,#8b5cf6)", borderRadius: 12, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 22, color: "#fff" }}>⚡</div>
             <div style={{ fontSize: 24, fontWeight: 700, color: "#0f172a" }}>DeskFlow</div>
           </div>
-
           <div style={{ display: "flex", background: "#f1f5f9", borderRadius: 10, padding: 4, marginBottom: 24 }}>
             <button onClick={() => { setIsLogin(true); setAuthError(""); setAuthMessage(""); }} style={{ flex: 1, padding: "8px", border: "none", borderRadius: 8, background: "#fff", boxShadow: "0 2px 4px rgba(0,0,0,0.05)", cursor: "pointer", fontWeight: 600, color: "#0f172a" }}>Login</button>
             <button onClick={() => { setIsLogin(false); setAuthError(""); setAuthMessage(""); }} style={{ flex: 1, padding: "8px", border: "none", borderRadius: 8, background: "transparent", cursor: "pointer", fontWeight: 600, color: "#64748b" }}>Signup</button>
           </div>
-
           {authError && <div style={{ padding: "10px 14px", background: "#fee2e2", color: "#ef4444", borderRadius: 8, fontSize: 13, marginBottom: 16, fontWeight: 500 }}>{authError}</div>}
           {authMessage && <div style={{ padding: "10px 14px", background: "#dcfce7", color: "#15803d", borderRadius: 8, fontSize: 13, marginBottom: 16, fontWeight: 500 }}>{authMessage}</div>}
-
           <form onSubmit={handleLogin}>
             <FF label="Email"><input type="email" required style={iS} value={authForm.email} onChange={e => setAuthForm({ ...authForm, email: e.target.value })} /></FF>
             <FF label="Password"><input type="password" required style={iS} value={authForm.password} onChange={e => setAuthForm({ ...authForm, password: e.target.value })} /></FF>
             <button type="submit" style={{ ...bP, width: "100%", marginTop: 10, padding: 12 }}>Log In</button>
-            <div style={{ marginTop: 16, textAlign: 'center' }}>
-              <button type="button" onClick={() => { setAuthForm({ email: "", password: "", firstName: "", middleName: "", lastName: "", countryCode: "+1", phone: "", confirm: "", requestRole: "Agent" }); setIsLogin(false); setAuthError(""); setAuthMessage(""); }} style={{ ...bG, border: "none", color: "#64748b", padding: 0, fontSize: 12 }}>Need an account? Sign up</button>
-            </div>
+            <div style={{ marginTop: 16, textAlign: "center" }}><button type="button" onClick={() => { setIsLogin(false); setAuthError(""); setAuthMessage(""); }} style={{ ...bG, border: "none", color: "#64748b", padding: 0, fontSize: 12 }}>Need an account? Sign up</button></div>
           </form>
         </div>
 
@@ -457,66 +795,58 @@ export default function HelpDesk() {
             <div style={{ width: 44, height: 44, background: "linear-gradient(135deg,#3b82f6,#8b5cf6)", borderRadius: 12, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 22, color: "#fff" }}>⚡</div>
             <div style={{ fontSize: 24, fontWeight: 700, color: "#0f172a" }}>DeskFlow</div>
           </div>
-
           <div style={{ display: "flex", background: "#f1f5f9", borderRadius: 10, padding: 4, marginBottom: 24 }}>
             <button onClick={() => { setIsLogin(true); setAuthError(""); setAuthMessage(""); }} style={{ flex: 1, padding: "8px", border: "none", borderRadius: 8, background: "transparent", cursor: "pointer", fontWeight: 600, color: "#64748b" }}>Login</button>
             <button onClick={() => { setIsLogin(false); setAuthError(""); setAuthMessage(""); }} style={{ flex: 1, padding: "8px", border: "none", borderRadius: 8, background: "#fff", boxShadow: "0 2px 4px rgba(0,0,0,0.05)", cursor: "pointer", fontWeight: 600, color: "#0f172a" }}>Signup</button>
           </div>
-
           {authError && <div style={{ padding: "10px 14px", background: "#fee2e2", color: "#ef4444", borderRadius: 8, fontSize: 13, marginBottom: 16, fontWeight: 500 }}>{authError}</div>}
           {authMessage && <div style={{ padding: "10px 14px", background: "#dcfce7", color: "#15803d", borderRadius: 8, fontSize: 13, marginBottom: 16, fontWeight: 500 }}>{authMessage}</div>}
-
           <form onSubmit={handleSignup}>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0 10px" }}>
               <FF label="First Name" required><input required style={iS} value={authForm.firstName} onChange={e => setAuthForm({ ...authForm, firstName: e.target.value })} /></FF>
               <FF label="Last Name" required><input required style={iS} value={authForm.lastName} onChange={e => setAuthForm({ ...authForm, lastName: e.target.value })} /></FF>
             </div>
             <FF label="Middle Name (Optional)"><input style={iS} value={authForm.middleName} onChange={e => setAuthForm({ ...authForm, middleName: e.target.value })} /></FF>
-            <FF label="Phone">
-              <div style={{ display: "flex", gap: 6 }}>
-                <select style={{ ...sS, width: 70, padding: "9px 6px" }} value={authForm.countryCode} onChange={e => setAuthForm({ ...authForm, countryCode: e.target.value })}>
-                  <option value="+1">+1</option><option value="+44">+44</option><option value="+91">+91</option><option value="+61">+61</option><option value="+81">+81</option>
-                </select>
-                <input style={{ ...iS, flex: 1 }} value={authForm.phone} onChange={e => setAuthForm({ ...authForm, phone: e.target.value })} />
-              </div>
-            </FF>
+            <FF label="Phone"><div style={{ display: "flex", gap: 6 }}>
+              <select style={{ ...sS, width: 70, padding: "9px 6px" }} value={authForm.countryCode} onChange={e => setAuthForm({ ...authForm, countryCode: e.target.value })}>
+                <option value="+1">+1</option><option value="+44">+44</option><option value="+91">+91</option><option value="+61">+61</option><option value="+81">+81</option>
+              </select>
+              <input style={{ ...iS, flex: 1 }} value={authForm.phone} onChange={e => setAuthForm({ ...authForm, phone: e.target.value })} />
+            </div></FF>
             <FF label="Email"><input type="email" required style={iS} value={authForm.email} onChange={e => setAuthForm({ ...authForm, email: e.target.value })} /></FF>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0 10px" }}>
               <FF label="Password" required>
                 <input type="password" required style={{ ...iS, border: authForm.password && authForm.password !== authForm.confirm ? "1px solid #ef4444" : "1px solid #e2e8f0" }} value={authForm.password} onChange={e => setAuthForm({ ...authForm, password: e.target.value })} />
                 <div style={{ marginTop: 4, height: 4, background: "#e2e8f0", borderRadius: 2, overflow: "hidden" }}><div style={{ height: "100%", width: `${pwdStr}%`, background: pwdColor, transition: "all 0.3s" }} /></div>
               </FF>
-              <FF label="Confirm" required>
-                <input type="password" required style={{ ...iS, border: authForm.confirm && authForm.password !== authForm.confirm ? "1px solid #ef4444" : "1px solid #e2e8f0" }} value={authForm.confirm} onChange={e => setAuthForm({ ...authForm, confirm: e.target.value })} />
-              </FF>
+              <FF label="Confirm" required><input type="password" required style={{ ...iS, border: authForm.confirm && authForm.password !== authForm.confirm ? "1px solid #ef4444" : "1px solid #e2e8f0" }} value={authForm.confirm} onChange={e => setAuthForm({ ...authForm, confirm: e.target.value })} /></FF>
             </div>
             {authForm.confirm && authForm.password !== authForm.confirm && <div style={{ color: "#ef4444", fontSize: 11, marginTop: -6, marginBottom: 10 }}>Passwords do not match</div>}
             <button type="submit" disabled={authForm.password !== authForm.confirm} style={{ ...bP, width: "100%", marginTop: 4, padding: 12, opacity: authForm.password !== authForm.confirm ? 0.5 : 1 }}>Sign Up</button>
-            <div style={{ marginTop: 12, textAlign: 'center' }}>
-              <button type="button" onClick={() => { setAuthForm({ email: "", password: "", firstName: "", middleName: "", lastName: "", countryCode: "+1", phone: "", confirm: "", requestRole: "Admin" }); setIsLogin(true); setAuthError(""); setAuthMessage(""); }} style={{ ...bG, border: "none", color: "#64748b", padding: 0, fontSize: 12 }}>Already have an account? Log in</button>
-            </div>
+            <div style={{ marginTop: 12, textAlign: "center" }}><button type="button" onClick={() => { setIsLogin(true); setAuthError(""); setAuthMessage(""); }} style={{ ...bG, border: "none", color: "#64748b", padding: 0, fontSize: 12 }}>Already have an account? Log in</button></div>
           </form>
         </div>
-
       </div>
     </div>
   );
 
-  const thStyle = { padding: "9px 11px", textAlign: "left", fontSize: 10, fontWeight: 600, color: "#64748b", textTransform: "uppercase", letterSpacing: "0.05em", borderBottom: "1px solid #f1f5f9", whiteSpace: "nowrap" };
-  const tdStyle = { padding: "10px 11px", borderBottom: "1px solid #f8fafc", fontSize: 13 };
-
+  // ─── MAIN APP ──────────────────────────────────────────────────────────────
   return (
     <div style={{ display: "flex", height: "100vh", fontFamily: "'DM Sans',sans-serif", background: "#f8fafc", color: "#1e293b", overflow: "hidden" }}>
-      <style>{`@import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=DM+Mono:wght@400;500&display=swap');*{box-sizing:border-box}::-webkit-scrollbar{width:5px;height:5px}::-webkit-scrollbar-thumb{background:#cbd5e1;border-radius:3px}input:focus,select:focus,textarea:focus{border-color:#3b82f6!important;outline:none;background:#fff!important}.rh:hover td{background:#f8fafc!important}`}</style>
+      <style>{`@import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=DM+Mono:wght@400;500&display=swap');*{box-sizing:border-box}::-webkit-scrollbar{width:5px;height:5px}::-webkit-scrollbar-thumb{background:#cbd5e1;border-radius:3px}input:focus,select:focus,textarea:focus{border-color:#3b82f6!important;outline:none;background:#fff!important}.rh:hover td{background:#f8fafc!important}@keyframes pulse{0%,100%{opacity:1}50%{opacity:0.5}}`}</style>
 
-      {/* SIDEBAR */}
+      {/* ── SIDEBAR ─────────────────────────────────────────────────────── */}
       <div style={{ width: 220, background: "#0f172a", display: "flex", flexDirection: "column", flexShrink: 0 }}>
         <div style={{ padding: "18px 18px 14px", borderBottom: "1px solid #1e293b" }}>
           <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
             <div style={{ width: 36, height: 36, background: "linear-gradient(135deg,#3b82f6,#8b5cf6)", borderRadius: 10, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 18, color: "#fff" }}>⚡</div>
-            <div><div style={{ fontSize: 15, fontWeight: 700, color: "#fff" }}>DeskFlow</div><div style={{ fontSize: 10, color: "#475569" }}>Help Desk Pro</div></div>
+            <div>
+              <div style={{ fontSize: 15, fontWeight: 700, color: "#fff" }}>DeskFlow</div>
+              <div style={{ fontSize: 10, color: "#475569" }}>Help Desk Pro</div>
+            </div>
           </div>
         </div>
+
         <div style={{ padding: "8px 8px 0", flex: 1, overflow: "auto" }}>
           {sideNav.map(n => (
             <button key={n.id} onClick={() => setView(n.id)} style={{ display: "flex", alignItems: "center", gap: 9, width: "100%", padding: "8px 11px", borderRadius: 7, border: "none", cursor: "pointer", background: view === n.id ? "#1e293b" : "transparent", color: view === n.id ? "#60a5fa" : "#64748b", fontSize: 13, fontWeight: view === n.id ? 600 : 400, marginBottom: 2, textAlign: "left", fontFamily: "'DM Sans',sans-serif" }}>
@@ -530,10 +860,22 @@ export default function HelpDesk() {
               </button>
             ))}
           </div>}
+          {view === "projects" && <div style={{ marginTop: 6, paddingTop: 6, borderTop: "1px solid #1e293b" }}>
+            {PROJECT_VIEWS.map(v => (
+              <button key={v.id} onClick={() => setPvFilter(v.id)} style={{ display: "flex", alignItems: "center", gap: 7, width: "100%", padding: "6px 11px", borderRadius: 6, border: "none", cursor: "pointer", background: pvFilter === v.id ? "#0f172a" : "transparent", color: pvFilter === v.id ? "#93c5fd" : "#475569", fontSize: 11.5, textAlign: "left", fontFamily: "'DM Sans',sans-serif", marginBottom: 1 }}>
+                <span style={{ fontSize: 12 }}>{v.icon}</span>{v.label}
+              </button>
+            ))}
+          </div>}
         </div>
-        <div style={{ padding: "8px 8px 10px" }}>
-          <button onClick={() => setShowNewTicket(true)} style={{ width: "100%", padding: "9px", borderRadius: 9, border: "none", background: "linear-gradient(135deg,#3b82f6,#6366f1)", color: "#fff", fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: "'DM Sans',sans-serif" }}>+ New Ticket</button>
+
+        {/* New Ticket / Project buttons */}
+        <div style={{ padding: "8px 8px 10px", display: "flex", flexDirection: "column", gap: 5 }}>
+          <button onClick={() => setShowNewTicket(true)} style={{ width: "100%", padding: "8px", borderRadius: 9, border: "none", background: "linear-gradient(135deg,#3b82f6,#6366f1)", color: "#fff", fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: "'DM Sans',sans-serif" }}>+ New Ticket</button>
+          <button onClick={() => setShowNewProject(true)} style={{ width: "100%", padding: "8px", borderRadius: 9, border: "1.5px solid #1e40af", background: "transparent", color: "#60a5fa", fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: "'DM Sans',sans-serif" }}>+ New Project</button>
         </div>
+
+        {/* Profile section (v1 full profile panel) */}
         <div style={{ padding: "8px 12px 14px", borderTop: "1px solid #1e293b" }}>
           <div onClick={() => setProfileOpen(!profileOpen)} style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px", borderRadius: 8, cursor: "pointer", background: profileOpen ? "#1e293b" : "transparent", transition: "background 0.2s" }}>
             <Avatar name={currentUser.name} size={30} />
@@ -547,7 +889,7 @@ export default function HelpDesk() {
             <span style={{ color: "#475569", fontSize: 12 }}>{profileOpen ? "▴" : "▾"}</span>
           </div>
           {profileOpen && (
-            <div style={{ marginTop: 8, background: "#1e293b", borderRadius: 8, padding: "8px", animation: "fadeIn 0.2s" }}>
+            <div style={{ marginTop: 8, background: "#1e293b", borderRadius: 8, padding: "8px" }}>
               <button onClick={() => { setProfileForm({ name: currentUser.name, phone: currentUser.phone || "" }); setEditProfileOpen(true); }} style={{ width: "100%", padding: "6px 10px", background: "#334155", border: "none", borderRadius: 6, color: "#f8fafc", fontSize: 12, fontWeight: 600, cursor: "pointer", marginBottom: 8, textAlign: "left" }}>👤 View Profile</button>
               <div style={{ fontSize: 10, fontWeight: 600, color: "#94a3b8", marginBottom: 6, textTransform: "uppercase", padding: "0 4px" }}>Set Status</div>
               <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
@@ -558,20 +900,17 @@ export default function HelpDesk() {
                   </button>
                 ))}
               </div>
-              <button onClick={() => setCurrentUser(null)} style={{ width: "100%", padding: "6px 10px", background: "transparent", border: "none", color: "#ef4444", fontSize: 12, fontWeight: 600, cursor: "pointer", marginTop: 8, textAlign: "left", borderTop: "1px solid #334155", paddingTop: 8 }}>Log Out</button>
+              <button onClick={handleLogout} style={{ width: "100%", padding: "6px 10px", background: "transparent", border: "none", color: "#ef4444", fontSize: 12, fontWeight: 600, cursor: "pointer", marginTop: 8, textAlign: "left", borderTop: "1px solid #334155", paddingTop: 8 }}>Log Out</button>
             </div>
           )}
         </div>
       </div>
 
-      {/* Profile Modal */}
+      {/* Profile Edit Modal (v1) */}
       <Modal open={editProfileOpen} onClose={() => setEditProfileOpen(false)} title="My Profile" width={400}>
         <div style={{ display: "flex", alignItems: "center", gap: 16, marginBottom: 20 }}>
           <Avatar name={currentUser.name} size={64} />
-          <div>
-            <div style={{ fontSize: 18, fontWeight: 700, color: "#0f172a" }}>{currentUser.name}</div>
-            <div style={{ fontSize: 13, color: "#64748b" }}>{currentUser.role}</div>
-          </div>
+          <div><div style={{ fontSize: 18, fontWeight: 700, color: "#0f172a" }}>{currentUser.name}</div><div style={{ fontSize: 13, color: "#64748b" }}>{currentUser.role}</div></div>
         </div>
         <div style={{ marginBottom: 18, padding: "10px 14px", background: "#f8fafc", borderRadius: 8 }}>
           <div style={{ fontSize: 10, fontWeight: 600, color: "#94a3b8", textTransform: "uppercase", marginBottom: 2 }}>Email Address (Unchangeable)</div>
@@ -585,39 +924,70 @@ export default function HelpDesk() {
         </div>
       </Modal>
 
-      {/* MAIN */}
+      {/* ── MAIN CONTENT ────────────────────────────────────────────────── */}
       <div style={{ flex: 1, overflow: "auto", display: "flex", flexDirection: "column" }}>
         <div style={{ background: "#fff", borderBottom: "1px solid #f1f5f9", padding: "11px 22px", display: "flex", alignItems: "center", justifyContent: "space-between", position: "sticky", top: 0, zIndex: 100 }}>
           <div>
-            <h1 style={{ margin: 0, fontSize: 18, fontWeight: 700 }}>{view === "dashboard" ? "Dashboard" : view === "tickets" ? cvd.label : view === "reports" ? "Reports" : view === "users" ? "Agents" : "Settings"}</h1>
+            <h1 style={{ margin: 0, fontSize: 18, fontWeight: 700 }}>{getPageTitle()}</h1>
             {view === "tickets" && <p style={{ margin: 0, fontSize: 11, color: "#94a3b8" }}>{cvd.desc}</p>}
+            {view === "projects" && <p style={{ margin: 0, fontSize: 11, color: "#94a3b8" }}>{cpv.desc}</p>}
           </div>
           <div style={{ display: "flex", gap: 9, alignItems: "center" }}>
-            {(view === "dashboard" || view === "reports") && <select value={range} onChange={e => setRange(e.target.value)} style={{ ...sS, width: 128, fontSize: 13, padding: "7px 10px" }}><option value="1">Today</option><option value="7">Last 7 Days</option><option value="30">Last 30 Days</option></select>}
-            <button onClick={() => setShowNewTicket(true)} style={{ ...bP, padding: "8px 14px", fontSize: 13 }}>+ New Ticket</button>
+            {(view === "reports") && <select value={range} onChange={e => setRange(e.target.value)} style={{ ...sS, width: 128, fontSize: 13, padding: "7px 10px" }}><option value="1">Today</option><option value="7">Last 7 Days</option><option value="30">Last 30 Days</option></select>}
+            {view !== "dashboard" && <>
+              <button onClick={() => setShowNewTicket(true)} style={{ ...bP, padding: "8px 14px", fontSize: 13 }}>+ New Ticket</button>
+              <button onClick={() => setShowNewProject(true)} style={{ ...bG, padding: "8px 14px", fontSize: 13 }}>+ New Project</button>
+            </>}
           </div>
         </div>
 
         <div style={{ flex: 1, padding: 20, overflow: "auto" }}>
 
-          {/* DASHBOARD */}
+          {/* ── DASHBOARD (v2 layout + SmartCharts) ── */}
           {view === "dashboard" && <>
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(5,1fr)", gap: 12, marginBottom: 16 }}>
-              {[{ label: "Total", value: stats.total, color: "#3b82f6", icon: "🎫" }, { label: "Open", value: stats.open, color: "#f59e0b", icon: "📬" }, { label: "In Progress", value: stats.inProgress, color: "#6366f1", icon: "⚙️" }, { label: "Resolved", value: stats.resolved, color: "#22c55e", icon: "✅" }, { label: "Critical", value: stats.critical, color: "#ef4444", icon: "🔥" }].map(s => (
-                <div key={s.label} style={{ background: "#fff", borderRadius: 12, padding: "14px 16px", boxShadow: "0 1px 4px rgba(0,0,0,0.06)", borderTop: `3px solid ${s.color}` }}>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 9, marginBottom: 9 }}>
+              {[
+                { label: "Open Tickets", value: stats.open, color: "#f59e0b", icon: "📬", hint: "View open tickets", action: () => { setView("tickets"); setTvFilter("open"); setStatusF("All"); setPriorityF("All"); } },
+                { label: "Open Projects", value: projStats.open, color: "#3b82f6", icon: "📁", hint: "View open projects", action: () => { setView("projects"); setPvFilter("open"); setProjStatusF("All"); setProjPriorityF("All"); } },
+                { label: "In Progress", value: stats.inProgress + projStats.inProgress, color: "#6366f1", icon: "⚙️", hint: "Tickets & projects in progress", action: () => { setView("tickets"); setTvFilter("all"); setStatusF("In Progress"); setPriorityF("All"); } },
+                { label: "Critical", value: stats.critical + projStats.critical, color: "#ef4444", icon: "🔥", hint: "Critical priority items", action: () => { setView("tickets"); setTvFilter("alerts"); setStatusF("All"); setPriorityF("Critical"); } },
+              ].map(s => (
+                <div key={s.label} onClick={s.action} style={{ background: "#fff", borderRadius: 12, padding: "14px 16px", boxShadow: "0 1px 4px rgba(0,0,0,0.06)", borderTop: `3px solid ${s.color}`, cursor: "pointer", transition: "box-shadow 0.15s" }}
+                  onMouseEnter={e => e.currentTarget.style.boxShadow = "0 4px 16px rgba(0,0,0,0.12)"}
+                  onMouseLeave={e => e.currentTarget.style.boxShadow = "0 1px 4px rgba(0,0,0,0.06)"}>
                   <div style={{ fontSize: 20, marginBottom: 5 }}>{s.icon}</div>
                   <div style={{ fontSize: 24, fontWeight: 700, color: s.color }}>{s.value}</div>
-                  <div style={{ fontSize: 11, color: "#64748b" }}>{s.label}</div>
+                  <div style={{ fontSize: 11, fontWeight: 600, color: "#374151" }}>{s.label}</div>
+                  <div style={{ fontSize: 10, color: "#94a3b8", marginTop: 2 }}>{s.hint} →</div>
+                </div>
+              ))}
+            </div>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 9, marginBottom: 9 }}>
+              {[
+                { label: "Total Tickets", value: stats.total, color: "#3b82f6", icon: "🎫", action: () => { setView("tickets"); setTvFilter("all"); setStatusF("All"); setPriorityF("All"); } },
+                { label: "Total Projects", value: projStats.total, color: "#8b5cf6", icon: "📁", action: () => { setView("projects"); setPvFilter("all"); setProjStatusF("All"); setProjPriorityF("All"); } },
+                { label: "Resolved", value: stats.resolved + projStats.resolved, color: "#22c55e", icon: "✅", action: () => { setView("tickets"); setTvFilter("closed"); setStatusF("All"); setPriorityF("All"); } },
+              ].map(s => (
+                <div key={s.label} onClick={s.action} style={{ background: "#fff", borderRadius: 12, padding: "14px 16px", boxShadow: "0 1px 4px rgba(0,0,0,0.06)", borderTop: `3px solid ${s.color}`, cursor: "pointer", transition: "box-shadow 0.15s" }}
+                  onMouseEnter={e => e.currentTarget.style.boxShadow = "0 4px 16px rgba(0,0,0,0.12)"}
+                  onMouseLeave={e => e.currentTarget.style.boxShadow = "0 1px 4px rgba(0,0,0,0.06)"}>
+                  <div style={{ fontSize: 20, marginBottom: 5 }}>{s.icon}</div>
+                  <div style={{ fontSize: 24, fontWeight: 700, color: s.color }}>{s.value}</div>
+                  <div style={{ fontSize: 11, fontWeight: 600, color: "#374151" }}>{s.label}</div>
+                  <div style={{ fontSize: 10, color: "#94a3b8", marginTop: 2 }}>Click to view →</div>
                 </div>
               ))}
             </div>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12, marginBottom: 12 }}>
-              <div style={{ background: "#fff", borderRadius: 12, padding: 16, boxShadow: "0 1px 4px rgba(0,0,0,0.06)" }}><div style={{ fontSize: 12, fontWeight: 600, marginBottom: 12, color: "#374151" }}>Tickets Over Time</div><BarChart data={dailyData} /></div>
-              <div style={{ background: "#fff", borderRadius: 12, padding: 16, boxShadow: "0 1px 4px rgba(0,0,0,0.06)" }}><div style={{ fontSize: 12, fontWeight: 600, marginBottom: 12, color: "#374151" }}>By Priority</div><DonutChart data={priorityDist} /></div>
-              <div style={{ background: "#fff", borderRadius: 12, padding: 16, boxShadow: "0 1px 4px rgba(0,0,0,0.06)" }}><div style={{ fontSize: 12, fontWeight: 600, marginBottom: 12, color: "#374151" }}>By Category</div><BarChart data={categoryDist} color="#8b5cf6" /></div>
+              <SmartChart title="Tickets Over Time" data={dailyData} defaultColor="#3b82f6" />
+              <SmartChart title="Ticket Priority" data={priorityDist} defaultType="pie" />
+              <SmartChart title="By Category" data={categoryDist} defaultColor="#8b5cf6" />
+            </div>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 12 }}>
+              <SmartChart title="Ticket Status" data={STATUSES.map((s, i) => ({ label: s, color: Object.values(STATUS_COLOR)[i].text, value: fbr.filter(t => t.status === s).length }))} defaultType="pie" />
+              <SmartChart title="Project Status" data={PROJECT_STATUSES.map((s, i) => ({ label: s, color: Object.values(STATUS_COLOR)[i].text, value: prbr.filter(p => p.status === s).length }))} defaultType="pie" />
             </div>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-              <div style={{ background: "#fff", borderRadius: 12, padding: 16, boxShadow: "0 1px 4px rgba(0,0,0,0.06)" }}><div style={{ fontSize: 12, fontWeight: 600, marginBottom: 12, color: "#374151" }}>Status Breakdown</div><DonutChart data={STATUSES.map((s, i) => ({ label: s, color: Object.values(STATUS_COLOR)[i].text, value: fbr.filter(t => t.status === s).length }))} /></div>
               <div style={{ background: "#fff", borderRadius: 12, padding: 16, boxShadow: "0 1px 4px rgba(0,0,0,0.06)" }}>
                 <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 10, color: "#374151" }}>Recent Tickets</div>
                 {tickets.slice(0, 5).map(t => (
@@ -628,10 +998,24 @@ export default function HelpDesk() {
                   </div>
                 ))}
               </div>
+              <div style={{ background: "#fff", borderRadius: 12, padding: 16, boxShadow: "0 1px 4px rgba(0,0,0,0.06)" }}>
+                <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 10, color: "#374151" }}>Recent Projects</div>
+                {projects.slice(0, 5).map(p => (
+                  <div key={p.id} onClick={() => setSelProject(p)} style={{ display: "flex", alignItems: "center", gap: 9, padding: "6px", borderRadius: 8, cursor: "pointer", border: "1px solid #f1f5f9", marginBottom: 5 }}>
+                    <div style={{ width: 24, height: 24, background: "#eff6ff", borderRadius: 6, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, flexShrink: 0 }}>📁</div>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: 12, fontWeight: 600, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{p.title}</div>
+                      <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 2 }}><ProgressBar value={p.progress} /><span style={{ fontSize: 10, color: "#94a3b8", whiteSpace: "nowrap" }}>{p.progress}%</span></div>
+                    </div>
+                    <Badge label={p.status} style={{ ...STATUS_COLOR[p.status], fontSize: 10 }} />
+                  </div>
+                ))}
+                {projects.length === 0 && <div style={{ textAlign: "center", color: "#94a3b8", padding: 20, fontSize: 13 }}>No projects yet. Create one!</div>}
+              </div>
             </div>
           </>}
 
-          {/* TICKETS */}
+          {/* ── TICKETS (v2 layout + v1 action column) ── */}
           {view === "tickets" && <div style={{ background: "#fff", borderRadius: 12, boxShadow: "0 1px 4px rgba(0,0,0,0.06)", overflow: "hidden" }}>
             <div style={{ padding: "11px 14px", borderBottom: "1px solid #f1f5f9", display: "flex", gap: 9, alignItems: "center", flexWrap: "wrap" }}>
               <input placeholder="Search…" value={search} onChange={e => setSearch(e.target.value)} style={{ ...iS, width: 200, fontSize: 13, padding: "7px 10px" }} />
@@ -640,32 +1024,80 @@ export default function HelpDesk() {
               <span style={{ fontSize: 12, color: "#64748b" }}>{filtered.length} tickets</span>
               <div style={{ marginLeft: "auto", display: "flex", gap: 8, alignItems: "center" }}>
                 {selectedIds.size > 0 && <span style={{ fontSize: 12, color: "#3b82f6", fontWeight: 600, background: "#eff6ff", padding: "4px 10px", borderRadius: 99 }}>{selectedIds.size} selected</span>}
+                <button onClick={() => setShowManageTicket(showManageTicket === "categories" ? null : "categories")} style={{ ...bG, padding: "7px 12px", fontSize: 12, background: showManageTicket === "categories" ? "#eff6ff" : "#fff", color: showManageTicket === "categories" ? "#3b82f6" : "#374151" }}>🏷 Categories</button>
+                <button onClick={() => setShowManageTicket(showManageTicket === "customattrs" ? null : "customattrs")} style={{ ...bG, padding: "7px 12px", fontSize: 12, background: showManageTicket === "customattrs" ? "#eff6ff" : "#fff", color: showManageTicket === "customattrs" ? "#3b82f6" : "#374151" }}>✏️ Fields</button>
                 <div style={{ position: "relative" }}>
-                  <button onClick={() => setShowExport(!showExport)} style={{ ...bG, display: "flex", alignItems: "center", gap: 6, padding: "7px 13px", background: selectedIds.size > 0 ? "#eff6ff" : "#fff", borderColor: selectedIds.size > 0 ? "#3b82f6" : "#e2e8f0", color: selectedIds.size > 0 ? "#3b82f6" : "#374151" }}>
-                    ⬇ Export {selectedIds.size > 0 ? `(${selectedIds.size})` : ""} <span style={{ fontSize: 10 }}>▾</span>
-                  </button>
-                  {showExport && <>
-                    <div style={{ position: "fixed", inset: 0, zIndex: 149 }} onClick={() => setShowExport(false)} />
+                  <button onClick={() => setShowExport(!showExport)} style={{ ...bG, display: "flex", alignItems: "center", gap: 6, padding: "7px 13px" }}>⬇ Export <span style={{ fontSize: 10 }}>▾</span></button>
+                  {showExport && <><div style={{ position: "fixed", inset: 0, zIndex: 149 }} onClick={() => setShowExport(false)} />
                     <div style={{ position: "absolute", right: 0, top: "calc(100% + 4px)", background: "#fff", border: "1.5px solid #e2e8f0", borderRadius: 10, zIndex: 150, boxShadow: "0 8px 24px rgba(0,0,0,0.12)", minWidth: 188, overflow: "hidden" }}>
                       {[{ l: "📄 Export CSV", a: () => exportCSV(selectedIds.size > 0 ? selTickets : filtered) }, { l: "📋 Export JSON", a: () => exportJSON(selectedIds.size > 0 ? selTickets : filtered) }, { l: "🖨 Print / PDF", a: () => exportPrint(selectedIds.size > 0 ? selTickets : filtered) }].map(x => (
                         <button key={x.l} onClick={() => { x.a(); setShowExport(false); }} style={{ display: "block", width: "100%", padding: "10px 14px", border: "none", background: "#fff", cursor: "pointer", fontSize: 13, textAlign: "left", fontFamily: "'DM Sans',sans-serif", borderBottom: "1px solid #f8fafc" }}>{x.l}</button>
                       ))}
-                      <div style={{ padding: "5px 14px 8px", fontSize: 11, color: "#94a3b8" }}>{selectedIds.size > 0 ? `${selectedIds.size} selected tickets` : `All ${filtered.length} tickets`}</div>
                     </div>
                   </>}
                 </div>
               </div>
             </div>
+
+            {/* Inline Ticket Categories Manager */}
+            {showManageTicket === "categories" && <div style={{ borderBottom: "1px solid #f1f5f9", padding: "16px 18px", background: "#f8fafc" }}>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
+                <span style={{ fontSize: 13, fontWeight: 700, color: "#0f172a" }}>🏷 Ticket Categories</span>
+                <button onClick={() => setShowManageTicket(null)} style={{ border: "none", background: "#e2e8f0", borderRadius: 6, width: 24, height: 24, cursor: "pointer", fontSize: 14, color: "#64748b" }}>×</button>
+              </div>
+              <div style={{ display: "flex", gap: 9, marginBottom: 14, alignItems: "center", flexWrap: "wrap" }}>
+                <input style={{ ...iS, flex: 1, minWidth: 140, fontSize: 13, padding: "7px 10px" }} placeholder="Category name *" value={newTicketCat.name} onChange={e => setNewTicketCat({ ...newTicketCat, name: e.target.value })} />
+                <div style={{ display: "flex", alignItems: "center", gap: 6 }}><label style={{ fontSize: 12, fontWeight: 600, color: "#374151" }}>Color</label><input type="color" value={newTicketCat.color} onChange={e => setNewTicketCat({ ...newTicketCat, color: e.target.value })} style={{ width: 30, height: 30, border: "none", borderRadius: 6, cursor: "pointer", padding: 2 }} /></div>
+                <button onClick={addTicketCat} style={{ ...bP, padding: "7px 16px", fontSize: 12 }}>+ Add</button>
+              </div>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+                {ticketCategories.map(c => (
+                  <div key={c.id} style={{ display: "flex", alignItems: "center", gap: 7, padding: "6px 10px 6px 8px", borderRadius: 8, border: `1.5px solid ${c.color}44`, background: `${c.color}11` }}>
+                    <div style={{ width: 10, height: 10, borderRadius: 2, background: c.color, flexShrink: 0 }} />
+                    <span style={{ fontSize: 12, fontWeight: 600, color: "#1e293b" }}>{c.name}</span>
+                    <span style={{ fontSize: 10, color: "#94a3b8" }}>{tickets.filter(t => t.category === c.name).length}</span>
+                    <button onClick={() => setTicketCategories(ticketCategories.filter(x => x.id !== c.id))} style={{ border: "none", background: "transparent", color: "#ef4444", cursor: "pointer", fontSize: 14, fontWeight: 700, padding: "0 2px", lineHeight: 1 }}>×</button>
+                  </div>
+                ))}
+                {ticketCategories.length === 0 && <span style={{ fontSize: 12, color: "#94a3b8" }}>No categories yet.</span>}
+              </div>
+            </div>}
+
+            {/* Inline Ticket Custom Attrs Manager */}
+            {showManageTicket === "customattrs" && <div style={{ borderBottom: "1px solid #f1f5f9", padding: "16px 18px", background: "#f8fafc" }}>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
+                <span style={{ fontSize: 13, fontWeight: 700, color: "#0f172a" }}>✏️ Ticket Custom Fields</span>
+                <button onClick={() => setShowManageTicket(null)} style={{ border: "none", background: "#e2e8f0", borderRadius: 6, width: 24, height: 24, cursor: "pointer", fontSize: 14, color: "#64748b" }}>×</button>
+              </div>
+              <div style={{ display: "flex", gap: 9, marginBottom: 14, alignItems: "flex-end", flexWrap: "wrap" }}>
+                <input style={{ ...iS, flex: 1, minWidth: 130, fontSize: 13, padding: "7px 10px" }} placeholder="Field name *" value={newTicketAttr.name} onChange={e => setNewTicketAttr({ ...newTicketAttr, name: e.target.value })} />
+                <select style={{ ...sS, width: 100, fontSize: 13, padding: "7px 9px" }} value={newTicketAttr.type} onChange={e => setNewTicketAttr({ ...newTicketAttr, type: e.target.value })}>{["text", "number", "select", "date", "checkbox"].map(t => <option key={t}>{t}</option>)}</select>
+                {newTicketAttr.type === "select" && <input style={{ ...iS, width: 160, fontSize: 13, padding: "7px 10px" }} placeholder="Options (comma-sep)" value={newTicketAttr.options} onChange={e => setNewTicketAttr({ ...newTicketAttr, options: e.target.value })} />}
+                <label style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 12, color: "#374151", whiteSpace: "nowrap" }}><input type="checkbox" checked={newTicketAttr.required} onChange={e => setNewTicketAttr({ ...newTicketAttr, required: e.target.checked })} />Required</label>
+                <button onClick={addTicketAttr} style={{ ...bP, padding: "7px 16px", fontSize: 12 }}>+ Add</button>
+              </div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
+                {ticketCustomAttrs.map(a => (
+                  <div key={a.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "9px 12px", borderRadius: 8, border: "1.5px solid #e2e8f0", background: "#fff" }}>
+                    <div style={{ width: 28, height: 28, background: "#eff6ff", borderRadius: 6, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13, flexShrink: 0 }}>{a.type === "text" ? "Aa" : a.type === "number" ? "#" : a.type === "select" ? "≡" : a.type === "date" ? "📅" : "☑"}</div>
+                    <div style={{ flex: 1 }}><span style={{ fontSize: 12, fontWeight: 600 }}>{a.name}</span>{a.required && <span style={{ color: "#ef4444", marginLeft: 3 }}>*</span>}<span style={{ fontSize: 11, color: "#94a3b8", marginLeft: 7 }}>({a.type}{a.options?.length ? ` · ${a.options.join(", ")}` : ""}) </span></div>
+                    <button onClick={() => setTicketCustomAttrs(ticketCustomAttrs.filter(x => x.id !== a.id))} style={{ border: "none", background: "#fee2e2", color: "#ef4444", borderRadius: 5, padding: "3px 9px", cursor: "pointer", fontSize: 12, fontWeight: 600 }}>Delete</button>
+                  </div>
+                ))}
+                {ticketCustomAttrs.length === 0 && <span style={{ fontSize: 12, color: "#94a3b8" }}>No custom fields yet.</span>}
+              </div>
+            </div>}
+
             <div style={{ overflowX: "auto" }}>
               <table style={{ width: "100%", borderCollapse: "collapse" }}>
                 <thead><tr style={{ background: "#f8fafc" }}>
                   <th style={{ ...thStyle, width: 40 }}><input type="checkbox" checked={selectedIds.size === filtered.length && filtered.length > 0} onChange={toggleAll} style={{ cursor: "pointer" }} /></th>
-                  {["ID", "Summary", "Org / Dept", "Reported By", "Assignees", "Priority", "Status", "Created", "Action"].map(h => <th key={h} style={thStyle}>{h}</th>)}
+                  {["ID", "Summary", "Org / Dept", "Reported By", "Assignees", "Priority", "Category", "Status", "Created", "Action"].map(h => <th key={h} style={thStyle}>{h}</th>)}
                 </tr></thead>
                 <tbody>{filtered.map(t => (
                   <tr key={t.id} className="rh" style={{ cursor: "pointer", background: selectedIds.has(t.id) ? "#eff6ff" : "#fff" }}>
                     <td style={tdStyle} onClick={e => e.stopPropagation()}><input type="checkbox" checked={selectedIds.has(t.id)} onChange={() => toggleSel(t.id)} style={{ cursor: "pointer" }} /></td>
-                    <td style={tdStyle} onClick={() => setSelTicket(t)}><span style={{ fontFamily: "'DM Mono',monospace", fontSize: 11.5, color: "#3b82f6", fontWeight: 500 }}>{t.id}</span></td>
+                    <td style={tdStyle} onClick={() => setSelTicket(t)}><span style={{ fontFamily: "'DM Mono',monospace", fontSize: 11.5, color: "#3b82f6", fontWeight: 500 }}>{t.id}</span>{t.isWebcast && <span style={{ marginLeft: 5, fontSize: 10, background: "#fff7ed", color: "#f97316", padding: "1px 5px", borderRadius: 4, fontWeight: 600 }}>📡</span>}</td>
                     <td style={{ ...tdStyle, maxWidth: 180 }} onClick={() => setSelTicket(t)}><div style={{ fontWeight: 500, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{t.summary}</div></td>
                     <td style={tdStyle} onClick={() => setSelTicket(t)}><div style={{ fontSize: 12, fontWeight: 500 }}>{t.org}</div><div style={{ fontSize: 11, color: "#94a3b8" }}>{t.department}</div></td>
                     <td style={tdStyle} onClick={() => setSelTicket(t)}><span style={{ fontSize: 12, color: "#64748b" }}>{t.reportedBy || "—"}</span></td>
@@ -677,6 +1109,7 @@ export default function HelpDesk() {
                       </div>
                     </td>
                     <td style={tdStyle} onClick={() => setSelTicket(t)}><div style={{ display: "flex", alignItems: "center", gap: 4 }}><span style={{ width: 7, height: 7, borderRadius: "50%", background: PRIORITY_COLOR[t.priority], display: "inline-block" }} /><span style={{ fontSize: 12 }}>{t.priority}</span></div></td>
+                    <td style={tdStyle} onClick={() => setSelTicket(t)}><span style={{ fontSize: 12, color: "#64748b" }}>{t.category || "—"}</span></td>
                     <td style={tdStyle} onClick={() => setSelTicket(t)}><Badge label={t.status} style={{ ...STATUS_COLOR[t.status] }} /></td>
                     <td style={tdStyle} onClick={() => setSelTicket(t)}><span style={{ fontSize: 11, color: "#94a3b8" }}>{t.created.toLocaleDateString()}</span></td>
                     <td style={tdStyle} onClick={e => e.stopPropagation()}><select value={t.status} onChange={e => updateStatus(t.id, e.target.value)} style={{ ...sS, width: 108, fontSize: 12, padding: "4px 7px" }}>{STATUSES.map(s => <option key={s}>{s}</option>)}</select></td>
@@ -687,16 +1120,201 @@ export default function HelpDesk() {
             </div>
           </div>}
 
-          {/* REPORTS */}
+          {/* ── PROJECTS ── */}
+          {view === "projects" && <div style={{ background: "#fff", borderRadius: 12, boxShadow: "0 1px 4px rgba(0,0,0,0.06)", overflow: "hidden" }}>
+            <div style={{ padding: "11px 14px", borderBottom: "1px solid #f1f5f9", display: "flex", gap: 9, alignItems: "center", flexWrap: "wrap" }}>
+              <input placeholder="Search projects…" value={projSearch} onChange={e => setProjSearch(e.target.value)} style={{ ...iS, width: 200, fontSize: 13, padding: "7px 10px" }} />
+              <select value={projStatusF} onChange={e => setProjStatusF(e.target.value)} style={{ ...sS, width: 128, fontSize: 13, padding: "7px 10px" }}><option value="All">All Status</option>{PROJECT_STATUSES.map(s => <option key={s}>{s}</option>)}</select>
+              <select value={projPriorityF} onChange={e => setProjPriorityF(e.target.value)} style={{ ...sS, width: 128, fontSize: 13, padding: "7px 10px" }}><option value="All">All Priority</option>{PROJECT_PRIORITIES.map(p => <option key={p}>{p}</option>)}</select>
+              <span style={{ fontSize: 12, color: "#64748b" }}>{filteredProjects.length} projects</span>
+              <div style={{ marginLeft: "auto", display: "flex", gap: 8, alignItems: "center" }}>
+                {selectedProjIds.size > 0 && <span style={{ fontSize: 12, color: "#3b82f6", fontWeight: 600, background: "#eff6ff", padding: "4px 10px", borderRadius: 99 }}>{selectedProjIds.size} selected</span>}
+                <button onClick={() => setShowManageProject(showManageProject === "categories" ? null : "categories")} style={{ ...bG, padding: "7px 12px", fontSize: 12 }}>🏷 Categories</button>
+                <button onClick={() => setShowManageProject(showManageProject === "customattrs" ? null : "customattrs")} style={{ ...bG, padding: "7px 12px", fontSize: 12 }}>✏️ Fields</button>
+                <div style={{ position: "relative" }}>
+                  <button onClick={() => setShowProjExport(!showProjExport)} style={{ ...bG, display: "flex", alignItems: "center", gap: 6, padding: "7px 13px" }}>⬇ Export <span style={{ fontSize: 10 }}>▾</span></button>
+                  {showProjExport && <><div style={{ position: "fixed", inset: 0, zIndex: 149 }} onClick={() => setShowProjExport(false)} />
+                    <div style={{ position: "absolute", right: 0, top: "calc(100% + 4px)", background: "#fff", border: "1.5px solid #e2e8f0", borderRadius: 10, zIndex: 150, boxShadow: "0 8px 24px rgba(0,0,0,0.12)", minWidth: 188, overflow: "hidden" }}>
+                      {[{ l: "📄 Export CSV", a: () => exportCSV(selectedProjIds.size > 0 ? selProjects : filteredProjects, "projects") }, { l: "📋 Export JSON", a: () => exportJSON(selectedProjIds.size > 0 ? selProjects : filteredProjects) }, { l: "🖨 Print / PDF", a: () => exportPrint(selectedProjIds.size > 0 ? selProjects : filteredProjects, "projects") }].map(x => (
+                        <button key={x.l} onClick={() => { x.a(); setShowProjExport(false); }} style={{ display: "block", width: "100%", padding: "10px 14px", border: "none", background: "#fff", cursor: "pointer", fontSize: 13, textAlign: "left", fontFamily: "'DM Sans',sans-serif", borderBottom: "1px solid #f8fafc" }}>{x.l}</button>
+                      ))}
+                    </div>
+                  </>}
+                </div>
+                <button onClick={() => setShowNewProject(true)} style={{ ...bP, padding: "7px 13px", fontSize: 13, background: "linear-gradient(135deg,#8b5cf6,#6366f1)" }}>+ New Project</button>
+              </div>
+            </div>
+
+            {/* Inline Project Categories Manager */}
+            {showManageProject === "categories" && <div style={{ borderBottom: "1px solid #f1f5f9", padding: "16px 18px", background: "#faf5ff" }}>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
+                <span style={{ fontSize: 13, fontWeight: 700, color: "#0f172a" }}>🏷 Project Categories</span>
+                <button onClick={() => setShowManageProject(null)} style={{ border: "none", background: "#e2e8f0", borderRadius: 6, width: 24, height: 24, cursor: "pointer", fontSize: 14, color: "#64748b" }}>×</button>
+              </div>
+              <div style={{ display: "flex", gap: 9, marginBottom: 14, alignItems: "center", flexWrap: "wrap" }}>
+                <input style={{ ...iS, flex: 1, minWidth: 140, fontSize: 13, padding: "7px 10px" }} placeholder="Category name *" value={newProjCat.name} onChange={e => setNewProjCat({ ...newProjCat, name: e.target.value })} />
+                <div style={{ display: "flex", alignItems: "center", gap: 6 }}><label style={{ fontSize: 12, fontWeight: 600, color: "#374151" }}>Color</label><input type="color" value={newProjCat.color} onChange={e => setNewProjCat({ ...newProjCat, color: e.target.value })} style={{ width: 30, height: 30, border: "none", borderRadius: 6, cursor: "pointer", padding: 2 }} /></div>
+                <button onClick={addProjCat} style={{ ...bP, padding: "7px 16px", fontSize: 12, background: "linear-gradient(135deg,#8b5cf6,#6366f1)" }}>+ Add</button>
+              </div>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+                {projectCategories.map(c => (
+                  <div key={c.id} style={{ display: "flex", alignItems: "center", gap: 7, padding: "6px 10px 6px 8px", borderRadius: 8, border: `1.5px solid ${c.color}44`, background: `${c.color}11` }}>
+                    <div style={{ width: 10, height: 10, borderRadius: 2, background: c.color, flexShrink: 0 }} />
+                    <span style={{ fontSize: 12, fontWeight: 600, color: "#1e293b" }}>{c.name}</span>
+                    <span style={{ fontSize: 10, color: "#94a3b8" }}>{projects.filter(p => p.category === c.name).length}</span>
+                    <button onClick={() => setProjectCategories(projectCategories.filter(x => x.id !== c.id))} style={{ border: "none", background: "transparent", color: "#ef4444", cursor: "pointer", fontSize: 14, fontWeight: 700, padding: "0 2px", lineHeight: 1 }}>×</button>
+                  </div>
+                ))}
+                {projectCategories.length === 0 && <span style={{ fontSize: 12, color: "#94a3b8" }}>No categories yet.</span>}
+              </div>
+            </div>}
+
+            {/* Inline Project Custom Attrs */}
+            {showManageProject === "customattrs" && <div style={{ borderBottom: "1px solid #f1f5f9", padding: "16px 18px", background: "#faf5ff" }}>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
+                <span style={{ fontSize: 13, fontWeight: 700, color: "#0f172a" }}>✏️ Project Custom Fields</span>
+                <button onClick={() => setShowManageProject(null)} style={{ border: "none", background: "#e2e8f0", borderRadius: 6, width: 24, height: 24, cursor: "pointer", fontSize: 14, color: "#64748b" }}>×</button>
+              </div>
+              <div style={{ display: "flex", gap: 9, marginBottom: 14, alignItems: "flex-end", flexWrap: "wrap" }}>
+                <input style={{ ...iS, flex: 1, minWidth: 130, fontSize: 13, padding: "7px 10px" }} placeholder="Field name *" value={newProjAttr.name} onChange={e => setNewProjAttr({ ...newProjAttr, name: e.target.value })} />
+                <select style={{ ...sS, width: 100, fontSize: 13, padding: "7px 9px" }} value={newProjAttr.type} onChange={e => setNewProjAttr({ ...newProjAttr, type: e.target.value })}>{["text", "number", "select", "date", "checkbox"].map(t => <option key={t}>{t}</option>)}</select>
+                {newProjAttr.type === "select" && <input style={{ ...iS, width: 160, fontSize: 13, padding: "7px 10px" }} placeholder="Options (comma-sep)" value={newProjAttr.options} onChange={e => setNewProjAttr({ ...newProjAttr, options: e.target.value })} />}
+                <label style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 12, color: "#374151", whiteSpace: "nowrap" }}><input type="checkbox" checked={newProjAttr.required} onChange={e => setNewProjAttr({ ...newProjAttr, required: e.target.checked })} />Required</label>
+                <button onClick={addProjAttr} style={{ ...bP, padding: "7px 16px", fontSize: 12, background: "linear-gradient(135deg,#8b5cf6,#6366f1)" }}>+ Add</button>
+              </div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
+                {projectCustomAttrs.map(a => (
+                  <div key={a.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "9px 12px", borderRadius: 8, border: "1.5px solid #e2e8f0", background: "#fff" }}>
+                    <div style={{ width: 28, height: 28, background: "#f5f3ff", borderRadius: 6, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13, flexShrink: 0 }}>{a.type === "text" ? "Aa" : a.type === "number" ? "#" : a.type === "select" ? "≡" : a.type === "date" ? "📅" : "☑"}</div>
+                    <div style={{ flex: 1 }}><span style={{ fontSize: 12, fontWeight: 600 }}>{a.name}</span>{a.required && <span style={{ color: "#ef4444", marginLeft: 3 }}>*</span>}<span style={{ fontSize: 11, color: "#94a3b8", marginLeft: 7 }}>({a.type}{a.options?.length ? ` · ${a.options.join(", ")}` : ""}) </span></div>
+                    <button onClick={() => setProjectCustomAttrs(projectCustomAttrs.filter(x => x.id !== a.id))} style={{ border: "none", background: "#fee2e2", color: "#ef4444", borderRadius: 5, padding: "3px 9px", cursor: "pointer", fontSize: 12, fontWeight: 600 }}>Delete</button>
+                  </div>
+                ))}
+                {projectCustomAttrs.length === 0 && <span style={{ fontSize: 12, color: "#94a3b8" }}>No custom fields yet.</span>}
+              </div>
+            </div>}
+
+            <div style={{ overflowX: "auto" }}>
+              <table style={{ width: "100%", borderCollapse: "collapse" }}>
+                <thead><tr style={{ background: "#f8fafc" }}>
+                  <th style={{ ...thStyle, width: 40 }}><input type="checkbox" checked={selectedProjIds.size === filteredProjects.length && filteredProjects.length > 0} onChange={toggleAllProj} style={{ cursor: "pointer" }} /></th>
+                  {["ID", "Title", "Org / Dept", "Assignees", "Priority", "Category", "Status", "Progress", "Due Date", "Action"].map(h => <th key={h} style={thStyle}>{h}</th>)}
+                </tr></thead>
+                <tbody>{filteredProjects.map(p => (
+                  <tr key={p.id} className="rh" style={{ cursor: "pointer", background: selectedProjIds.has(p.id) ? "#f5f3ff" : "#fff" }}>
+                    <td style={tdStyle} onClick={e => e.stopPropagation()}><input type="checkbox" checked={selectedProjIds.has(p.id)} onChange={() => toggleProjSel(p.id)} style={{ cursor: "pointer" }} /></td>
+                    <td style={tdStyle} onClick={() => setSelProject(p)}><span style={{ fontFamily: "'DM Mono',monospace", fontSize: 11.5, color: "#8b5cf6", fontWeight: 500 }}>{p.id}</span></td>
+                    <td style={{ ...tdStyle, maxWidth: 180 }} onClick={() => setSelProject(p)}><div style={{ fontWeight: 500, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{p.title}</div></td>
+                    <td style={tdStyle} onClick={() => setSelProject(p)}><div style={{ fontSize: 12, fontWeight: 500 }}>{p.org}</div><div style={{ fontSize: 11, color: "#94a3b8" }}>{p.department}</div></td>
+                    <td style={tdStyle} onClick={() => setSelProject(p)}>
+                      <div style={{ display: "flex", alignItems: "center" }}>
+                        {(p.assignees || []).slice(0, 3).map((a, i) => <div key={a.id} title={a.name} style={{ marginLeft: i > 0 ? -7 : 0, border: "2px solid #fff", borderRadius: "50%" }}><Avatar name={a.name} size={22} /></div>)}
+                        {!p.assignees?.length && <span style={{ fontSize: 11, color: "#94a3b8" }}>None</span>}
+                      </div>
+                    </td>
+                    <td style={tdStyle} onClick={() => setSelProject(p)}><div style={{ display: "flex", alignItems: "center", gap: 4 }}><span style={{ width: 7, height: 7, borderRadius: "50%", background: PRIORITY_COLOR[p.priority], display: "inline-block" }} /><span style={{ fontSize: 12 }}>{p.priority}</span></div></td>
+                    <td style={tdStyle} onClick={() => setSelProject(p)}><span style={{ fontSize: 12, color: "#64748b" }}>{p.category || "—"}</span></td>
+                    <td style={tdStyle} onClick={() => setSelProject(p)}><Badge label={p.status} style={{ ...STATUS_COLOR[p.status] }} /></td>
+                    <td style={tdStyle} onClick={() => setSelProject(p)}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 7 }}>
+                        <ProgressBar value={p.progress} color={p.progress > 70 ? "#22c55e" : p.progress > 40 ? "#f59e0b" : "#ef4444"} />
+                        <span style={{ fontSize: 11, fontWeight: 600, color: "#374151", minWidth: 28 }}>{p.progress}%</span>
+                      </div>
+                    </td>
+                    <td style={tdStyle} onClick={() => setSelProject(p)}><span style={{ fontSize: 11, color: "#94a3b8" }}>{p.dueDate?.toLocaleDateString() || "—"}</span></td>
+                    <td style={tdStyle} onClick={e => e.stopPropagation()}><select value={p.status} onChange={e => updateProjectStatus(p.id, e.target.value)} style={{ ...sS, width: 108, fontSize: 12, padding: "4px 7px" }}>{PROJECT_STATUSES.map(s => <option key={s}>{s}</option>)}</select></td>
+                  </tr>
+                ))}</tbody>
+              </table>
+              {filteredProjects.length === 0 && <div style={{ padding: 36, textAlign: "center", color: "#94a3b8" }}>No projects found</div>}
+            </div>
+          </div>}
+
+          {/* ── WEBCAST ── */}
+          {view === "webcast" && <>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 9, marginBottom: 16 }}>
+              {[
+                { label: "Total Webcasts", value: SATSANG_EVENTS.length, color: "#f97316", icon: "📡" },
+                { label: "Live Now", value: SATSANG_EVENTS.filter(e => e.status === "Live").length, color: "#ef4444", icon: "🔴" },
+                { label: "Completed", value: SATSANG_EVENTS.filter(e => e.status === "Completed").length, color: "#22c55e", icon: "✅" },
+                { label: "Total Attendees", value: SATSANG_EVENTS.reduce((s, e) => s + e.attendees, 0).toLocaleString(), color: "#3b82f6", icon: "👥" },
+              ].map(s => (
+                <div key={s.label} style={{ background: "#fff", borderRadius: 12, padding: "14px 16px", boxShadow: "0 1px 4px rgba(0,0,0,0.06)", borderTop: `3px solid ${s.color}` }}>
+                  <div style={{ fontSize: 20, marginBottom: 5 }}>{s.icon}</div>
+                  <div style={{ fontSize: 24, fontWeight: 700, color: s.color }}>{s.value}</div>
+                  <div style={{ fontSize: 11, color: "#64748b" }}>{s.label}</div>
+                </div>
+              ))}
+            </div>
+            <div style={{ background: "#fff", borderRadius: 12, padding: 22, boxShadow: "0 1px 4px rgba(0,0,0,0.06)", marginBottom: 16 }}>
+              <h3 style={{ margin: "0 0 4px", fontSize: 15, fontWeight: 700 }}>Previous Satsang Records</h3>
+              <p style={{ margin: "0 0 18px", fontSize: 12, color: "#64748b" }}>Archive of all Satsang webcasts with G</p>
+              <div style={{ display: "grid", gap: 10 }}>
+                {SATSANG_EVENTS.map(e => (
+                  <div key={e.id} style={{ display: "flex", alignItems: "center", gap: 14, padding: "14px 16px", borderRadius: 10, border: "1.5px solid #f1f5f9", background: "#fafafa" }}>
+                    <div style={{ width: 44, height: 44, background: e.status === "Live" ? "#fee2e2" : "#eff6ff", borderRadius: 10, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 22, flexShrink: 0 }}>{e.status === "Live" ? "🔴" : "📡"}</div>
+                    <div style={{ flex: 1 }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                        <span style={{ fontSize: 14, fontWeight: 700 }}>{e.name}</span>
+                        {e.status === "Live" && <span style={{ background: "#fee2e2", color: "#ef4444", fontSize: 10, fontWeight: 700, padding: "2px 7px", borderRadius: 99, animation: "pulse 1s infinite" }}>● LIVE</span>}
+                        {e.status === "Completed" && <Badge label="Completed" style={{ background: "#dcfce7", color: "#15803d" }} />}
+                      </div>
+                      <div style={{ display: "flex", alignItems: "center", gap: 14, marginTop: 4 }}>
+                        <span style={{ fontSize: 12, color: "#64748b" }}>📍 {e.location}</span>
+                        <span style={{ fontSize: 12, color: "#64748b" }}>📅 {e.date}</span>
+                        <span style={{ fontSize: 12, color: "#64748b" }}>👥 {e.attendees.toLocaleString()} attendees</span>
+                        <span style={{ fontSize: 12, color: "#64748b" }}>🏷 {e.type}</span>
+                      </div>
+                    </div>
+                    <div style={{ display: "flex", gap: 7 }}>
+                      {e.status === "Completed" && <button style={{ ...bG, padding: "6px 12px", fontSize: 12 }}>▶ Play Recording</button>}
+                      {e.status === "Live" && <button style={{ ...bP, padding: "6px 12px", fontSize: 12, background: "linear-gradient(135deg,#ef4444,#f97316)" }}>🔴 Watch Live</button>}
+                      <button onClick={() => { setView("tickets"); setTvFilter("all"); }} style={{ ...bG, padding: "6px 12px", fontSize: 12 }}>🎫 Tickets</button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+            <div style={{ background: "#fff", borderRadius: 12, padding: 22, boxShadow: "0 1px 4px rgba(0,0,0,0.06)" }}>
+              <h3 style={{ margin: "0 0 14px", fontSize: 15, fontWeight: 700 }}>Webcast Tickets</h3>
+              <div style={{ overflowX: "auto" }}>
+                <table style={{ width: "100%", borderCollapse: "collapse" }}>
+                  <thead><tr style={{ background: "#f8fafc" }}>{["ID", "Summary", "Location", "Satsang Type", "Priority", "Status"].map(h => <th key={h} style={thStyle}>{h}</th>)}</tr></thead>
+                  <tbody>{tickets.filter(t => t.isWebcast).slice(0, 10).map((t, i) => (
+                    <tr key={t.id + i} className="rh" onClick={() => setSelTicket(t)} style={{ cursor: "pointer" }}>
+                      <td style={tdStyle}><span style={{ fontFamily: "'DM Mono',monospace", fontSize: 11.5, color: "#3b82f6" }}>{t.id}</span></td>
+                      <td style={{ ...tdStyle, maxWidth: 200 }}><div style={{ whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{t.summary}</div></td>
+                      <td style={tdStyle}><span style={{ fontSize: 12, color: "#64748b" }}>{t.location || "—"}</span></td>
+                      <td style={tdStyle}><span style={{ fontSize: 12, color: "#64748b" }}>{t.satsangType || "—"}</span></td>
+                      <td style={tdStyle}><div style={{ display: "flex", alignItems: "center", gap: 4 }}><span style={{ width: 7, height: 7, borderRadius: "50%", background: PRIORITY_COLOR[t.priority], display: "inline-block" }} />{t.priority}</div></td>
+                      <td style={tdStyle}><Badge label={t.status} style={{ ...STATUS_COLOR[t.status] }} /></td>
+                    </tr>
+                  ))}
+                    {tickets.filter(t => t.isWebcast).length === 0 && <tr><td colSpan={6} style={{ padding: 24, textAlign: "center", color: "#94a3b8", fontSize: 13 }}>No webcast tickets yet. Mark a ticket as Webcast when creating it.</td></tr>}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </>}
+
+          {/* ── REPORTS (v1 charts) ── */}
           {view === "reports" && <>
             <div style={{ display: "flex", gap: 9, marginBottom: 14, alignItems: "center" }}>
               <span style={{ fontSize: 13, fontWeight: 600, color: "#374151" }}>Export Report:</span>
               {[{ l: "📄 CSV", a: () => exportCSV(fbr) }, { l: "📋 JSON", a: () => exportJSON(fbr) }, { l: "🖨 Print", a: () => exportPrint(fbr) }].map(b => <button key={b.l} onClick={b.a} style={bG}>{b.l}</button>)}
             </div>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 12 }}>
+              <div style={{ background: "#fff", borderRadius: 12, padding: 18, boxShadow: "0 1px 4px rgba(0,0,0,0.06)" }}>
+                <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 4 }}>Ticket Status Distribution</div>
+                <div style={{ fontSize: 11, color: "#94a3b8", marginBottom: 12 }}>Open / Closed / In Progress</div>
+                <DonutChart data={["Open", "Closed", "In Progress"].map(s => ({ label: s, color: STATUS_COLOR[s]?.text || "#94a3b8", value: fbr.filter(t => t.status === s).length }))} />
+              </div>
+              <div style={{ background: "#fff", borderRadius: 12, padding: 18, boxShadow: "0 1px 4px rgba(0,0,0,0.06)" }}>
+                <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 4 }}>Project Status Distribution</div>
+                <div style={{ fontSize: 11, color: "#94a3b8", marginBottom: 12 }}>Open / Closed / In Progress</div>
+                <DonutChart data={["Open", "Closed", "In Progress"].map(s => ({ label: s, color: STATUS_COLOR[s]?.text || "#94a3b8", value: prbr.filter(p => p.status === s).length }))} />
+              </div>
               <div style={{ background: "#fff", borderRadius: 12, padding: 18, boxShadow: "0 1px 4px rgba(0,0,0,0.06)" }}><div style={{ fontSize: 12, fontWeight: 600, marginBottom: 12 }}>Ticket Volume</div><BarChart data={dailyData} /></div>
-              <div style={{ background: "#fff", borderRadius: 12, padding: 18, boxShadow: "0 1px 4px rgba(0,0,0,0.06)" }}><div style={{ fontSize: 12, fontWeight: 600, marginBottom: 12 }}>By Priority</div><DonutChart data={priorityDist} /></div>
-              <div style={{ background: "#fff", borderRadius: 12, padding: 18, boxShadow: "0 1px 4px rgba(0,0,0,0.06)" }}><div style={{ fontSize: 12, fontWeight: 600, marginBottom: 12 }}>Status Distribution</div><DonutChart data={STATUSES.map((s, i) => ({ label: s, color: Object.values(STATUS_COLOR)[i].text, value: fbr.filter(t => t.status === s).length }))} /></div>
               <div style={{ background: "#fff", borderRadius: 12, padding: 18, boxShadow: "0 1px 4px rgba(0,0,0,0.06)" }}><div style={{ fontSize: 12, fontWeight: 600, marginBottom: 12 }}>By Category</div><BarChart data={categoryDist} color="#8b5cf6" /></div>
             </div>
             <div style={{ background: "#fff", borderRadius: 12, padding: 18, boxShadow: "0 1px 4px rgba(0,0,0,0.06)" }}>
@@ -718,7 +1336,7 @@ export default function HelpDesk() {
             </div>
           </>}
 
-          {/* AGENTS */}
+          {/* ── AGENTS ── */}
           {view === "users" && <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(240px,1fr))", gap: 12 }}>
             {agentStats.map(a => (
               <div key={a.id} style={{ background: "#fff", borderRadius: 12, padding: 18, boxShadow: "0 1px 4px rgba(0,0,0,0.06)" }}>
@@ -742,7 +1360,7 @@ export default function HelpDesk() {
             ))}
           </div>}
 
-          {/* SETTINGS */}
+          {/* ── SETTINGS ── */}
           {view === "settings" && <div style={{ display: "flex", gap: 18, alignItems: "flex-start" }}>
             <div style={{ width: 194, background: "#fff", borderRadius: 12, padding: 9, boxShadow: "0 1px 4px rgba(0,0,0,0.06)", flexShrink: 0 }}>
               {stabs.map(t => (
@@ -752,11 +1370,9 @@ export default function HelpDesk() {
               ))}
             </div>
             <div style={{ flex: 1 }}>
-
-              {/* Ticket Views */}
               {settingsTab === "ticketviews" && <div style={{ background: "#fff", borderRadius: 12, padding: 22, boxShadow: "0 1px 4px rgba(0,0,0,0.06)" }}>
                 <h3 style={{ margin: "0 0 4px", fontSize: 15, fontWeight: 700 }}>Ticket Views</h3>
-                <p style={{ margin: "0 0 18px", fontSize: 12, color: "#64748b" }}>Predefined views for quick ticket filtering. Click "View" to open any filtered view.</p>
+                <p style={{ margin: "0 0 18px", fontSize: 12, color: "#64748b" }}>Predefined views for quick ticket filtering.</p>
                 {TICKET_VIEWS.map(v => (
                   <div key={v.id} style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px 14px", borderRadius: 10, border: "1.5px solid #f1f5f9", marginBottom: 7, background: "#fafafa" }}>
                     <div style={{ fontSize: 20, width: 32, textAlign: "center" }}>{v.icon}</div>
@@ -766,8 +1382,18 @@ export default function HelpDesk() {
                   </div>
                 ))}
               </div>}
-
-              {/* Organisations */}
+              {settingsTab === "projectviews" && <div style={{ background: "#fff", borderRadius: 12, padding: 22, boxShadow: "0 1px 4px rgba(0,0,0,0.06)" }}>
+                <h3 style={{ margin: "0 0 4px", fontSize: 15, fontWeight: 700 }}>Project Views</h3>
+                <p style={{ margin: "0 0 18px", fontSize: 12, color: "#64748b" }}>Predefined views for quick project filtering.</p>
+                {PROJECT_VIEWS.map(v => (
+                  <div key={v.id} style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px 14px", borderRadius: 10, border: "1.5px solid #f1f5f9", marginBottom: 7, background: "#fafafa" }}>
+                    <div style={{ fontSize: 20, width: 32, textAlign: "center" }}>{v.icon}</div>
+                    <div style={{ flex: 1 }}><div style={{ fontSize: 13, fontWeight: 600 }}>{v.label}</div><div style={{ fontSize: 11, color: "#94a3b8" }}>{v.desc}</div></div>
+                    <span style={{ fontSize: 11, color: "#64748b", background: "#f1f5f9", padding: "3px 9px", borderRadius: 99, fontWeight: 600 }}>{projects.filter(p => v.filter(p, currentUser)).length}</span>
+                    <button onClick={() => { setView("projects"); setPvFilter(v.id); }} style={{ ...bP, padding: "5px 12px", fontSize: 12, background: "linear-gradient(135deg,#8b5cf6,#6366f1)" }}>View</button>
+                  </div>
+                ))}
+              </div>}
               {settingsTab === "organisations" && <div style={{ background: "#fff", borderRadius: 12, padding: 22, boxShadow: "0 1px 4px rgba(0,0,0,0.06)" }}>
                 <h3 style={{ margin: "0 0 14px", fontSize: 15, fontWeight: 700 }}>Organisations ({orgs.length})</h3>
                 {currentUser?.role === "Admin" ? (
@@ -777,11 +1403,9 @@ export default function HelpDesk() {
                     <input style={iS} placeholder="Phone" value={newOrg.phone} onChange={e => setNewOrg({ ...newOrg, phone: e.target.value })} />
                     <button onClick={addOrg} style={bP}>Add</button>
                   </div>
-                ) : (
-                  <div style={{ marginBottom: 18, padding: "10px 14px", background: "#fef3c7", color: "#92400e", borderRadius: 8, fontSize: 13, fontWeight: 500 }}>Read Only: Organisation management is restricted to Admins.</div>
-                )}
+                ) : <div style={{ marginBottom: 18, padding: "10px 14px", background: "#fef3c7", color: "#92400e", borderRadius: 8, fontSize: 13, fontWeight: 500 }}>Read Only: Organisation management is restricted to Admins.</div>}
                 <table style={{ width: "100%", borderCollapse: "collapse" }}>
-                  <thead><tr>{["Name", "Domain", "Phone", currentUser?.role === "Admin" ? "" : null].filter(Boolean).map(h => <th key={h} style={thStyle}>{h}</th>)}</tr></thead>
+                  <thead><tr>{["Name", "Domain", "Phone", currentUser?.role === "Admin" ? "" : null].filter(s => s !== null).map(h => <th key={h} style={thStyle}>{h}</th>)}</tr></thead>
                   <tbody>{orgs.map(o => <tr key={o.id} className="rh">
                     <td style={{ ...tdStyle, fontWeight: 600 }}>{o.name}</td>
                     <td style={{ ...tdStyle, color: "#64748b" }}>{o.domain || "—"}</td>
@@ -790,8 +1414,6 @@ export default function HelpDesk() {
                   </tr>)}</tbody>
                 </table>
               </div>}
-
-              {/* Categories */}
               {settingsTab === "categories" && <div style={{ background: "#fff", borderRadius: 12, padding: 22, boxShadow: "0 1px 4px rgba(0,0,0,0.06)" }}>
                 <h3 style={{ margin: "0 0 14px", fontSize: 15, fontWeight: 700 }}>Ticket Categories ({categories.length})</h3>
                 {currentUser?.role === "Admin" ? (
@@ -800,9 +1422,7 @@ export default function HelpDesk() {
                     <div style={{ display: "flex", alignItems: "center", gap: 7 }}><label style={{ fontSize: 13, fontWeight: 600, color: "#374151" }}>Color</label><input type="color" value={newCat.color} onChange={e => setNewCat({ ...newCat, color: e.target.value })} style={{ width: 34, height: 34, border: "none", borderRadius: 7, cursor: "pointer", padding: 2 }} /></div>
                     <button onClick={addCat} style={bP}>Add</button>
                   </div>
-                ) : (
-                  <div style={{ marginBottom: 18, padding: "10px 14px", background: "#fef3c7", color: "#92400e", borderRadius: 8, fontSize: 13, fontWeight: 500 }}>Read Only: Category management is restricted to Admins.</div>
-                )}
+                ) : <div style={{ marginBottom: 18, padding: "10px 14px", background: "#fef3c7", color: "#92400e", borderRadius: 8, fontSize: 13, fontWeight: 500 }}>Read Only: Category management is restricted to Admins.</div>}
                 <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(190px,1fr))", gap: 9 }}>
                   {categories.map(c => (
                     <div key={c.id} style={{ display: "flex", alignItems: "center", gap: 9, padding: "11px 13px", borderRadius: 9, border: `1.5px solid ${c.color}33`, background: `${c.color}0d` }}>
@@ -814,8 +1434,6 @@ export default function HelpDesk() {
                   ))}
                 </div>
               </div>}
-
-              {/* User Management */}
               {settingsTab === "usermgmt" && <div style={{ background: "#fff", borderRadius: 12, padding: 22, boxShadow: "0 1px 4px rgba(0,0,0,0.06)" }}>
                 <h3 style={{ margin: "0 0 14px", fontSize: 15, fontWeight: 700 }}>User Management ({users.length} users)</h3>
                 {currentUser?.role === "Admin" ? (
@@ -825,9 +1443,7 @@ export default function HelpDesk() {
                     <select style={{ ...sS, width: 110 }} value={newUser.role} onChange={e => setNewUser({ ...newUser, role: e.target.value })}>{ROLES.map(r => <option key={r}>{r}</option>)}</select>
                     <button onClick={addUser} style={bP}>Add</button>
                   </div>
-                ) : (
-                  <div style={{ marginBottom: 18, padding: "10px 14px", background: "#fef3c7", color: "#92400e", borderRadius: 8, fontSize: 13, fontWeight: 500 }}>Read Only: User management is restricted to Admins.</div>
-                )}
+                ) : <div style={{ marginBottom: 18, padding: "10px 14px", background: "#fef3c7", color: "#92400e", borderRadius: 8, fontSize: 13, fontWeight: 500 }}>Read Only: User management is restricted to Admins.</div>}
                 <table style={{ width: "100%", borderCollapse: "collapse" }}>
                   <thead><tr>{["User", "Email", "Role", "Status", currentUser?.role === "Admin" ? "Actions" : null].filter(Boolean).map(h => <th key={h} style={thStyle}>{h}</th>)}</tr></thead>
                   <tbody>{users.map(u => (
@@ -835,7 +1451,10 @@ export default function HelpDesk() {
                       <td style={tdStyle}><div style={{ display: "flex", alignItems: "center", gap: 8 }}><Avatar name={u.name} size={28} /><span style={{ fontSize: 13, fontWeight: 600 }}>{u.name}</span></div></td>
                       <td style={{ ...tdStyle, color: "#64748b", fontSize: 12 }}>{u.email}</td>
                       <td style={tdStyle}><Badge label={u.role} style={{ background: "#ede9fe", color: "#6d28d9" }} /></td>
-                      <td style={tdStyle}><div style={{ display: "flex", gap: 4 }}><Badge label={u.active ? "Active (System)" : "Inactive (System)"} style={{ background: u.active ? "#dcfce7" : "#fee2e2", color: u.active ? "#15803d" : "#ef4444" }} />{u.status && <Badge label={u.status} style={{ background: statusOpts.find(s => s.l === u.status)?.bg || "#f1f5f9", color: statusOpts.find(s => s.l === u.status)?.c || "#64748b" }} />}</div></td>
+                      <td style={tdStyle}><div style={{ display: "flex", gap: 4 }}>
+                        <Badge label={u.active ? "Active" : "Inactive"} style={{ background: u.active ? "#dcfce7" : "#fee2e2", color: u.active ? "#15803d" : "#ef4444" }} />
+                        {u.status && <Badge label={u.status} style={{ background: statusOpts.find(s => s.l === u.status)?.bg || "#f1f5f9", color: statusOpts.find(s => s.l === u.status)?.c || "#64748b" }} />}
+                      </div></td>
                       {currentUser?.role === "Admin" && <td style={tdStyle}><div style={{ display: "flex", gap: 6 }}>
                         <button onClick={() => setUsers(users.map(x => x.id === u.id ? { ...x, active: !x.active } : x))} style={{ border: "none", background: u.active ? "#fef9c3" : "#dcfce7", color: u.active ? "#854d0e" : "#15803d", borderRadius: 6, padding: "4px 9px", cursor: "pointer", fontSize: 12, fontWeight: 600 }}>{u.active ? "Deactivate" : "Activate"}</button>
                         {u.id !== currentUser.id && <button onClick={() => setUsers(users.filter(x => x.id !== u.id))} style={{ border: "none", background: "#fee2e2", color: "#ef4444", borderRadius: 6, padding: "4px 9px", cursor: "pointer", fontSize: 12, fontWeight: 600 }}>Delete</button>}
@@ -844,8 +1463,6 @@ export default function HelpDesk() {
                   ))}</tbody>
                 </table>
               </div>}
-
-              {/* Custom Attributes */}
               {settingsTab === "customattrs" && <div style={{ background: "#fff", borderRadius: 12, padding: 22, boxShadow: "0 1px 4px rgba(0,0,0,0.06)" }}>
                 <h3 style={{ margin: "0 0 4px", fontSize: 15, fontWeight: 700 }}>Custom Attributes</h3>
                 <p style={{ margin: "0 0 14px", fontSize: 12, color: "#64748b" }}>Custom fields will appear on every new ticket form.</p>
@@ -857,9 +1474,7 @@ export default function HelpDesk() {
                     <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13, color: "#374151", whiteSpace: "nowrap" }}><input type="checkbox" checked={newAttr.required} onChange={e => setNewAttr({ ...newAttr, required: e.target.checked })} />Required</label>
                     <button onClick={addAttr} style={bP}>Add</button>
                   </div>
-                ) : (
-                  <div style={{ marginBottom: 18, padding: "10px 14px", background: "#fef3c7", color: "#92400e", borderRadius: 8, fontSize: 13, fontWeight: 500 }}>Read Only: Attribute management is restricted to Admins.</div>
-                )}
+                ) : <div style={{ marginBottom: 18, padding: "10px 14px", background: "#fef3c7", color: "#92400e", borderRadius: 8, fontSize: 13, fontWeight: 500 }}>Read Only: Attribute management is restricted to Admins.</div>}
                 {customAttrs.map(a => (
                   <div key={a.id} style={{ display: "flex", alignItems: "center", gap: 11, padding: "12px 15px", borderRadius: 9, border: "1.5px solid #f1f5f9", marginBottom: 7, background: "#fafafa" }}>
                     <div style={{ width: 34, height: 34, background: "#eff6ff", borderRadius: 8, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 15 }}>{a.type === "text" ? "Aa" : a.type === "number" ? "#" : a.type === "select" ? "≡" : a.type === "date" ? "📅" : "☑"}</div>
@@ -869,67 +1484,41 @@ export default function HelpDesk() {
                 ))}
                 {customAttrs.length === 0 && <div style={{ textAlign: "center", color: "#94a3b8", padding: 28 }}>No custom attributes yet.</div>}
               </div>}
-
-              {/* Database Mgmt */}
               {settingsTab === "dbmgmt" && <div style={{ background: "#fff", borderRadius: 12, padding: 22, boxShadow: "0 1px 4px rgba(0,0,0,0.06)" }}>
                 <h3 style={{ margin: "0 0 4px", fontSize: 15, fontWeight: 700 }}>Database Management</h3>
                 <p style={{ margin: "0 0 14px", fontSize: 12, color: "#64748b" }}>Import or export the entire helpdesk database (JSON format).</p>
-                <div style={{ display: "flex", gap: 14, marginTop: 20 }}>
-                  <button onClick={async () => {
-                    const data = await DB_API.getAllData();
-                    const a = document.createElement("a");
-                    a.href = URL.createObjectURL(new Blob([JSON.stringify(data, null, 2)], { type: "application/json" }));
-                    a.download = "helpdesk_backup.json";
-                    a.click();
-                  }} style={bP}>Export Database</button>
+                <div style={{ display: "flex", gap: 14, marginTop: 20, flexWrap: "wrap" }}>
+                  <button onClick={async () => { const data = await DB_API.getAllData(); const a = document.createElement("a"); a.href = URL.createObjectURL(new Blob([JSON.stringify(data, null, 2)], { type: "application/json" })); a.download = "helpdesk_backup.json"; a.click(); }} style={bP}>Export Database</button>
                   <label style={{ ...bG, display: "flex", alignItems: "center", gap: 6, cursor: "pointer" }}>
                     Import Data File
                     <input type="file" accept=".json" style={{ display: "none" }} onChange={e => {
-                      const file = e.target.files[0];
-                      if (!file) return;
+                      const file = e.target.files[0]; if (!file) return;
                       const reader = new FileReader();
                       reader.onload = async (ev) => {
-                        try {
-                          const json = JSON.parse(ev.target.result);
-                          if (confirm("This will overwrite existing database. Are you sure?")) {
-                            setLoading(true);
-                            await DB_API.replaceData(json);
-                            await loadData();
-                            alert("Import successful!");
-                          }
-                        } catch (err) {
-                          alert("Invalid JSON file or error during import.");
-                          setLoading(false);
-                        }
-                      };
-                      reader.readAsText(file);
+                        try { const json = JSON.parse(ev.target.result); if (confirm("This will overwrite existing database. Are you sure?")) { setLoading(true); await DB_API.replaceData(json); await loadData(); alert("Import successful!"); } }
+                        catch (err) { alert("Invalid JSON file or error during import."); setLoading(false); }
+                      }; reader.readAsText(file);
                     }} />
                   </label>
-                  {/* New CSV Import Button for Item 10 */}
                   <label style={{ ...bG, display: "flex", alignItems: "center", gap: 6, cursor: "pointer", border: "1.5px solid #3b82f6", color: "#3b82f6" }}>
                     Import Tickets (CSV)
-                    <input
-                      type="file"
-                      accept=".csv"
-                      style={{ display: "none" }}
-                      onChange={handleImportCSV}
-                    />
+                    <input type="file" accept=".csv" style={{ display: "none" }} onChange={handleImportCSV} />
                   </label>
                 </div>
               </div>}
-
             </div>
           </div>}
+
         </div>
       </div>
 
-      {/* NEW TICKET MODAL */}
+      {/* ── NEW TICKET MODAL (v1 form + webcast fields) ── */}
       <Modal open={showNewTicket} onClose={() => { setShowNewTicket(false); setShowAssigneeDD(false); }} title="Create New Ticket" width={700}>
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0 18px" }}>
           <FF label="Organisation" required><select style={sS} value={form.org} onChange={e => setForm({ ...form, org: e.target.value })}><option value="">Select…</option>{orgs.map(o => <option key={o.id}>{o.name}</option>)}</select></FF>
           <FF label="Department"><select style={sS} value={form.department} onChange={e => setForm({ ...form, department: e.target.value })}><option value="">Select…</option>{DEPARTMENTS.map(d => <option key={d}>{d}</option>)}</select></FF>
           <FF label="Contact Name"><input style={iS} placeholder="e.g. John Smith" value={form.contact} onChange={e => setForm({ ...form, contact: e.target.value })} /></FF>
-          <FF label="Reported By (User Name)"><input style={iS} placeholder="Who is raising this ticket?" value={form.reportedBy} onChange={e => setForm({ ...form, reportedBy: e.target.value })} /></FF>
+          <FF label="Reported By"><input style={iS} placeholder="Who is raising this ticket?" value={form.reportedBy} onChange={e => setForm({ ...form, reportedBy: e.target.value })} /></FF>
           <FF label="Priority"><select style={sS} value={form.priority} onChange={e => setForm({ ...form, priority: e.target.value })}>{PRIORITIES.map(p => <option key={p}>{p}</option>)}</select></FF>
           <FF label="Category"><select style={sS} value={form.category} onChange={e => setForm({ ...form, category: e.target.value })}><option value="">Select…</option>{categories.map(c => <option key={c.id}>{c.name}</option>)}</select></FF>
         </div>
@@ -956,6 +1545,7 @@ export default function HelpDesk() {
         </FF>
         <FF label="Summary" required><input style={iS} placeholder="Brief description of the issue" value={form.summary} onChange={e => setForm({ ...form, summary: e.target.value })} /></FF>
         <FF label="Description"><textarea style={{ ...iS, height: 88, resize: "vertical" }} placeholder="Detailed description…" value={form.description} onChange={e => setForm({ ...form, description: e.target.value })} /></FF>
+        <WebcastFields f={form} setF={setForm} />
         {customAttrs.length > 0 && <>
           <div style={{ fontSize: 11, fontWeight: 600, color: "#475569", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 9, marginTop: 4 }}>Custom Fields</div>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0 18px" }}>
@@ -976,18 +1566,66 @@ export default function HelpDesk() {
         </div>
       </Modal>
 
-      {/* TICKET DETAIL MODAL */}
-      <Modal open={!!selTicket} onClose={() => setSelTicket(null)} title={selTicket?.id || ""} width={720}>
+      {/* ── NEW PROJECT MODAL ── */}
+      <Modal open={showNewProject} onClose={() => setShowNewProject(false)} title="Create New Project" width={700}>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0 18px" }}>
+          <FF label="Organisation" required><select style={sS} value={projForm.org} onChange={e => setProjForm({ ...projForm, org: e.target.value })}><option value="">Select…</option>{orgs.map(o => <option key={o.id}>{o.name}</option>)}</select></FF>
+          <FF label="Department"><select style={sS} value={projForm.department} onChange={e => setProjForm({ ...projForm, department: e.target.value })}><option value="">Select…</option>{DEPARTMENTS.map(d => <option key={d}>{d}</option>)}</select></FF>
+          <FF label="Reported By"><input style={iS} value={projForm.reportedBy} onChange={e => setProjForm({ ...projForm, reportedBy: e.target.value })} /></FF>
+          <FF label="Priority"><select style={sS} value={projForm.priority} onChange={e => setProjForm({ ...projForm, priority: e.target.value })}>{PROJECT_PRIORITIES.map(p => <option key={p}>{p}</option>)}</select></FF>
+          <FF label="Category"><select style={sS} value={projForm.category} onChange={e => setProjForm({ ...projForm, category: e.target.value })}><option value="">Select…</option>{projectCategories.map(c => <option key={c.id}>{c.name}</option>)}</select></FF>
+          <FF label="Due Date"><input type="date" style={iS} value={projForm.dueDate} onChange={e => setProjForm({ ...projForm, dueDate: e.target.value })} /></FF>
+        </div>
+        <FF label="Assignees">
+          <div style={{ ...iS, cursor: "pointer", minHeight: 40, display: "flex", alignItems: "center", flexWrap: "wrap", gap: 5, padding: projForm.assignees.length ? "6px 10px" : "9px 12px" }} onClick={() => { }}>
+            {!projForm.assignees.length && <span style={{ color: "#94a3b8" }}>Select assignees below…</span>}
+            {projForm.assignees.map(a => <span key={a.id} style={{ display: "flex", alignItems: "center", gap: 4, padding: "2px 6px 2px 3px", background: "#f5f3ff", color: "#6d28d9", borderRadius: 99, fontSize: 12, fontWeight: 600 }}>
+              <Avatar name={a.name} size={17} />{a.name.split(" ")[0]}<span onClick={() => setProjForm({ ...projForm, assignees: projForm.assignees.filter(x => x.id !== a.id) })} style={{ cursor: "pointer", fontWeight: 700, marginLeft: 2 }}>×</span>
+            </span>)}
+          </div>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 7 }}>
+            {users.filter(u => u.active).map(u => {
+              const sel = projForm.assignees.find(a => a.id === u.id); return (
+                <button key={u.id} onClick={() => setProjForm({ ...projForm, assignees: sel ? projForm.assignees.filter(a => a.id !== u.id) : [...projForm.assignees, u] })}
+                  style={{ display: "flex", alignItems: "center", gap: 5, padding: "4px 8px", borderRadius: 6, border: `1.5px solid ${sel ? "#8b5cf6" : "#e2e8f0"}`, background: sel ? "#f5f3ff" : "#fff", cursor: "pointer", fontSize: 12, fontWeight: sel ? 600 : 400 }}>
+                  <Avatar name={u.name} size={18} />{u.name.split(" ")[0]}
+                </button>);
+            })}
+          </div>
+        </FF>
+        <FF label="Project Title" required><input style={iS} placeholder="Brief project name" value={projForm.title} onChange={e => setProjForm({ ...projForm, title: e.target.value })} /></FF>
+        <FF label="Description"><textarea style={{ ...iS, height: 88, resize: "vertical" }} placeholder="Detailed description…" value={projForm.description} onChange={e => setProjForm({ ...projForm, description: e.target.value })} /></FF>
+        <FF label="Initial Progress (%)">
+          <div style={{ display: "flex", alignItems: "center", gap: 11 }}>
+            <input type="range" min={0} max={100} value={projForm.progress} onChange={e => setProjForm({ ...projForm, progress: parseInt(e.target.value) })} style={{ flex: 1 }} />
+            <span style={{ fontSize: 14, fontWeight: 700, color: "#8b5cf6", minWidth: 40 }}>{projForm.progress}%</span>
+          </div>
+          <ProgressBar value={projForm.progress} color="#8b5cf6" />
+        </FF>
+        <WebcastFields f={projForm} setF={setProjForm} />
+        <FF label="CC Users">
+          <div style={{ display: "flex", gap: 8 }}><input style={{ ...iS, flex: 1 }} placeholder="Add email address" value={projCcInput} onChange={e => setProjCcInput(e.target.value)} onKeyDown={e => e.key === "Enter" && addProjCC()} /><button onClick={addProjCC} style={bG}>Add</button></div>
+          {projForm.cc.length > 0 && <div style={{ display: "flex", flexWrap: "wrap", gap: 5, marginTop: 7 }}>{projForm.cc.map(email => <span key={email} style={{ padding: "3px 9px", background: "#f5f3ff", color: "#6d28d9", borderRadius: 99, fontSize: 12, display: "flex", alignItems: "center", gap: 5 }}>{email}<span onClick={() => setProjForm({ ...projForm, cc: projForm.cc.filter(e => e !== email) })} style={{ cursor: "pointer", fontWeight: 700 }}>×</span></span>)}</div>}
+        </FF>
+        <div style={{ display: "flex", justifyContent: "flex-end", gap: 9, marginTop: 6 }}>
+          <button onClick={() => setShowNewProject(false)} style={bG}>Cancel</button>
+          <button onClick={handleProjectSubmit} style={{ ...bP, background: "linear-gradient(135deg,#8b5cf6,#6366f1)" }}>Create Project</button>
+        </div>
+      </Modal>
+
+      {/* ── TICKET DETAIL MODAL (v1 full - timeline, forward, custom attrs, vendor) ── */}
+      <Modal open={!!selTicket} onClose={() => { setSelTicket(null); setShowForward(false); setFwdReason(""); }} title={selTicket?.id || ""} width={720}>
         {selTicket && <div>
           <div style={{ display: "flex", gap: 9, marginBottom: 16, flexWrap: "wrap" }}>
             <Badge label={selTicket.status} style={{ ...STATUS_COLOR[selTicket.status], padding: "4px 12px", fontSize: 12 }} />
             <div style={{ display: "flex", alignItems: "center", gap: 5 }}><span style={{ width: 9, height: 9, borderRadius: "50%", background: PRIORITY_COLOR[selTicket.priority] }} /><span style={{ fontSize: 13, fontWeight: 600 }}>{selTicket.priority} Priority</span></div>
-            <span style={{ fontSize: 12, color: "#94a3b8" }}>Created {selTicket.created.toLocaleString()}</span>
+            {selTicket.isWebcast && <Badge label="📡 Webcast" style={{ background: "#fff7ed", color: "#f97316" }} />}
+            <span style={{ fontSize: 12, color: "#94a3b8" }}>Created {new Date(selTicket.created).toLocaleString()}</span>
           </div>
           <h2 style={{ margin: "0 0 9px", fontSize: 17, fontWeight: 700 }}>{selTicket.summary}</h2>
           <p style={{ margin: "0 0 16px", color: "#64748b", fontSize: 14, lineHeight: 1.6 }}>{selTicket.description}</p>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 9, marginBottom: 14 }}>
-            {[{ l: "Organisation", v: selTicket.org }, { l: "Department", v: selTicket.department }, { l: "Contact", v: selTicket.contact }, { l: "Reported By", v: selTicket.reportedBy }, { l: "Category", v: selTicket.category }].map(f => (
+            {[{ l: "Organisation", v: selTicket.org }, { l: "Department", v: selTicket.department }, { l: "Contact", v: selTicket.contact }, { l: "Reported By", v: selTicket.reportedBy }, { l: "Category", v: selTicket.category }, { l: "Location", v: selTicket.location || "—" }].map(f => (
               <div key={f.l} style={{ background: "#f8fafc", padding: "9px 13px", borderRadius: 9 }}><div style={{ fontSize: 10, fontWeight: 600, color: "#94a3b8", textTransform: "uppercase", marginBottom: 3 }}>{f.l}</div><div style={{ fontSize: 13, fontWeight: 500 }}>{f.v || "—"}</div></div>
             ))}
           </div>
@@ -1008,10 +1646,11 @@ export default function HelpDesk() {
             )}
           </div>
 
+          {/* Forward Ticket (v1) */}
           {!showForward ? (
             <button onClick={() => setShowForward(true)} style={{ ...bG, padding: "6px 14px", marginBottom: 14, fontSize: 12 }}>Forward Ticket ➦</button>
           ) : (
-            <div style={{ marginBottom: 14, padding: "14px", background: "#eff6ff", borderRadius: 9, border: "1px solid #bfdbfe", animation: "fadeIn 0.2s" }}>
+            <div style={{ marginBottom: 14, padding: "14px", background: "#eff6ff", borderRadius: 9, border: "1px solid #bfdbfe" }}>
               <div style={{ fontSize: 12, fontWeight: 700, color: "#1e40af", marginBottom: 10 }}>Forward Ticket</div>
               <div style={{ display: "flex", gap: 14, marginBottom: 10 }}>
                 <label style={{ fontSize: 13, display: "flex", alignItems: "center", gap: 6 }}><input type="radio" checked={fwdType === "Agent"} onChange={() => setFwdType("Agent")} /> Internal Agent</label>
@@ -1033,12 +1672,13 @@ export default function HelpDesk() {
             </div>
           )}
 
+          {/* Status Update */}
           <div style={{ marginBottom: 14 }}>
             <div style={{ fontSize: 11, fontWeight: 600, color: "#374151", marginBottom: 7 }}>UPDATE STATUS</div>
             <div style={{ display: "flex", gap: 7, flexWrap: "wrap" }}>{STATUSES.map(s => <button key={s} onClick={() => updateStatus(selTicket.id, s)} style={{ padding: "5px 13px", borderRadius: 7, border: "none", cursor: "pointer", fontSize: 12, fontWeight: 600, fontFamily: "'DM Sans',sans-serif", background: selTicket.status === s ? STATUS_COLOR[s].text : "#f1f5f9", color: selTicket.status === s ? "#fff" : "#64748b" }}>{s}</button>)}</div>
           </div>
 
-          {/* TIMELINE */}
+          {/* Timeline (v1) */}
           {selTicket.timeline && selTicket.timeline.length > 0 && (
             <div style={{ marginBottom: 14, borderTop: "1px solid #f1f5f9", paddingTop: 13 }}>
               <div style={{ fontSize: 11, fontWeight: 600, color: "#374151", marginBottom: 10 }}>TICKET TIMELINE</div>
@@ -1054,10 +1694,62 @@ export default function HelpDesk() {
               </div>
             </div>
           )}
+
+          {/* Comment */}
           <div style={{ borderTop: "1px solid #f1f5f9", paddingTop: 13 }}>
             <div style={{ fontSize: 11, fontWeight: 600, color: "#374151", marginBottom: 7 }}>ADD COMMENT</div>
             <textarea style={{ ...iS, height: 68, resize: "none" }} placeholder="Add a note or reply…" value={newComment} onChange={e => setNewComment(e.target.value)} />
             <button onClick={() => setNewComment("")} style={{ ...bP, marginTop: 7, padding: "7px 15px", fontSize: 13 }}>Post Comment</button>
+          </div>
+        </div>}
+      </Modal>
+
+      {/* ── PROJECT DETAIL MODAL ── */}
+      <Modal open={!!selProject} onClose={() => setSelProject(null)} title={selProject?.id || ""} width={720}>
+        {selProject && <div>
+          <div style={{ display: "flex", gap: 9, marginBottom: 16, flexWrap: "wrap" }}>
+            <Badge label={selProject.status} style={{ ...STATUS_COLOR[selProject.status], padding: "4px 12px", fontSize: 12 }} />
+            <div style={{ display: "flex", alignItems: "center", gap: 5 }}><span style={{ width: 9, height: 9, borderRadius: "50%", background: PRIORITY_COLOR[selProject.priority] }} /><span style={{ fontSize: 13, fontWeight: 600 }}>{selProject.priority} Priority</span></div>
+            {selProject.isWebcast && <Badge label="📡 Webcast" style={{ background: "#fff7ed", color: "#f97316" }} />}
+            <span style={{ fontSize: 12, color: "#94a3b8" }}>Created {selProject.created.toLocaleString()}</span>
+          </div>
+          <h2 style={{ margin: "0 0 9px", fontSize: 17, fontWeight: 700 }}>{selProject.title}</h2>
+          <div style={{ marginBottom: 14, padding: "11px 14px", background: "#f8fafc", borderRadius: 9 }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
+              <span style={{ fontSize: 11, fontWeight: 600, color: "#94a3b8", textTransform: "uppercase" }}>Progress</span>
+              <span style={{ fontSize: 14, fontWeight: 700, color: "#8b5cf6" }}>{selProject.progress}%</span>
+            </div>
+            <ProgressBar value={selProject.progress} color={selProject.progress > 70 ? "#22c55e" : selProject.progress > 40 ? "#f59e0b" : "#ef4444"} />
+          </div>
+          <p style={{ margin: "0 0 16px", color: "#64748b", fontSize: 14, lineHeight: 1.6 }}>{selProject.description}</p>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 9, marginBottom: 14 }}>
+            {[{ l: "Organisation", v: selProject.org }, { l: "Department", v: selProject.department }, { l: "Reported By", v: selProject.reportedBy }, { l: "Category", v: selProject.category }, { l: "Location", v: selProject.location }, { l: "Due Date", v: selProject.dueDate?.toLocaleDateString() || "—" }].map(f => (
+              <div key={f.l} style={{ background: "#f8fafc", padding: "9px 13px", borderRadius: 9 }}><div style={{ fontSize: 10, fontWeight: 600, color: "#94a3b8", textTransform: "uppercase", marginBottom: 3 }}>{f.l}</div><div style={{ fontSize: 13, fontWeight: 500 }}>{f.v || "—"}</div></div>
+            ))}
+          </div>
+          <div style={{ marginBottom: 14, padding: "11px 13px", background: "#f8fafc", borderRadius: 9 }}>
+            <div style={{ fontSize: 10, fontWeight: 600, color: "#94a3b8", textTransform: "uppercase", marginBottom: 7 }}>Assignees</div>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 7 }}>
+              {(selProject.assignees || []).map(a => <div key={a.id} style={{ display: "flex", alignItems: "center", gap: 7, background: "#fff", padding: "5px 9px", borderRadius: 7, border: "1px solid #e2e8f0" }}><Avatar name={a.name} size={24} /><div><div style={{ fontSize: 12, fontWeight: 600 }}>{a.name}</div><div style={{ fontSize: 10, color: "#94a3b8" }}>{a.role}</div></div></div>)}
+              {!selProject.assignees?.length && <span style={{ fontSize: 13, color: "#94a3b8" }}>Unassigned</span>}
+            </div>
+          </div>
+          <div style={{ marginBottom: 14 }}>
+            <div style={{ fontSize: 11, fontWeight: 600, color: "#374151", marginBottom: 7 }}>UPDATE STATUS</div>
+            <div style={{ display: "flex", gap: 7, flexWrap: "wrap" }}>{PROJECT_STATUSES.map(s => <button key={s} onClick={() => updateProjectStatus(selProject.id, s)} style={{ padding: "5px 13px", borderRadius: 7, border: "none", cursor: "pointer", fontSize: 12, fontWeight: 600, fontFamily: "'DM Sans',sans-serif", background: selProject.status === s ? STATUS_COLOR[s].text : "#f1f5f9", color: selProject.status === s ? "#fff" : "#64748b" }}>{s}</button>)}</div>
+          </div>
+          <div style={{ marginBottom: 14 }}>
+            <div style={{ fontSize: 11, fontWeight: 600, color: "#374151", marginBottom: 7 }}>UPDATE PROGRESS</div>
+            <div style={{ display: "flex", alignItems: "center", gap: 11 }}>
+              <input type="range" min={0} max={100} value={selProject.progress} onChange={e => { const p = parseInt(e.target.value); setProjects(prev => prev.map(x => x.id === selProject.id ? { ...x, progress: p } : x)); setSelProject(s => ({ ...s, progress: p })); }} style={{ flex: 1 }} />
+              <span style={{ fontSize: 14, fontWeight: 700, color: "#8b5cf6", minWidth: 40 }}>{selProject.progress}%</span>
+            </div>
+            <ProgressBar value={selProject.progress} color={selProject.progress > 70 ? "#22c55e" : selProject.progress > 40 ? "#f59e0b" : "#ef4444"} />
+          </div>
+          <div style={{ borderTop: "1px solid #f1f5f9", paddingTop: 13 }}>
+            <div style={{ fontSize: 11, fontWeight: 600, color: "#374151", marginBottom: 7 }}>ADD COMMENT</div>
+            <textarea style={{ ...iS, height: 68, resize: "none" }} placeholder="Add a note or reply…" value={newProjComment} onChange={e => setNewProjComment(e.target.value)} />
+            <button onClick={() => setNewProjComment("")} style={{ ...bP, marginTop: 7, padding: "7px 15px", fontSize: 13, background: "linear-gradient(135deg,#8b5cf6,#6366f1)" }}>Post Comment</button>
           </div>
         </div>}
       </Modal>

@@ -1,21 +1,14 @@
 const mongoose = require('mongoose');
-
 const TicketSchema = new mongoose.Schema({
-    id: { type: String, required: true, unique: true },
-    summary: { type: String, required: true },
+    id: String,
+    summary: String,
     org: String,
     status: { type: String, default: 'Open' },
-    priority: { type: String, default: 'Medium' },
-    dueDate: Date, // Added for your plan
+    priority: String,
+    category: String,
     assignees: Array,
-    timeline: [{
-        action: String,
-        by: String,
-        date: { type: Date, default: Date.now },
-        note: String
-    }],
+    customAttrs: Object,
     created: { type: Date, default: Date.now },
     updated: { type: Date, default: Date.now }
 });
-
 module.exports = mongoose.model('Ticket', TicketSchema);
