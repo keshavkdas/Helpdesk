@@ -2,7 +2,7 @@ import { useState, useMemo, useEffect, useRef } from "react";
 import axios from "axios";
 
 // --- SERVER CONFIGURATION ---
-const SERVER_IP = "192.168.137.1";
+const SERVER_IP = "10.0.100.41";
 const BASE_URL = `http://${SERVER_IP}:5000/api`;
 
 // --- API ENDPOINTS ---
@@ -726,14 +726,34 @@ export default function HelpDesk() {
 
   // ─── AUTH HANDLERS (v1) ────────────────────────────────────────────────────
   const handleLogin = async (e) => {
-    e.preventDefault(); setAuthError(""); setAuthMessage("");
+    e.preventDefault();
+    setAuthError("");
+    setAuthMessage("");
+
     try {
-      const u = await AUTH_API.login(authForm.email, authForm.password);
+      // 1. Post to the login endpoint with credentials
+      const response = await axios.post(AUTH_API, {
+        email: authForm.email,
+        password: authForm.password
+      });
+
+      const u = response.data;
+
+      // 2. Prepare the updated user object with Active status
       const updatedUser = { ...u, status: "Active" };
-      await USERS_API.update(u.id, updatedUser);
-      saveSession(updatedUser); // persist 12-hour session
+
+      // 3. Update the user in the database via the USERS_API URL
+      // We use axios.put to the specific user's ID endpoint
+      await axios.put(`${USERS_API}/${u.id}`, updatedUser);
+
+      // 4. Update local state and session
+      saveSession(updatedUser); // persists 12-hour session
       setCurrentUser(updatedUser);
-    } catch (err) { setAuthError(err.message); }
+
+    } catch (err) {
+      console.error("Login error:", err);
+      setAuthError(err.response?.data?.error || err.message);
+    }
   };
 
   const handleLogout = async () => {
