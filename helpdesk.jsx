@@ -57,14 +57,6 @@ const PROJECT_VIEWS = [
   { id: "critical", label: "Critical", icon: "🔔", desc: "Critical priority projects", filter: p => p.priority === "Critical" && p.status !== "Closed" && p.status !== "Resolved" },
 ];
 
-const SATSANG_EVENTS = [
-  { id: 1, name: "G Satsang – Amphitheater", date: "2025-01-15", location: "Amphitheater", type: "G Satsang", recordingUrl: "#", attendees: 1200, status: "Completed" },
-  { id: 2, name: "G Satsang – Main Hall", date: "2025-02-20", location: "Main Hall", type: "G Satsang", recordingUrl: "#", attendees: 980, status: "Completed" },
-  { id: 3, name: "G Satsang – Outdoor Ground", date: "2025-03-10", location: "Outdoor Ground", type: "G Satsang", recordingUrl: "#", attendees: 2100, status: "Completed" },
-  { id: 4, name: "G Satsang – Conference Center", date: "2025-04-05", location: "Conference Center", type: "G Satsang", recordingUrl: "#", attendees: 750, status: "Completed" },
-  { id: 5, name: "G Satsang – Amphitheater", date: "2025-05-18", location: "Amphitheater", type: "G Satsang", recordingUrl: "#", attendees: 1350, status: "Live" },
-];
-
 // ─── EXPORT HELPERS ────────────────────────────────────────────────────────────
 function exportCSV(items, type = "tickets") {
   const isProject = type === "projects";
@@ -401,7 +393,7 @@ export default function HelpDesk() {
   const [settingsTab, setSettingsTab] = useState("ticketviews");
   const [tvFilter, setTvFilter] = useState("all");
   const [pvFilter, setPvFilter] = useState("all");
-  const [range, setRange] = useState("30");
+  const [range, setRange] = useState("all");
 
   // ── Ticket filters ──
   const [statusF, setStatusF] = useState("All");
@@ -409,6 +401,11 @@ export default function HelpDesk() {
   const [search, setSearch] = useState("");
   const [selectedIds, setSelectedIds] = useState(new Set());
   const [showExport, setShowExport] = useState(false);
+  const [currentPage, setCurrentPage] = useState(1);
+  const TICKETS_PER_PAGE = 25;
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [search, statusF, priorityF, tvFilter, view]);
 
   // ── Project filters ──
   const [projSearch, setProjSearch] = useState("");
@@ -425,19 +422,22 @@ export default function HelpDesk() {
   const [selTicket, setSelTicket] = useState(null);
   const [selProject, setSelProject] = useState(null);
 
+  // ── Satsangs ──
+  const [satsangs, setSatsangs] = useState([]);
+
   // ── Comments ──
   const [newComment, setNewComment] = useState("");
   const [newProjComment, setNewProjComment] = useState("");
 
   // ── Ticket form ──
-  const emptyForm = { org: "", department: "", contact: "", reportedBy: "", summary: "", description: "", assignees: [], cc: [], priority: "Medium", category: "", customAttrs: {}, dueDate: "", isWebcast: false, satsangType: "", location: "" };
+  const emptyForm = { org: "", department: "", contact: "", reportedBy: "", summary: "", description: "", assignees: [], cc: [], priority: "Medium", category: "", customAttrs: {}, dueDate: "", isWebcast: false, satsangType: "", location: "", satsangId: null };
   const [form, setForm] = useState(emptyForm);
   const [ccInput, setCcInput] = useState("");
   const [assigneeSearch, setAssigneeSearch] = useState("");
   const [showAssigneeDD, setShowAssigneeDD] = useState(false);
 
   // ── Project form ──
-  const emptyProjectForm = { org: "", department: "", reportedBy: "", title: "", description: "", assignees: [], cc: [], priority: "Medium", category: "", status: "Open", location: "", dueDate: "", isWebcast: false, satsangType: "", progress: 0, customAttrs: {} };
+  const emptyProjectForm = { org: "", department: "", reportedBy: "", title: "", description: "", assignees: [], cc: [], priority: "Medium", category: "", status: "Open", location: "", dueDate: "", isWebcast: false, satsangType: "", progress: 0, customAttrs: {}, satsangId: null };
   const [projForm, setProjForm] = useState(emptyProjectForm);
   const [projCcInput, setProjCcInput] = useState("");
 
@@ -500,7 +500,10 @@ export default function HelpDesk() {
       setTicketCustomAttrs(data.customAttrs || []);
       setProjectCustomAttrs(data.customAttrs || []);
 
-      const parsedTickets = (data.tickets || []).map(t => ({
+      const parsedTickets = [
+        ...(data.tickets || []),
+        ...(data.webcasts || [])
+      ].map(t => ({
         ...t,
         created: new Date(t.created),
         updated: new Date(t.updated),
@@ -510,6 +513,7 @@ export default function HelpDesk() {
       })).sort((a, b) => b.created - a.created);
 
       setTickets(parsedTickets);
+      setSatsangs(data.satsangs || []);
 
       const parsedProjects = (data.projects || []).map(p => ({
         ...p,
@@ -540,14 +544,14 @@ export default function HelpDesk() {
   }, [users]);
 
   // ─── COMPUTED DATA ─────────────────────────────────────────────────────────
-  const now = Date.now(), dayMs = 86400000, rangeMs = parseInt(range) * dayMs;
+  const now = Date.now(), dayMs = 86400000, rangeMs = range === "all" ? Infinity : parseInt(range) * dayMs;
   const fbr = useMemo(() => {
-    const inRange = tickets.filter(t => now - t.created.getTime() <= rangeMs);
+    const inRange = range === "all" ? tickets : tickets.filter(t => now - t.created.getTime() <= rangeMs);
     if (currentUser?.role === "Admin") return inRange;
     return inRange.filter(t => t.reportedBy === currentUser?.name || t.assignees?.some(a => a.id === currentUser?.id));
   }, [tickets, rangeMs, now, currentUser]);
 
-  const prbr = useMemo(() => projects.filter(p => now - p.created.getTime() <= rangeMs), [projects, rangeMs, now]);
+  const prbr = useMemo(() => range === "all" ? projects : projects.filter(p => now - p.created.getTime() <= rangeMs), [projects, rangeMs, range, now]);
 
   const cvd = TICKET_VIEWS.find(v => v.id === tvFilter) || TICKET_VIEWS[5];
   const cpv = PROJECT_VIEWS.find(v => v.id === pvFilter) || PROJECT_VIEWS[5];
@@ -557,9 +561,20 @@ export default function HelpDesk() {
     if (currentUser.role === "Agent" && t.reportedBy !== currentUser.name && !t.assignees?.some(a => a.id === currentUser.id)) return false;
     if (statusF !== "All" && t.status !== statusF) return false;
     if (priorityF !== "All" && t.priority !== priorityF) return false;
-    if (search && !t.summary.toLowerCase().includes(search.toLowerCase()) && !t.id.toLowerCase().includes(search.toLowerCase()) && !t.org.toLowerCase().includes(search.toLowerCase())) return false;
+    if (search) {
+      if (search.startsWith("event:")) {
+        const id = search.split(":")[1];
+        return String(t.satsangId) === id;
+      }
+      if (!t.summary.toLowerCase().includes(search.toLowerCase()) && !t.id.toLowerCase().includes(search.toLowerCase()) && !t.org.toLowerCase().includes(search.toLowerCase())) return false;
+    }
     return true;
   }), [tickets, cvd, currentUser, statusF, priorityF, search]);
+
+  const totalPages = Math.ceil(filtered.length / TICKETS_PER_PAGE);
+  const currentTickets = filtered.slice((currentPage - 1) * TICKETS_PER_PAGE,
+    currentPage * TICKETS_PER_PAGE);
+
 
   const filteredProjects = useMemo(() => projects.filter(p => {
     if (!cpv.filter(p, currentUser)) return false;
@@ -672,7 +687,12 @@ export default function HelpDesk() {
   const handleSubmit = async () => {
     if (!form.summary || !form.org) return alert("Organisation and Summary are required");
     const newT = {
-      ...form, status: "Open", created: new Date().toISOString(), updated: new Date().toISOString(), comments: [],
+      ...form,
+      dueDate: form.dueDate || null,
+      status: "Open",
+      created: new Date().toISOString(),
+      updated: new Date().toISOString(),
+      comments: [],
       timeline: [{ action: "Created", by: currentUser.name, date: new Date().toISOString(), note: "Ticket opened." }]
     };
     try {
@@ -1083,7 +1103,23 @@ export default function HelpDesk() {
         <input type="checkbox" checked={f.isWebcast} onChange={e => setF({ ...f, isWebcast: e.target.checked })} style={{ width: 15, height: 15, cursor: "pointer" }} />
         <span style={{ fontSize: 13, fontWeight: 600, color: "#9a3412" }}>📡 Webcast / Live Ticket</span>
       </label>
-      {f.isWebcast && <div style={{ marginTop: 12, display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0 14px" }}>
+      {f.isWebcast && <div style={{ marginTop: 12, display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px 14px" }}>
+        <div style={{ gridColumn: "1 / -1" }}>
+          <FF label="Associate Satsang Record">
+            <select style={sS} value={f.satsangId || ""} onChange={e => {
+              const sid = e.target.value;
+              const s = satsangs.find(x => String(x.id) === sid);
+              if (s) {
+                setF({ ...f, satsangId: s.id, summary: f.summary || s.name, satsangType: s.type, location: s.location });
+              } else {
+                setF({ ...f, satsangId: null });
+              }
+            }}>
+              <option value="">-- Link to an event (Optional) --</option>
+              {satsangs.map(s => <option key={s.id} value={s.id}>{s.date} - {s.name} ({s.location})</option>)}
+            </select>
+          </FF>
+        </div>
         <FF label="Satsang Type"><select style={sS} value={f.satsangType} onChange={e => setF({ ...f, satsangType: e.target.value })}><option value="">Select type…</option>{SATSANG_TYPES.map(t => <option key={t}>{t}</option>)}</select></FF>
         <FF label="Location / Venue"><select style={sS} value={f.location} onChange={e => setF({ ...f, location: e.target.value })}><option value="">Select venue…</option>{LOCATIONS.map(l => <option key={l}>{l}</option>)}</select></FF>
       </div>}
@@ -1266,11 +1302,11 @@ export default function HelpDesk() {
             {view === "projects" && <p style={{ margin: 0, fontSize: 11, color: "#94a3b8" }}>{cpv.desc}</p>}
           </div>
           <div style={{ display: "flex", gap: 9, alignItems: "center" }}>
-            {(view === "reports") && <select value={range} onChange={e => setRange(e.target.value)} style={{ ...sS, width: 128, fontSize: 13, padding: "7px 10px" }}><option value="1">Today</option><option value="7">Last 7 Days</option><option value="30">Last 30 Days</option></select>}
-            {view !== "dashboard" && <>
+            {(view === "reports" || view === "dashboard") && <select value={range} onChange={e => setRange(e.target.value)} style={{ ...sS, width: 140, fontSize: 13, padding: "7px 10px" }}><option value="all">All Time</option><option value="1">Today</option><option value="7">Last 7 Days</option><option value="30">Last 30 Days</option></select>}
+            {/* {view !== "dashboard" && <>
               <button onClick={() => setShowNewTicket(true)} style={{ ...bP, padding: "8px 14px", fontSize: 13 }}>+ New Ticket</button>
               <button onClick={() => setShowNewProject(true)} style={{ ...bG, padding: "8px 14px", fontSize: 13 }}>+ New Project</button>
-            </>}
+            </>} */}
           </div>
         </div>
 
@@ -1437,7 +1473,7 @@ export default function HelpDesk() {
                   <th style={{ ...thStyle, width: 40 }}><input type="checkbox" checked={selectedIds.size === filtered.length && filtered.length > 0} onChange={toggleAll} style={{ cursor: "pointer" }} /></th>
                   {["ID", "Summary", "Org / Dept", "Reported By", "Assignees", "Priority", "Category", "Status", "Created", "Action"].map(h => <th key={h} style={thStyle}>{h}</th>)}
                 </tr></thead>
-                <tbody>{filtered.map(t => (
+                <tbody>{currentTickets.map(t => (
                   <tr key={t.id} className="rh" style={{ cursor: "pointer", background: selectedIds.has(t.id) ? "#eff6ff" : "#fff" }}>
                     <td style={tdStyle} onClick={e => e.stopPropagation()}><input type="checkbox" checked={selectedIds.has(t.id)} onChange={() => toggleSel(t.id)} style={{ cursor: "pointer" }} /></td>
                     <td style={tdStyle} onClick={() => setSelTicket(t)}><span style={{ fontFamily: "'DM Mono',monospace", fontSize: 11.5, color: "#3b82f6", fontWeight: 500 }}>{t.id}</span>{t.isWebcast && <span style={{ marginLeft: 5, fontSize: 10, background: "#fff7ed", color: "#f97316", padding: "1px 5px", borderRadius: 4, fontWeight: 600 }}>📡</span>}</td>
@@ -1460,6 +1496,20 @@ export default function HelpDesk() {
                 ))}</tbody>
               </table>
               {filtered.length === 0 && <div style={{ padding: 36, textAlign: "center", color: "#94a3b8" }}>No tickets found</div>}
+
+              {totalPages > 1 && (
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "15px 20px", borderTop: "1px solid #e2e8f0", backgroundColor: "#f8fafc" }}>
+                  <div style={{ fontSize: 13, color: "#64748b" }}>
+                    Showing {((currentPage - 1) * TICKETS_PER_PAGE) + 1} to {Math.min(currentPage * TICKETS_PER_PAGE, filtered.length)} of {filtered.length} tickets
+                  </div>
+                  <div style={{ display: "flex", gap: "10px" }}>
+                    <button onClick={() => setCurrentPage(p => Math.max(1, p - 1))} disabled={currentPage === 1} style={{ padding: "6px 12px", border: "1px solid #cbd5e1", borderRadius: 4, backgroundColor: currentPage === 1 ? "#f1f5f9" : "#fff", color: currentPage === 1 ? "#94a3b8" : "#334155", cursor: currentPage === 1 ? "not-allowed" : "pointer", fontSize: 13 }} >Previous</button>
+                    <span style={{ fontSize: 13, color: "#334155", padding: "6px 0" }}>Page {currentPage} of {totalPages}</span>
+                    <button onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))} disabled={currentPage === totalPages} style={{ padding: "6px 12px", border: "1px solid #cbd5e1", borderRadius: 4, backgroundColor: currentPage === totalPages ? "#f1f5f9" : "#fff", color: currentPage === totalPages ? "#94a3b8" : "#334155", cursor: currentPage === totalPages ? "not-allowed" : "pointer", fontSize: 13 }} >Next</button>
+                  </div>
+                </div>
+              )}
+
             </div>
           </div>}
 
@@ -1577,10 +1627,10 @@ export default function HelpDesk() {
           {view === "webcast" && <>
             <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 9, marginBottom: 16 }}>
               {[
-                { label: "Total Webcasts", value: SATSANG_EVENTS.length, color: "#f97316", icon: "📡" },
-                { label: "Live Now", value: SATSANG_EVENTS.filter(e => e.status === "Live").length, color: "#ef4444", icon: "🔴" },
-                { label: "Completed", value: SATSANG_EVENTS.filter(e => e.status === "Completed").length, color: "#22c55e", icon: "✅" },
-                { label: "Total Attendees", value: SATSANG_EVENTS.reduce((s, e) => s + e.attendees, 0).toLocaleString(), color: "#3b82f6", icon: "👥" },
+                { label: "Total Webcasts", value: satsangs.length, color: "#f97316", icon: "📡" },
+                { label: "Live Now", value: satsangs.filter(e => e.status === "Live").length, color: "#ef4444", icon: "🔴" },
+                { label: "Completed", value: satsangs.filter(e => e.status === "Completed").length, color: "#22c55e", icon: "✅" },
+                { label: "Total Attendees", value: satsangs.reduce((s, e) => s + (e.attendees || 0), 0).toLocaleString(), color: "#3b82f6", icon: "👥" },
               ].map(s => (
                 <div key={s.label} style={{ background: "#fff", borderRadius: 12, padding: "14px 16px", boxShadow: "0 1px 4px rgba(0,0,0,0.06)", borderTop: `3px solid ${s.color}` }}>
                   <div style={{ fontSize: 20, marginBottom: 5 }}>{s.icon}</div>
@@ -1593,7 +1643,7 @@ export default function HelpDesk() {
               <h3 style={{ margin: "0 0 4px", fontSize: 15, fontWeight: 700 }}>Previous Satsang Records</h3>
               <p style={{ margin: "0 0 18px", fontSize: 12, color: "#64748b" }}>Archive of all Satsang webcasts with G</p>
               <div style={{ display: "grid", gap: 10 }}>
-                {SATSANG_EVENTS.map(e => (
+                {satsangs.map(e => (
                   <div key={e.id} style={{ display: "flex", alignItems: "center", gap: 14, padding: "14px 16px", borderRadius: 10, border: "1.5px solid #f1f5f9", background: "#fafafa" }}>
                     <div style={{ width: 44, height: 44, background: e.status === "Live" ? "#fee2e2" : "#eff6ff", borderRadius: 10, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 22, flexShrink: 0 }}>{e.status === "Live" ? "🔴" : "📡"}</div>
                     <div style={{ flex: 1 }}>
@@ -1605,17 +1655,17 @@ export default function HelpDesk() {
                       <div style={{ display: "flex", alignItems: "center", gap: 14, marginTop: 4 }}>
                         <span style={{ fontSize: 12, color: "#64748b" }}>📍 {e.location}</span>
                         <span style={{ fontSize: 12, color: "#64748b" }}>📅 {e.date}</span>
-                        <span style={{ fontSize: 12, color: "#64748b" }}>👥 {e.attendees.toLocaleString()} attendees</span>
+                        <span style={{ fontSize: 12, color: "#64748b" }}>👥 {(e.attendees || 0).toLocaleString()} attendees</span>
                         <span style={{ fontSize: 12, color: "#64748b" }}>🏷 {e.type}</span>
                       </div>
                     </div>
                     <div style={{ display: "flex", gap: 7 }}>
-                      {e.status === "Completed" && <button style={{ ...bG, padding: "6px 12px", fontSize: 12 }}>▶ Play Recording</button>}
                       {e.status === "Live" && <button style={{ ...bP, padding: "6px 12px", fontSize: 12, background: "linear-gradient(135deg,#ef4444,#f97316)" }}>🔴 Watch Live</button>}
-                      <button onClick={() => { setView("tickets"); setTvFilter("all"); }} style={{ ...bG, padding: "6px 12px", fontSize: 12 }}>🎫 Tickets</button>
+                      <button onClick={() => { setView("tickets"); setTvFilter("all"); setSearch(`event:${e.id}`); }} style={{ ...bG, padding: "6px 12px", fontSize: 12 }}>🎫 Tickets</button>
                     </div>
                   </div>
                 ))}
+                {satsangs.length === 0 && <div style={{ padding: 24, textAlign: "center", color: "#94a3b8", fontSize: 13 }}>No satsang records found.</div>}
               </div>
             </div>
             <div style={{ background: "#fff", borderRadius: 12, padding: 22, boxShadow: "0 1px 4px rgba(0,0,0,0.06)" }}>
@@ -1868,6 +1918,7 @@ export default function HelpDesk() {
           <FF label="Reported By"><input style={iS} placeholder="Who is raising this ticket?" value={form.reportedBy} onChange={e => setForm({ ...form, reportedBy: e.target.value })} /></FF>
           <FF label="Priority"><select style={sS} value={form.priority} onChange={e => setForm({ ...form, priority: e.target.value })}>{PRIORITIES.map(p => <option key={p}>{p}</option>)}</select></FF>
           <FF label="Category"><select style={sS} value={form.category} onChange={e => setForm({ ...form, category: e.target.value })}><option value="">Select…</option>{categories.map(c => <option key={c.id}>{c.name}</option>)}</select></FF>
+          <FF label="Due Date"><input type="date" style={iS} value={form.dueDate || ""} onChange={e => setForm({ ...form, dueDate: e.target.value })} /></FF>
         </div>
         <FF label="Assignees">
           <div style={{ position: "relative" }}>
@@ -1892,7 +1943,7 @@ export default function HelpDesk() {
         </FF>
         <FF label="Summary" required><input style={iS} placeholder="Brief description of the issue" value={form.summary} onChange={e => setForm({ ...form, summary: e.target.value })} /></FF>
         <FF label="Description"><textarea style={{ ...iS, height: 88, resize: "vertical" }} placeholder="Detailed description…" value={form.description} onChange={e => setForm({ ...form, description: e.target.value })} /></FF>
-        <WebcastFields f={form} setF={setForm} />
+        {form.category === "Webcast" && <WebcastFields f={form} setF={setForm} />}
         {customAttrs.length > 0 && <>
           <div style={{ fontSize: 11, fontWeight: 600, color: "#475569", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 9, marginTop: 4 }}>Custom Fields</div>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0 18px" }}>
@@ -1923,6 +1974,7 @@ export default function HelpDesk() {
           <FF label="Category"><select style={sS} value={projForm.category} onChange={e => setProjForm({ ...projForm, category: e.target.value })}><option value="">Select…</option>{projectCategories.map(c => <option key={c.id}>{c.name}</option>)}</select></FF>
           <FF label="Due Date"><input type="date" style={iS} value={projForm.dueDate} onChange={e => setProjForm({ ...projForm, dueDate: e.target.value })} /></FF>
         </div>
+        {projForm.category === "Webcast" && <WebcastFields f={projForm} setF={setProjForm} />}
         <FF label="Assignees">
           <div style={{ ...iS, cursor: "pointer", minHeight: 40, display: "flex", alignItems: "center", flexWrap: "wrap", gap: 5, padding: projForm.assignees.length ? "6px 10px" : "9px 12px" }} onClick={() => { }}>
             {!projForm.assignees.length && <span style={{ color: "#94a3b8" }}>Select assignees below…</span>}
@@ -1949,7 +2001,7 @@ export default function HelpDesk() {
           </div>
           <ProgressBar value={projForm.progress} color="#8b5cf6" />
         </FF>
-        <WebcastFields f={projForm} setF={setProjForm} />
+        {projForm.category === "Webcast" && <WebcastFields f={projForm} setF={setProjForm} />}
         <FF label="CC Users">
           <div style={{ display: "flex", gap: 8 }}><input style={{ ...iS, flex: 1 }} placeholder="Add email address" value={projCcInput} onChange={e => setProjCcInput(e.target.value)} onKeyDown={e => e.key === "Enter" && addProjCC()} /><button onClick={addProjCC} style={bG}>Add</button></div>
           {projForm.cc.length > 0 && <div style={{ display: "flex", flexWrap: "wrap", gap: 5, marginTop: 7 }}>{projForm.cc.map(email => <span key={email} style={{ padding: "3px 9px", background: "#f5f3ff", color: "#6d28d9", borderRadius: 99, fontSize: 12, display: "flex", alignItems: "center", gap: 5 }}>{email}<span onClick={() => setProjForm({ ...projForm, cc: projForm.cc.filter(e => e !== email) })} style={{ cursor: "pointer", fontWeight: 700 }}>×</span></span>)}</div>}
@@ -1972,7 +2024,7 @@ export default function HelpDesk() {
           <h2 style={{ margin: "0 0 9px", fontSize: 17, fontWeight: 700 }}>{selTicket.summary}</h2>
           <p style={{ margin: "0 0 16px", color: "#64748b", fontSize: 14, lineHeight: 1.6 }}>{selTicket.description}</p>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 9, marginBottom: 14 }}>
-            {[{ l: "Organisation", v: selTicket.org }, { l: "Department", v: selTicket.department }, { l: "Contact", v: selTicket.contact }, { l: "Reported By", v: selTicket.reportedBy }, { l: "Category", v: selTicket.category }, { l: "Location", v: selTicket.location || "—" }].map(f => (
+            {[{ l: "Organisation", v: selTicket.org }, { l: "Department", v: selTicket.department }, { l: "Contact", v: selTicket.contact }, { l: "Reported By", v: selTicket.reportedBy }, { l: "Category", v: selTicket.category }, { l: "Location", v: selTicket.location || "—" }, { l: "Due Date", v: selTicket.dueDate ? new Date(selTicket.dueDate).toLocaleDateString() : "—" }].map(f => (
               <div key={f.l} style={{ background: "#f8fafc", padding: "9px 13px", borderRadius: 9 }}><div style={{ fontSize: 10, fontWeight: 600, color: "#94a3b8", textTransform: "uppercase", marginBottom: 3 }}>{f.l}</div><div style={{ fontSize: 13, fontWeight: 500 }}>{f.v || "—"}</div></div>
             ))}
           </div>

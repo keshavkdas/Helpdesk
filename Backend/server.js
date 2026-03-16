@@ -60,6 +60,15 @@ const CustomAttr = sequelize.define("CustomAttr", {
     required: { type: DataTypes.BOOLEAN, defaultValue: false },
 }, { timestamps: true });
 
+const Satsang = sequelize.define("Satsang", {
+    name: { type: DataTypes.STRING, allowNull: false },
+    date: { type: DataTypes.DATEONLY, allowNull: false },
+    location: { type: DataTypes.STRING, defaultValue: "" },
+    type: { type: DataTypes.STRING, defaultValue: "" },
+    attendees: { type: DataTypes.INTEGER, defaultValue: 0 },
+    status: { type: DataTypes.ENUM("Live", "Completed"), defaultValue: "Completed" },
+}, { timestamps: true });
+
 const Ticket = sequelize.define("Ticket", {
     // We explicitly mark this as the Primary Key so Sequelize is happy
     id: {
@@ -86,6 +95,45 @@ const Ticket = sequelize.define("Ticket", {
     comments: { type: DataTypes.JSON, defaultValue: [] },
     vendor: { type: DataTypes.JSON, defaultValue: null },
     dueDate: { type: DataTypes.DATE, defaultValue: null },
+    satsangId: { type: DataTypes.INTEGER, defaultValue: null },
+}, { timestamps: true });
+
+const Webcast = sequelize.define("Webcast", {
+    id: { type: DataTypes.STRING, primaryKey: true, unique: true },
+    summary: { type: DataTypes.STRING, allowNull: false },
+    description: { type: DataTypes.TEXT },
+    org: { type: DataTypes.STRING, defaultValue: "" },
+    department: { type: DataTypes.STRING, defaultValue: "" },
+    contact: { type: DataTypes.STRING, defaultValue: "" },
+    reportedBy: { type: DataTypes.STRING, defaultValue: "" },
+    assignees: { type: DataTypes.JSON, defaultValue: [] },
+    cc: { type: DataTypes.JSON, defaultValue: [] },
+    priority: { type: DataTypes.STRING, defaultValue: "Medium" },
+    category: { type: DataTypes.STRING, defaultValue: "Webcast" },
+    status: { type: DataTypes.STRING, defaultValue: "Open" },
+    customAttrs: { type: DataTypes.JSON, defaultValue: {} },
+    isWebcast: { type: DataTypes.BOOLEAN, defaultValue: true },
+    satsangType: { type: DataTypes.STRING, defaultValue: "" },
+    location: { type: DataTypes.STRING, defaultValue: "" },
+    timeline: { type: DataTypes.JSON, defaultValue: [] },
+    comments: { type: DataTypes.JSON, defaultValue: [] },
+    vendor: { type: DataTypes.JSON, defaultValue: null },
+    dueDate: { type: DataTypes.DATE, defaultValue: null },
+    satsangId: { type: DataTypes.INTEGER, defaultValue: null },
+}, { timestamps: true });
+
+const Project = sequelize.define("Project", {
+    id: { type: DataTypes.STRING, primaryKey: true, unique: true },
+    title: { type: DataTypes.STRING, allowNull: false },
+    description: { type: DataTypes.TEXT, defaultValue: "" },
+    status: { type: DataTypes.STRING, defaultValue: "Open" },
+    progress: { type: DataTypes.INTEGER, defaultValue: 0 }, // 0 to 100
+    owner: { type: DataTypes.STRING, defaultValue: "" },
+    team: { type: DataTypes.JSON, defaultValue: [] },
+    startDate: { type: DataTypes.DATEONLY, defaultValue: null },
+    dueDate: { type: DataTypes.DATEONLY, defaultValue: null },
+    comments: { type: DataTypes.JSON, defaultValue: [] },
+    tasks: { type: DataTypes.JSON, defaultValue: [] }
 }, { timestamps: true });
 
 // ─── SERIALIZER (Matches your original fmt) ──────────────────────────────────
@@ -185,6 +233,33 @@ app.delete("/api/categories/:id", async (req, res) => {
     }
 });
 
+// Satsangs
+app.get("/api/satsangs", async (req, res) => {
+    try { res.json((await Satsang.findAll({ order: [['date', 'DESC']] })).map(fmt)); }
+    catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.post("/api/satsangs", async (req, res) => {
+    try {
+        const satsang = await Satsang.create(req.body);
+        res.status(201).json(fmt(satsang));
+    } catch (err) { res.status(400).json({ error: err.message }); }
+});
+
+app.put("/api/satsangs/:id", async (req, res) => {
+    try {
+        await Satsang.update(req.body, { where: { id: req.params.id } });
+        res.json(fmt(await Satsang.findByPk(req.params.id)));
+    } catch (err) { res.status(400).json({ error: err.message }); }
+});
+
+app.delete("/api/satsangs/:id", async (req, res) => {
+    try {
+        await Satsang.destroy({ where: { id: req.params.id } });
+        res.json({ success: true });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 // Custom Attributes
 app.get("/api/customAttrs", async (req, res) => {
     try { res.json((await CustomAttr.findAll()).map(fmt)); } catch (err) { res.status(500).json({ error: err.message }); }
@@ -209,37 +284,87 @@ app.delete("/api/customAttrs/:id", async (req, res) => {
 // ─── 5. TICKETS (FULL LOGIC) ─────────────────────────────────────────────────
 
 app.get("/api/tickets", async (req, res) => {
-    try { res.json((await Ticket.findAll({ order: [['createdAt', 'DESC']] })).map(fmt)); }
+    try {
+        const tickets = await Ticket.findAll({ order: [['createdAt', 'DESC']] });
+        const webcasts = await Webcast.findAll({ order: [['createdAt', 'DESC']] });
+        res.json([...tickets, ...webcasts].map(fmt).sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt)));
+    }
     catch (err) { res.status(500).json({ error: err.message }); }
 });
 
 app.post("/api/tickets", async (req, res) => {
     try {
+        const isWebcast = req.body.category === "Webcast";
+        const Model = isWebcast ? Webcast : Ticket;
+        const prefix = isWebcast ? "WEB" : "TKT";
+
+        if (req.body.dueDate === "") req.body.dueDate = null;
+
         if (!req.body.id) {
-            const count = await Ticket.count();
-            req.body.id = `TKT-${String(1001 + count).padStart(4, "0")}`;
+            const count = await Model.count();
+            req.body.id = `${prefix}-${String(1001 + count).padStart(4, "0")}`;
         }
-        const ticket = await Ticket.create(req.body);
-        res.status(201).json(fmt(ticket));
+
+        const record = await Model.create(req.body);
+        res.status(201).json(fmt(record));
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
 app.put("/api/tickets/:id", async (req, res) => {
     try {
-        // Support both TKT-XXXX and Primary Key ID
-        await Ticket.update(req.body, {
-            where: {
-                [Op.or]: [{ id: req.params.id }]
-            }
-        });
-        const ticket = await Ticket.findOne({ where: { id: req.params.id } });
-        res.json(fmt(ticket));
+        // Check both tables
+        let record = await Ticket.findOne({ where: { id: req.params.id } });
+        let Model = Ticket;
+        if (!record) {
+            record = await Webcast.findOne({ where: { id: req.params.id } });
+            Model = Webcast;
+        }
+
+        if (!record) return res.status(404).json({ error: "Ticket not found" });
+
+        await record.update(req.body);
+        const updated = await Model.findOne({ where: { id: req.params.id } });
+        res.json(fmt(updated));
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
 app.delete("/api/tickets/:id", async (req, res) => {
     try {
-        await Ticket.destroy({ where: { id: req.params.id } });
+        const deleted = await Ticket.destroy({ where: { id: req.params.id } });
+        if (!deleted) await Webcast.destroy({ where: { id: req.params.id } });
+        res.json({ success: true });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// Projects
+app.get("/api/projects", async (req, res) => {
+    try {
+        const projects = await Project.findAll({ order: [['createdAt', 'DESC']] });
+        res.json(projects.map(fmt));
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.post("/api/projects", async (req, res) => {
+    try {
+        if (!req.body.id) {
+            const count = await Project.count();
+            req.body.id = `PRJ-${String(1001 + count).padStart(4, "0")}`;
+        }
+        const record = await Project.create(req.body);
+        res.status(201).json(fmt(record));
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.put("/api/projects/:id", async (req, res) => {
+    try {
+        await Project.update(req.body, { where: { id: req.params.id } });
+        res.json(fmt(await Project.findByPk(req.params.id)));
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.delete("/api/projects/:id", async (req, res) => {
+    try {
+        await Project.destroy({ where: { id: req.params.id } });
         res.json({ success: true });
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
@@ -249,8 +374,8 @@ app.delete("/api/tickets/:id", async (req, res) => {
 // Universal Export: Get all data for all tables (for full backups)
 app.get("/api/all-data", async (req, res) => {
     try {
-        const [users, orgs, categories, customAttrs, tickets] = await Promise.all([
-            User.findAll(), Org.findAll(), Category.findAll(), CustomAttr.findAll(), Ticket.findAll()
+        const [users, orgs, categories, customAttrs, tickets, webcasts, satsangs, projects] = await Promise.all([
+            User.findAll(), Org.findAll(), Category.findAll(), CustomAttr.findAll(), Ticket.findAll(), Webcast.findAll(), Satsang.findAll(), Project.findAll()
         ]);
         res.json({
             users: users.map(fmt),
@@ -258,6 +383,9 @@ app.get("/api/all-data", async (req, res) => {
             categories: categories.map(fmt),
             customAttrs: customAttrs.map(fmt),
             tickets: tickets.map(fmt),
+            webcasts: webcasts.map(fmt),
+            satsangs: satsangs.map(fmt),
+            projects: projects.map(fmt),
         });
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
@@ -271,49 +399,127 @@ app.post("/api/import/:table", async (req, res) => {
 
         const models = {
             tickets: Ticket,
+            webcasts: Webcast,
+            satsangs: Satsang,
             orgs: Org,
             categories: Category,
             customAttrs: CustomAttr,
-            users: User
+            users: User,
+            projects: Project
         };
 
         const Model = models[table];
         if (!Model) return res.status(400).json({ error: "Invalid table specified" });
 
-        // Determine unique identifier for merging
-        const matchField = table === 'tickets' ? 'id' : (table === 'users' ? 'email' : 'name');
+        // Get all valid column names for this specific database table
+        const validColumns = Object.keys(Model.rawAttributes);
 
-        for (let item of rawData) {
-            // 1. Clean up timestamps and empty fields from CSV/JSON
-            const { createdAt, updatedAt, ...cleanItem } = item;
+        // ─── TICKETS, WEBCASTS & PROJECTS IMPORT LOGIC ────────────
+        if (table === "tickets" || table === "webcasts" || table === "projects") {
 
-            // 2. Special handling for User passwords
-            if (table === 'users' && cleanItem.password && !cleanItem.password.startsWith("$2")) {
-                cleanItem.password = await bcrypt.hash(cleanItem.password, 10);
+            let prefix = "TKT";
+            if (table === "webcasts") prefix = "WEB";
+            if (table === "projects") prefix = "PRJ";
+
+            const lastRecord = await Model.findOne({
+                where: { id: { [Op.like]: `${prefix}-%` } },
+                order: [['createdAt', 'DESC']]
+            });
+
+            let nextIdNum = 1001;
+            if (lastRecord && lastRecord.id) {
+                const lastNum = parseInt(lastRecord.id.split("-")[1], 10);
+                if (!isNaN(lastNum)) nextIdNum = lastNum + 1;
+            } else {
+                nextIdNum = 1001 + await Model.count();
             }
 
-            // 3. Convert JSON strings back to Objects (required for CSV imports of JSON fields)
-            const jsonFields = ['options', 'assignees', 'cc', 'customAttrs', 'timeline', 'comments', 'vendor'];
-            jsonFields.forEach(field => {
-                if (typeof cleanItem[field] === 'string') {
-                    try { cleanItem[field] = JSON.parse(cleanItem[field]); }
-                    catch (e) { /* leave as is if not valid JSON */ }
+            for (let item of rawData) {
+                // 🛑 1. Bulletproof Header Skip: Check if any value in the row is "Summary" or "Ticket #"
+                const rowValues = Object.values(item);
+                if (rowValues.includes("Summary") || rowValues.includes("Ticket #")) {
+                    continue; // Skip the header row completely
                 }
-            });
 
-            // 4. Merge Logic: Find by unique field, then update or create
-            const [record, created] = await Model.findOrCreate({
-                where: { [matchField]: cleanItem[matchField] },
-                defaults: cleanItem
-            });
+                // 2. Strict Filter: Keep ONLY valid columns. Strip empty strings and old IDs.
+                const cleanItem = {};
+                for (const key in item) {
+                    if (validColumns.includes(key) && !['id', 'createdAt', 'updatedAt'].includes(key)) {
+                        cleanItem[key] = item[key];
+                    }
+                }
 
-            if (!created) {
-                await record.update(cleanItem);
+                // Skip completely empty rows
+                if (Object.keys(cleanItem).length === 0) continue;
+
+                // 3. Force Organization to VVMVP (overrides whatever the CSV says)
+                cleanItem.org = "VVMVP";
+
+                // 4. Clean up JSON fields if they come in as strings from CSV
+                const jsonFields = ['assignees', 'cc', 'customAttrs', 'timeline', 'comments', 'vendor'];
+                jsonFields.forEach(field => {
+                    if (typeof cleanItem[field] === 'string') {
+                        try { cleanItem[field] = JSON.parse(cleanItem[field]); }
+                        catch (e) { cleanItem[field] = []; }
+                    }
+                });
+
+                // 5. Generate the next ID in the sequence
+                cleanItem.id = `${prefix}-${String(nextIdNum).padStart(4, "0")}`;
+                nextIdNum++;
+
+                // 6. Create the record! Missing fields get ignored.
+                await Model.create(cleanItem);
+            }
+        }
+        // ─── IMPORT LOGIC FOR USERS, ORGS, CATEGORIES, SATSANGS ────────────
+        else {
+            const matchField = table === 'users' ? 'email' : 'name';
+
+            for (let item of rawData) {
+                // 🛑 Bulletproof Header Skip for other tables
+                const rowValues = Object.values(item);
+                if (rowValues.includes("Name") || rowValues.includes("Email")) {
+                    continue;
+                }
+
+                // 1. Strict Filter: Keep ONLY valid columns. Strip empty strings and old IDs.
+                const cleanItem = {};
+                for (const key in item) {
+                    if (validColumns.includes(key) && !['id', 'createdAt', 'updatedAt'].includes(key)) {
+                        cleanItem[key] = item[key];
+                    }
+                }
+
+                // Skip completely empty rows or if the critical matching field is missing
+                if (Object.keys(cleanItem).length === 0 || !cleanItem[matchField]) continue;
+
+                // Hash passwords for imported users if needed
+                if (table === 'users' && cleanItem.password && !cleanItem.password.startsWith("$2")) {
+                    cleanItem.password = await bcrypt.hash(cleanItem.password, 10);
+                }
+
+                // Parse JSON options for custom attributes
+                if (typeof cleanItem.options === 'string') {
+                    try { cleanItem.options = JSON.parse(cleanItem.options); }
+                    catch (e) { cleanItem.options = []; }
+                }
+
+                // Merge: Find by unique field, then update or create
+                const [record, created] = await Model.findOrCreate({
+                    where: { [matchField]: cleanItem[matchField] },
+                    defaults: cleanItem
+                });
+
+                if (!created) {
+                    await record.update(cleanItem);
+                }
             }
         }
 
-        res.json({ success: true, message: `Successfully merged data into ${table}` });
+        res.json({ success: true, message: `Successfully imported data into ${table}` });
     } catch (err) {
+        console.error("Import Error:", err);
         res.status(500).json({ error: "Import failed: " + err.message });
     }
 });
@@ -321,7 +527,7 @@ app.post("/api/import/:table", async (req, res) => {
 // Original "Full Bundle" Import (kept for backward compatibility with full backups)
 app.post("/api/all-data/import", async (req, res) => {
     try {
-        const { users = [], orgs = [], categories = [], customAttrs = [], tickets = [] } = req.body;
+        const { users = [], orgs = [], categories = [], customAttrs = [], tickets = [], webcasts = [], satsangs = [], projects = [] } = req.body;
 
         const merge = async (model, data, field) => {
             for (const item of data) {
@@ -335,6 +541,9 @@ app.post("/api/all-data/import", async (req, res) => {
         if (categories.length) await merge(Category, categories, 'name');
         if (customAttrs.length) await merge(CustomAttr, customAttrs, 'name');
         if (tickets.length) await merge(Ticket, tickets, 'id');
+        if (webcasts.length) await merge(Webcast, webcasts, 'id');
+        if (satsangs.length) await merge(Satsang, satsangs, 'name');
+        if (projects.length) await merge(Project, projects, 'id');
 
         res.json({ success: true, message: "Full database merge complete" });
     } catch (err) { res.status(500).json({ error: err.message }); }
