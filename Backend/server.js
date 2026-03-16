@@ -170,17 +170,41 @@ app.delete("/api/orgs/:id", async (req, res) => {
 app.get("/api/categories", async (req, res) => {
     try { res.json((await Category.findAll()).map(fmt)); } catch (err) { res.status(500).json({ error: err.message }); }
 });
+
 app.post("/api/categories", async (req, res) => {
     try { res.status(201).json(fmt(await Category.create(req.body))); } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ✅ MISSING ROUTE ADDED: Delete Category
+app.delete("/api/categories/:id", async (req, res) => {
+    try {
+        await Category.destroy({ where: { id: req.params.id } });
+        res.json({ success: true });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
 });
 
 // Custom Attributes
 app.get("/api/customAttrs", async (req, res) => {
     try { res.json((await CustomAttr.findAll()).map(fmt)); } catch (err) { res.status(500).json({ error: err.message }); }
 });
+
 app.post("/api/customAttrs", async (req, res) => {
     try { res.status(201).json(fmt(await CustomAttr.create(req.body))); } catch (err) { res.status(500).json({ error: err.message }); }
 });
+
+// ✅ MISSING ROUTE ADDED: Delete Custom Attribute
+app.delete("/api/customAttrs/:id", async (req, res) => {
+    try {
+        await CustomAttr.destroy({ where: { id: req.params.id } });
+        res.json({ success: true });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+
 
 // ─── 5. TICKETS (FULL LOGIC) ─────────────────────────────────────────────────
 

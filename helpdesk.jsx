@@ -14,6 +14,7 @@ const USERS_API = `${BASE_URL}/users`;
 const DB_API = `${BASE_URL}/all-data`;
 const AUTH_API = `${BASE_URL}/auth/login`;
 const IMPORT_API = `${BASE_URL}/import`;
+const PROJECTS_API = `${BASE_URL}/projects`;
 
 // ─── CONSTANTS ────────────────────────────────────────────────────────────────
 const DEPARTMENTS = ["IT", "HR", "Finance", "Operations", "Sales", "Marketing", "Legal", "Support"];
@@ -486,7 +487,10 @@ export default function HelpDesk() {
   const loadData = async () => {
     setLoading(true);
     try {
-      const data = await DB_API.getAllData();
+      // Use axios.get because DB_API is a URL string
+      const response = await axios.get(DB_API);
+      const data = response.data;
+
       setUsers(data.users || []);
       setOrgs(data.orgs || []);
       setCategories(data.categories || []);
@@ -495,17 +499,45 @@ export default function HelpDesk() {
       setProjectCategories(data.categories || []);
       setTicketCustomAttrs(data.customAttrs || []);
       setProjectCustomAttrs(data.customAttrs || []);
+
       const parsedTickets = (data.tickets || []).map(t => ({
-        ...t, created: new Date(t.created), updated: new Date(t.updated),
-        isWebcast: t.isWebcast || false, satsangType: t.satsangType || "", location: t.location || ""
+        ...t,
+        created: new Date(t.created),
+        updated: new Date(t.updated),
+        isWebcast: t.isWebcast || false,
+        satsangType: t.satsangType || "",
+        location: t.location || ""
       })).sort((a, b) => b.created - a.created);
+
       setTickets(parsedTickets);
-    } catch (e) { console.error(e); }
+
+      const parsedProjects = (data.projects || []).map(p => ({
+        ...p,
+        created: new Date(p.created),
+        updated: new Date(p.updated),
+        dueDate: p.dueDate ? new Date(p.dueDate) : null,
+        isWebcast: p.isWebcast || false,
+        progress: p.progress || 0,
+      })).sort((a, b) => b.created - a.created);
+
+      setProjects(parsedProjects);
+    } catch (e) {
+      console.error("Error loading data:", e);
+    }
     setLoading(false);
   };
 
   // On mount: always load app data; if session existed it was restored above via useState init
   useEffect(() => { loadData(); }, []);
+
+  const agentsOnly = useMemo(() => {
+    return users.filter(u => u.role !== "Viewer");
+  }, [users]);
+
+  // You can also add this for your dropdowns
+  const managersOnly = useMemo(() => {
+    return users.filter(u => u.role === "Admin" || u.role === "Manager");
+  }, [users]);
 
   // ─── COMPUTED DATA ─────────────────────────────────────────────────────────
   const now = Date.now(), dayMs = 86400000, rangeMs = parseInt(range) * dayMs;
@@ -640,15 +672,28 @@ export default function HelpDesk() {
   const handleSubmit = async () => {
     if (!form.summary || !form.org) return alert("Organisation and Summary are required");
     const newT = {
-      id: `TKT-${String(1000 + tickets.length + 1).padStart(4, "0")}`,
       ...form, status: "Open", created: new Date().toISOString(), updated: new Date().toISOString(), comments: [],
       timeline: [{ action: "Created", by: currentUser.name, date: new Date().toISOString(), note: "Ticket opened." }]
     };
     try {
-      const created = await TICKETS_API.create(newT);
+      const res = await axios.post(TICKETS_API, newT);
+      const created = res.data;
       setTickets(prev => [{ ...created, created: new Date(created.created), updated: new Date(created.updated) }, ...prev]);
       setShowNewTicket(false); setForm(emptyForm); setAssigneeSearch(""); setShowAssigneeDD(false);
-    } catch (e) { alert("Failed to save ticket"); }
+    } catch (e) {
+      alert("Failed to save ticket: " + (e.response?.data?.error || e.message));
+    }
+  };
+
+  const deleteTicket = async (id) => {
+    if (!window.confirm("Delete this ticket? This cannot be undone.")) return;
+    try {
+      await axios.delete(`${TICKETS_API}/${id}`);
+      setTickets(prev => prev.filter(t => t.id !== id));
+      setSelTicket(null);
+    } catch (e) {
+      alert("Failed to delete ticket: " + (e.response?.data?.error || e.message));
+    }
   };
 
   const toggleAssignee = u => { const e = form.assignees.find(a => a.id === u.id); setForm({ ...form, assignees: e ? form.assignees.filter(a => a.id !== u.id) : [...form.assignees, u] }); };
@@ -660,9 +705,9 @@ export default function HelpDesk() {
       const nowISO = new Date().toISOString();
       const newTimelineEvent = { action: `Status changed to ${status}`, by: currentUser.name, date: nowISO, note: "" };
       const updatedT = { ...t, status, updated: nowISO, timeline: [...(t.timeline || []), newTimelineEvent] };
-      await TICKETS_API.update(id, updatedT);
+      await axios.put(`${TICKETS_API}/${id}`, updatedT);
       setTickets(p => p.map(x => x.id === id ? { ...updatedT, updated: new Date(nowISO) } : x));
-      if (selTicket?.id === id) setSelTicket(updatedT);
+      if (selTicket?.id === id) setSelTicket({ ...updatedT, updated: new Date(nowISO) });
     } catch (e) { alert("Failed to update"); }
   };
 
@@ -679,9 +724,9 @@ export default function HelpDesk() {
       const agent = users.find(u => u.id === agentId);
       const nowISO = new Date().toISOString();
       const update = { ...t, assignees: [agent], updated: nowISO, timeline: [...(t.timeline || []), { action: `Forwarded to Agent: ${agent.name}`, by: currentUser.name, date: nowISO, note: fwdReason }] };
-      await TICKETS_API.update(t.id, update);
+      await axios.put(`${TICKETS_API}/${t.id}`, update);
       setTickets(p => p.map(x => x.id === t.id ? { ...update, updated: new Date(nowISO) } : x));
-      setSelTicket(update); setShowForward(false); setFwdReason("");
+      setSelTicket({ ...update, updated: new Date(nowISO) }); setShowForward(false); setFwdReason("");
     } catch (e) { alert("Forwarding failed"); }
   };
 
@@ -691,9 +736,9 @@ export default function HelpDesk() {
     try {
       const nowISO = new Date().toISOString();
       const update = { ...t, status: "Pending", updated: nowISO, timeline: [...(t.timeline || []), { action: `Sent for Repair: ${vendorName}`, by: currentUser.name, date: nowISO, note: `Contact: ${contactInfo}` }] };
-      await TICKETS_API.update(t.id, update);
+      await axios.put(`${TICKETS_API}/${t.id}`, update);
       setTickets(p => p.map(x => x.id === t.id ? { ...update, updated: new Date(nowISO) } : x));
-      setSelTicket(update);
+      setSelTicket({ ...update, updated: new Date(nowISO) });
     } catch (e) { alert("Repair update failed"); }
   };
 
@@ -703,26 +748,200 @@ export default function HelpDesk() {
   };
 
   // ─── SETTINGS HANDLERS (v1 API) ────────────────────────────────────────────
-  const addOrg = async () => { if (!newOrg.name) return; const created = await ORGS_API.create(newOrg); setOrgs([...orgs, created]); setNewOrg({ name: "", domain: "", phone: "" }); };
-  const addCat = async () => { if (!newCat.name) return; const created = await CATEGORIES_API.create(newCat); setCategories([...categories, created]); setNewCat({ name: "", color: "#3b82f6" }); };
-  const addUser = async () => { if (!newUser.name || !newUser.email) return; const created = await USERS_API.create({ ...newUser, active: true }); setUsers([...users, created]); setNewUser({ name: "", email: "", role: "Agent" }); };
-  const addAttr = async () => { if (!newAttr.name) return; const created = await CUSTOM_ATTRS_API.create({ ...newAttr, options: typeof newAttr.options === "string" ? newAttr.options.split(",").map(s => s.trim()).filter(Boolean) : [] }); setCustomAttrs([...customAttrs, created]); setNewAttr({ name: "", type: "text", options: "", required: false }); };
+  const addOrg = async () => {
+    if (!newOrg.name) return;
+    try {
+      const res = await axios.post(ORGS_API, newOrg);
+      const created = res.data; // ✅ Extract the actual data
+      setOrgs([...orgs, created]); // Update state immediately
+      setNewOrg({ name: "", domain: "", phone: "" });
+    } catch (err) { console.error(err); }
+  };
 
-  // ─── PROJECT HANDLERS (v2 local state) ────────────────────────────────────
-  const handleProjectSubmit = () => {
+  const addCat = async () => {
+    if (!newCat.name) return;
+    try {
+      const res = await axios.post(CATEGORIES_API, newCat);
+      const created = res.data; // ✅ Extract the actual data
+      setCategories([...categories, created]);
+      setNewCat({ name: "", color: "#3b82f6" });
+    } catch (err) { console.error(err); }
+  };
+  const addUser = async () => {
+    if (!newUser.name || !newUser.email) return;
+    try {
+      // We send a POST request to the USERS_API URL
+      const response = await axios.post(USERS_API, {
+        ...newUser,
+        active: true,
+        status: "Offline" // Default status
+      });
+
+      const created = response.data;
+      setUsers([...users, created]);
+
+      // Reset form - default new users to Viewer so they stay in management 
+      // until they sign up/upgrade to Agent
+      setNewUser({ name: "", email: "", role: "Viewer" });
+    } catch (err) {
+      console.error("Error adding user:", err);
+      alert("Failed to add user. Check console for details.");
+    }
+  };
+  // --- ORGANIZATIONS ---
+  const deleteOrg = async (id) => {
+    if (!window.confirm("Delete this organization?")) return;
+    try {
+      // 1. Call the API to delete from database
+      await axios.delete(`${ORGS_API}/${id}`);
+
+      // 2. Update local state immediately to remove it from UI
+      setOrgs(prev => prev.filter(o => o.id !== id));
+    } catch (err) {
+      console.error("Error deleting organization:", err);
+    }
+  };
+
+  // --- CATEGORIES ---
+  const deleteCat = async (id) => {
+    console.log("Attempting to delete category with ID:", id); // 👈 This will tell us if the ID is undefined
+
+    if (!id || typeof id === 'object') {
+      alert("Cannot delete: This category has no valid ID. It is likely corrupted data.");
+      return;
+    }
+
+    if (!window.confirm("Delete this category?")) return;
+
+    try {
+      await axios.delete(`${CATEGORIES_API}/${id}`);
+
+      // Update both states to remove it from the UI immediately
+      setCategories(prev => prev.filter(c => c.id !== id && c._id !== id));
+      setTicketCategories(prev => prev.filter(c => c.id !== id && c._id !== id));
+    } catch (err) {
+      console.error("Error deleting category:", err);
+    }
+  };
+
+  // --- USERS ---
+  const deleteUser = async (id) => {
+    if (!window.confirm("Delete this user?")) return;
+    try {
+      await axios.delete(`${USERS_API}/${id}`);
+      setUsers(prev => prev.filter(u => u.id !== id));
+    } catch (err) {
+      console.error("Error deleting user:", err);
+      alert("Failed to delete user.");
+    }
+  };
+  const addAttr = async () => {
+    if (!newAttr.name) return;
+    try {
+      const payload = {
+        ...newAttr,
+        options: typeof newAttr.options === "string"
+          ? newAttr.options.split(",").map(s => s.trim()).filter(Boolean)
+          : []
+      };
+
+      // Send POST request to CUSTOM_ATTRS_API URL
+      const response = await axios.post(CUSTOM_ATTRS_API, payload);
+
+      const created = response.data;
+      setCustomAttrs([...customAttrs, created]);
+      setNewAttr({ name: "", type: "text", options: "", required: false });
+    } catch (err) {
+      console.error("Error adding attribute:", err);
+      alert("Failed to add attribute.");
+    }
+  };
+  // ─── PROJECT HANDLERS (v1 API) ────────────────────────────────────────────
+  const handleProjectSubmit = async () => {
     if (!projForm.title || !projForm.org) return alert("Organisation and Title are required");
-    setProjects(prev => [{ id: `PRJ-${String(2000 + prev.length + 1).padStart(4, "0")}`, ...projForm, created: new Date(), updated: new Date(), dueDate: projForm.dueDate ? new Date(projForm.dueDate) : null, comments: [] }, ...prev]);
-    setShowNewProject(false); setProjForm(emptyProjectForm);
+    const newP = {
+      ...projForm,
+      status: projForm.status || "Open",
+      created: new Date().toISOString(),
+      updated: new Date().toISOString(),
+      dueDate: projForm.dueDate || null,
+      comments: [],
+      progress: projForm.progress || 0,
+    };
+    try {
+      const res = await axios.post(PROJECTS_API, newP);
+      const created = res.data;
+      setProjects(prev => [{ ...created, created: new Date(created.created), updated: new Date(created.updated), dueDate: created.dueDate ? new Date(created.dueDate) : null }, ...prev]);
+      setShowNewProject(false); setProjForm(emptyProjectForm);
+    } catch (e) { alert("Failed to save project"); }
   };
   const addProjCC = () => { if (projCcInput && !projForm.cc.includes(projCcInput)) { setProjForm({ ...projForm, cc: [...projForm.cc, projCcInput] }); setProjCcInput(""); } };
-  const updateProjectStatus = (id, status) => { setProjects(p => p.map(x => x.id === id ? { ...x, status, updated: new Date() } : x)); if (selProject?.id === id) setSelProject(s => ({ ...s, status })); };
+  const updateProjectStatus = async (id, status) => {
+    const p = projects.find(x => x.id === id); if (!p) return;
+    try {
+      const nowISO = new Date().toISOString();
+      const updated = { ...p, status, updated: nowISO };
+      await axios.put(`${PROJECTS_API}/${id}`, updated);
+      setProjects(prev => prev.map(x => x.id === id ? { ...updated, updated: new Date(nowISO) } : x));
+      if (selProject?.id === id) setSelProject(s => ({ ...s, status, updated: new Date(nowISO) }));
+    } catch (e) { alert("Failed to update project status"); }
+  };
+
+  const deleteProject = async (id) => {
+    if (!window.confirm("Delete this project? This cannot be undone.")) return;
+    try {
+      await axios.delete(`${PROJECTS_API}/${id}`);
+      setProjects(prev => prev.filter(p => p.id !== id));
+      setSelProject(null);
+    } catch (e) {
+      alert("Failed to delete project: " + (e.response?.data?.error || e.message));
+    }
+  };
   const toggleProjSel = id => { const s = new Set(selectedProjIds); s.has(id) ? s.delete(id) : s.add(id); setSelectedProjIds(s); };
   const toggleAllProj = () => selectedProjIds.size === filteredProjects.length && filteredProjects.length > 0 ? setSelectedProjIds(new Set()) : setSelectedProjIds(new Set(filteredProjects.map(p => p.id)));
   const selProjects = filteredProjects.filter(p => selectedProjIds.has(p.id));
-  const addTicketCat = () => { if (!newTicketCat.name) return; setTicketCategories([...ticketCategories, { ...newTicketCat, id: Date.now() }]); setNewTicketCat({ name: "", color: "#3b82f6" }); };
-  const addProjCat = () => { if (!newProjCat.name) return; setProjectCategories([...projectCategories, { ...newProjCat, id: Date.now() }]); setNewProjCat({ name: "", color: "#8b5cf6" }); };
-  const addTicketAttr = () => { if (!newTicketAttr.name) return; setTicketCustomAttrs([...ticketCustomAttrs, { ...newTicketAttr, id: Date.now(), options: newTicketAttr.options.split(",").map(s => s.trim()).filter(Boolean) }]); setNewTicketAttr({ name: "", type: "text", options: "", required: false }); };
-  const addProjAttr = () => { if (!newProjAttr.name) return; setProjectCustomAttrs([...projectCustomAttrs, { ...newProjAttr, id: Date.now(), options: newProjAttr.options.split(",").map(s => s.trim()).filter(Boolean) }]); setNewProjAttr({ name: "", type: "text", options: "", required: false }); };
+  const addTicketCat = async () => {
+    if (!newTicketCat.name) return;
+    try {
+      const res = await axios.post(CATEGORIES_API, newTicketCat);
+      const created = res.data;
+      setTicketCategories(prev => [...prev, created]);
+      setCategories(prev => [...prev, created]);
+      setNewTicketCat({ name: "", color: "#3b82f6" });
+    } catch (e) { alert("Failed to add category"); }
+  };
+  const addProjCat = async () => {
+    if (!newProjCat.name) return;
+    try {
+      const res = await axios.post(CATEGORIES_API, newProjCat);
+      const created = res.data;
+      setProjectCategories(prev => [...prev, created]);
+      setCategories(prev => [...prev, created]);
+      setNewProjCat({ name: "", color: "#8b5cf6" });
+    } catch (e) { alert("Failed to add project category"); }
+  };
+  const addTicketAttr = async () => {
+    if (!newTicketAttr.name) return;
+    try {
+      const payload = { ...newTicketAttr, options: typeof newTicketAttr.options === "string" ? newTicketAttr.options.split(",").map(s => s.trim()).filter(Boolean) : [] };
+      const res = await axios.post(CUSTOM_ATTRS_API, payload);
+      const created = res.data;
+      setTicketCustomAttrs(prev => [...prev, created]);
+      setCustomAttrs(prev => [...prev, created]);
+      setNewTicketAttr({ name: "", type: "text", options: "", required: false });
+    } catch (e) { alert("Failed to add attribute"); }
+  };
+  const addProjAttr = async () => {
+    if (!newProjAttr.name) return;
+    try {
+      const payload = { ...newProjAttr, options: typeof newProjAttr.options === "string" ? newProjAttr.options.split(",").map(s => s.trim()).filter(Boolean) : [] };
+      const res = await axios.post(CUSTOM_ATTRS_API, payload);
+      const created = res.data;
+      setProjectCustomAttrs(prev => [...prev, created]);
+      setCustomAttrs(prev => [...prev, created]);
+      setNewProjAttr({ name: "", type: "text", options: "", required: false });
+    } catch (e) { alert("Failed to add project attribute"); }
+  };
 
   // ─── AUTH HANDLERS (v1) ────────────────────────────────────────────────────
   const handleLogin = async (e) => {
@@ -758,10 +977,10 @@ export default function HelpDesk() {
 
   const handleLogout = async () => {
     if (currentUser) {
-      try { await USERS_API.update(currentUser.id, { ...currentUser, status: "Not Active" }); }
+      try { await axios.put(`${USERS_API}/${currentUser.id}`, { ...currentUser, status: "Not Active" }); }
       catch (e) { console.error("Logout status update failed"); }
     }
-    clearSession(); // destroy the 12-hour session immediately
+    clearSession();
     setCurrentUser(null); setProfileOpen(false);
   };
 
@@ -787,7 +1006,7 @@ export default function HelpDesk() {
         confirmed: true,
       };
 
-      await USERS_API.create(payload);
+      await axios.post(USERS_API, payload);
       setAuthMessage(`Account created! You are registered as ${payload.role}. Please log in.`);
       await loadData();
 
@@ -813,14 +1032,14 @@ export default function HelpDesk() {
   const saveProfile = async () => {
     try {
       const up = { ...currentUser, phone: profileForm.phone, name: profileForm.name };
-      await USERS_API.update(currentUser.id, up);
+      await axios.put(`${USERS_API}/${currentUser.id}`, up);
       saveSession(up); setCurrentUser(up); setUsers(users.map(u => u.id === currentUser.id ? up : u)); setEditProfileOpen(false);
     } catch (err) { alert("Failed to save profile"); }
   };
   const updateStatusDirect = async (st) => {
     try {
       const up = { ...currentUser, status: st };
-      await USERS_API.update(currentUser.id, up);
+      await axios.put(`${USERS_API}/${currentUser.id}`, up);
       saveSession(up); setCurrentUser(up); setUsers(users.map(u => u.id === currentUser.id ? up : u));
     } catch (err) { alert("Failed to update status"); }
   };
@@ -1059,36 +1278,46 @@ export default function HelpDesk() {
 
           {/* ── DASHBOARD (v2 layout + SmartCharts) ── */}
           {view === "dashboard" && <>
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 9, marginBottom: 9 }}>
+            {/* ── ROW 1: TICKETS ── */}
+            <div style={{ marginBottom: 4 }}>
+              <span style={{ fontSize: 10, fontWeight: 700, color: "#94a3b8", textTransform: "uppercase", letterSpacing: "0.07em", marginLeft: 2 }}>🎫 Tickets</span>
+            </div>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(5,1fr)", gap: 9, marginBottom: 14 }}>
               {[
-                { label: "Open Tickets", value: stats.open, color: "#f59e0b", icon: "📬", hint: "View open tickets", action: () => { setView("tickets"); setTvFilter("open"); setStatusF("All"); setPriorityF("All"); } },
-                { label: "Open Projects", value: projStats.open, color: "#3b82f6", icon: "📁", hint: "View open projects", action: () => { setView("projects"); setPvFilter("open"); setProjStatusF("All"); setProjPriorityF("All"); } },
-                { label: "In Progress", value: stats.inProgress + projStats.inProgress, color: "#6366f1", icon: "⚙️", hint: "Tickets & projects in progress", action: () => { setView("tickets"); setTvFilter("all"); setStatusF("In Progress"); setPriorityF("All"); } },
-                { label: "Critical", value: stats.critical + projStats.critical, color: "#ef4444", icon: "🔥", hint: "Critical priority items", action: () => { setView("tickets"); setTvFilter("alerts"); setStatusF("All"); setPriorityF("Critical"); } },
+                { label: "Open", value: stats.open, bg: "#fef3c7", accent: "#f59e0b", icon: "📬", action: () => { setView("tickets"); setTvFilter("open"); setStatusF("All"); setPriorityF("All"); } },
+                { label: "In Progress", value: stats.inProgress, bg: "#ede9fe", accent: "#6366f1", icon: "⚙️", action: () => { setView("tickets"); setTvFilter("all"); setStatusF("In Progress"); setPriorityF("All"); } },
+                { label: "Critical", value: stats.critical, bg: "#fee2e2", accent: "#ef4444", icon: "🔥", action: () => { setView("tickets"); setTvFilter("alerts"); setStatusF("All"); setPriorityF("Critical"); } },
+                { label: "Resolved", value: stats.resolved, bg: "#dcfce7", accent: "#22c55e", icon: "✅", action: () => { setView("tickets"); setTvFilter("closed"); setStatusF("All"); setPriorityF("All"); } },
+                { label: "Total", value: stats.total, bg: "#dbeafe", accent: "#3b82f6", icon: "🎫", action: () => { setView("tickets"); setTvFilter("all"); setStatusF("All"); setPriorityF("All"); } },
               ].map(s => (
-                <div key={s.label} onClick={s.action} style={{ background: "#fff", borderRadius: 12, padding: "14px 16px", boxShadow: "0 1px 4px rgba(0,0,0,0.06)", borderTop: `3px solid ${s.color}`, cursor: "pointer", transition: "box-shadow 0.15s" }}
+                <div key={s.label} onClick={s.action} style={{ background: s.bg, borderRadius: 12, padding: "14px 16px", boxShadow: "0 1px 4px rgba(0,0,0,0.06)", borderLeft: `4px solid ${s.accent}`, cursor: "pointer", transition: "box-shadow 0.15s" }}
                   onMouseEnter={e => e.currentTarget.style.boxShadow = "0 4px 16px rgba(0,0,0,0.12)"}
                   onMouseLeave={e => e.currentTarget.style.boxShadow = "0 1px 4px rgba(0,0,0,0.06)"}>
-                  <div style={{ fontSize: 20, marginBottom: 5 }}>{s.icon}</div>
-                  <div style={{ fontSize: 24, fontWeight: 700, color: s.color }}>{s.value}</div>
-                  <div style={{ fontSize: 11, fontWeight: 600, color: "#374151" }}>{s.label}</div>
-                  <div style={{ fontSize: 10, color: "#94a3b8", marginTop: 2 }}>{s.hint} →</div>
+                  <div style={{ fontSize: 18, marginBottom: 4 }}>{s.icon}</div>
+                  <div style={{ fontSize: 26, fontWeight: 800, color: s.accent }}>{s.value}</div>
+                  <div style={{ fontSize: 11, fontWeight: 600, color: "#374151", marginTop: 2 }}>{s.label}</div>
                 </div>
               ))}
             </div>
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 9, marginBottom: 9 }}>
+
+            {/* ── ROW 2: PROJECTS ── */}
+            <div style={{ marginBottom: 4 }}>
+              <span style={{ fontSize: 10, fontWeight: 700, color: "#94a3b8", textTransform: "uppercase", letterSpacing: "0.07em", marginLeft: 2 }}>📁 Projects</span>
+            </div>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(5,1fr)", gap: 9, marginBottom: 14 }}>
               {[
-                { label: "Total Tickets", value: stats.total, color: "#3b82f6", icon: "🎫", action: () => { setView("tickets"); setTvFilter("all"); setStatusF("All"); setPriorityF("All"); } },
-                { label: "Total Projects", value: projStats.total, color: "#8b5cf6", icon: "📁", action: () => { setView("projects"); setPvFilter("all"); setProjStatusF("All"); setProjPriorityF("All"); } },
-                { label: "Resolved", value: stats.resolved + projStats.resolved, color: "#22c55e", icon: "✅", action: () => { setView("tickets"); setTvFilter("closed"); setStatusF("All"); setPriorityF("All"); } },
+                { label: "Open", value: projStats.open, bg: "#fef3c7", accent: "#f59e0b", icon: "📂", action: () => { setView("projects"); setPvFilter("open"); setProjStatusF("All"); setProjPriorityF("All"); } },
+                { label: "In Progress", value: projStats.inProgress, bg: "#ede9fe", accent: "#6366f1", icon: "⚙️", action: () => { setView("projects"); setPvFilter("inprogress"); setProjStatusF("All"); setProjPriorityF("All"); } },
+                { label: "Critical", value: projStats.critical, bg: "#fee2e2", accent: "#ef4444", icon: "🔥", action: () => { setView("projects"); setPvFilter("critical"); setProjStatusF("All"); setProjPriorityF("All"); } },
+                { label: "Resolved", value: projStats.resolved, bg: "#dcfce7", accent: "#22c55e", icon: "✅", action: () => { setView("projects"); setPvFilter("closed"); setProjStatusF("All"); setProjPriorityF("All"); } },
+                { label: "Total", value: projStats.total, bg: "#ede9fe", accent: "#8b5cf6", icon: "📁", action: () => { setView("projects"); setPvFilter("all"); setProjStatusF("All"); setProjPriorityF("All"); } },
               ].map(s => (
-                <div key={s.label} onClick={s.action} style={{ background: "#fff", borderRadius: 12, padding: "14px 16px", boxShadow: "0 1px 4px rgba(0,0,0,0.06)", borderTop: `3px solid ${s.color}`, cursor: "pointer", transition: "box-shadow 0.15s" }}
+                <div key={s.label} onClick={s.action} style={{ background: s.bg, borderRadius: 12, padding: "14px 16px", boxShadow: "0 1px 4px rgba(0,0,0,0.06)", borderLeft: `4px solid ${s.accent}`, cursor: "pointer", transition: "box-shadow 0.15s" }}
                   onMouseEnter={e => e.currentTarget.style.boxShadow = "0 4px 16px rgba(0,0,0,0.12)"}
                   onMouseLeave={e => e.currentTarget.style.boxShadow = "0 1px 4px rgba(0,0,0,0.06)"}>
-                  <div style={{ fontSize: 20, marginBottom: 5 }}>{s.icon}</div>
-                  <div style={{ fontSize: 24, fontWeight: 700, color: s.color }}>{s.value}</div>
-                  <div style={{ fontSize: 11, fontWeight: 600, color: "#374151" }}>{s.label}</div>
-                  <div style={{ fontSize: 10, color: "#94a3b8", marginTop: 2 }}>Click to view →</div>
+                  <div style={{ fontSize: 18, marginBottom: 4 }}>{s.icon}</div>
+                  <div style={{ fontSize: 26, fontWeight: 800, color: s.accent }}>{s.value}</div>
+                  <div style={{ fontSize: 11, fontWeight: 600, color: "#374151", marginTop: 2 }}>{s.label}</div>
                 </div>
               ))}
             </div>
@@ -1512,7 +1741,7 @@ export default function HelpDesk() {
                 <h3 style={{ margin: "0 0 14px", fontSize: 15, fontWeight: 700 }}>Organisations ({orgs.length})</h3>
                 {currentUser?.role === "Admin" ? (
                   <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr auto", gap: 9, marginBottom: 18, padding: 14, background: "#f8fafc", borderRadius: 9 }}>
-                    <input style={iS} placeholder="Name *" value={newOrg.name} onChange={e => setNewOrg({ ...newOrg, name: e.target.value })} />
+                    <input style={iS} placeholder="Name *" value={newOrg.name || ""} onChange={e => setNewOrg({ ...newOrg, name: e.target.value })} />
                     <input style={iS} placeholder="Domain" value={newOrg.domain} onChange={e => setNewOrg({ ...newOrg, domain: e.target.value })} />
                     <input style={iS} placeholder="Phone" value={newOrg.phone} onChange={e => setNewOrg({ ...newOrg, phone: e.target.value })} />
                     <button onClick={addOrg} style={bP}>Add</button>
@@ -1524,7 +1753,7 @@ export default function HelpDesk() {
                     <td style={{ ...tdStyle, fontWeight: 600 }}>{o.name}</td>
                     <td style={{ ...tdStyle, color: "#64748b" }}>{o.domain || "—"}</td>
                     <td style={{ ...tdStyle, color: "#64748b" }}>{o.phone || "—"}</td>
-                    {currentUser?.role === "Admin" && <td style={tdStyle}><button onClick={() => setOrgs(orgs.filter(x => x.id !== o.id))} style={{ border: "none", background: "#fee2e2", color: "#ef4444", borderRadius: 6, padding: "4px 10px", cursor: "pointer", fontSize: 12, fontWeight: 600 }}>Delete</button></td>}
+                    {currentUser?.role === "Admin" && <td style={tdStyle}><button onClick={async () => { if (window.confirm("Delete this organization?")) { try { await axios.delete(`${ORGS_API}/${o.id}`); setOrgs(orgs.filter(x => x.id !== o.id)); } catch (err) { console.error("Delete failed:", err); } } }} style={{ border: "none", background: "#fee2e2", color: "#ef4444", borderRadius: 6, padding: "4px 10px", cursor: "pointer", fontSize: 12, fontWeight: 600 }}>Delete</button></td>}
                   </tr>)}</tbody>
                 </table>
               </div>}
@@ -1532,7 +1761,7 @@ export default function HelpDesk() {
                 <h3 style={{ margin: "0 0 14px", fontSize: 15, fontWeight: 700 }}>Ticket Categories ({categories.length})</h3>
                 {currentUser?.role === "Admin" ? (
                   <div style={{ display: "grid", gridTemplateColumns: "1fr auto auto", gap: 9, marginBottom: 18, padding: 14, background: "#f8fafc", borderRadius: 9, alignItems: "center" }}>
-                    <input style={iS} placeholder="Category name *" value={newCat.name} onChange={e => setNewCat({ ...newCat, name: e.target.value })} />
+                    <input style={iS} placeholder="Category name *" value={newCat.name || ""} onChange={e => setNewCat({ ...newCat, name: e.target.value })} />
                     <div style={{ display: "flex", alignItems: "center", gap: 7 }}><label style={{ fontSize: 13, fontWeight: 600, color: "#374151" }}>Color</label><input type="color" value={newCat.color} onChange={e => setNewCat({ ...newCat, color: e.target.value })} style={{ width: 34, height: 34, border: "none", borderRadius: 7, cursor: "pointer", padding: 2 }} /></div>
                     <button onClick={addCat} style={bP}>Add</button>
                   </div>
@@ -1543,7 +1772,7 @@ export default function HelpDesk() {
                       <div style={{ width: 11, height: 11, borderRadius: 3, background: c.color, flexShrink: 0 }} />
                       <span style={{ flex: 1, fontSize: 13, fontWeight: 600 }}>{c.name}</span>
                       <span style={{ fontSize: 11, color: "#94a3b8" }}>{tickets.filter(t => t.category === c.name).length}</span>
-                      {currentUser?.role === "Admin" && <button onClick={() => setCategories(categories.filter(x => x.id !== c.id))} style={{ border: "none", background: "transparent", color: "#ef4444", cursor: "pointer", fontSize: 15, fontWeight: 700, padding: "0 2px" }}>×</button>}
+                      {currentUser?.role === "Admin" && <button onClick={() => deleteCat(c.id)} style={{ border: "none", background: "#fee2e2", color: "#ef4444", borderRadius: 6, padding: "4px 10px", cursor: "pointer", fontSize: 12, fontWeight: 600 }}>Delete</button>}
                     </div>
                   ))}
                 </div>
@@ -1570,8 +1799,8 @@ export default function HelpDesk() {
                         {u.status && <Badge label={u.status} style={{ background: statusOpts.find(s => s.l === u.status)?.bg || "#f1f5f9", color: statusOpts.find(s => s.l === u.status)?.c || "#64748b" }} />}
                       </div></td>
                       {currentUser?.role === "Admin" && <td style={tdStyle}><div style={{ display: "flex", gap: 6 }}>
-                        <button onClick={() => setUsers(users.map(x => x.id === u.id ? { ...x, active: !x.active } : x))} style={{ border: "none", background: u.active ? "#fef9c3" : "#dcfce7", color: u.active ? "#854d0e" : "#15803d", borderRadius: 6, padding: "4px 9px", cursor: "pointer", fontSize: 12, fontWeight: 600 }}>{u.active ? "Deactivate" : "Activate"}</button>
-                        {u.id !== currentUser.id && <button onClick={() => setUsers(users.filter(x => x.id !== u.id))} style={{ border: "none", background: "#fee2e2", color: "#ef4444", borderRadius: 6, padding: "4px 9px", cursor: "pointer", fontSize: 12, fontWeight: 600 }}>Delete</button>}
+                        <button onClick={async () => { try { const updated = { ...u, active: !u.active }; await axios.put(`${USERS_API}/${u.id}`, updated); setUsers(users.map(x => x.id === u.id ? updated : x)); } catch (err) { alert("Failed to update user"); } }} style={{ border: "none", background: u.active ? "#fef9c3" : "#dcfce7", color: u.active ? "#854d0e" : "#15803d", borderRadius: 6, padding: "4px 9px", cursor: "pointer", fontSize: 12, fontWeight: 600 }}>{u.active ? "Deactivate" : "Activate"}</button>
+                        {u.id !== currentUser.id && <button onClick={async () => { if (window.confirm(`Delete ${u.name}?`)) { try { await axios.delete(`${USERS_API}/${u.id}`); setUsers(users.filter(x => x.id !== u.id)); } catch (err) { console.error("Delete failed:", err); } } }} style={{ border: "none", background: "#fee2e2", color: "#ef4444", borderRadius: 6, padding: "4px 9px", cursor: "pointer", fontSize: 12, fontWeight: 600 }}>Delete</button>}
                       </div></td>}
                     </tr>
                   ))}</tbody>
@@ -1817,7 +2046,18 @@ export default function HelpDesk() {
           <div style={{ borderTop: "1px solid #f1f5f9", paddingTop: 13 }}>
             <div style={{ fontSize: 11, fontWeight: 600, color: "#374151", marginBottom: 7 }}>ADD COMMENT</div>
             <textarea style={{ ...iS, height: 68, resize: "none" }} placeholder="Add a note or reply…" value={newComment} onChange={e => setNewComment(e.target.value)} />
-            <button onClick={() => setNewComment("")} style={{ ...bP, marginTop: 7, padding: "7px 15px", fontSize: 13 }}>Post Comment</button>
+            <button onClick={async () => {
+              if (!newComment.trim()) return;
+              const nowISO = new Date().toISOString();
+              const comment = { by: currentUser.name, date: nowISO, text: newComment.trim() };
+              const updatedT = { ...selTicket, updated: nowISO, comments: [...(selTicket.comments || []), comment], timeline: [...(selTicket.timeline || []), { action: "Comment added", by: currentUser.name, date: nowISO, note: newComment.trim() }] };
+              try {
+                await axios.put(`${TICKETS_API}/${selTicket.id}`, updatedT);
+                setTickets(p => p.map(x => x.id === selTicket.id ? { ...updatedT, updated: new Date(nowISO) } : x));
+                setSelTicket({ ...updatedT, updated: new Date(nowISO) });
+                setNewComment("");
+              } catch (e) { alert("Failed to post comment"); }
+            }} style={{ ...bP, marginTop: 7, padding: "7px 15px", fontSize: 13 }}>Post Comment</button>
           </div>
         </div>}
       </Modal>
@@ -1859,7 +2099,15 @@ export default function HelpDesk() {
           <div style={{ marginBottom: 14 }}>
             <div style={{ fontSize: 11, fontWeight: 600, color: "#374151", marginBottom: 7 }}>UPDATE PROGRESS</div>
             <div style={{ display: "flex", alignItems: "center", gap: 11 }}>
-              <input type="range" min={0} max={100} value={selProject.progress} onChange={e => { const p = parseInt(e.target.value); setProjects(prev => prev.map(x => x.id === selProject.id ? { ...x, progress: p } : x)); setSelProject(s => ({ ...s, progress: p })); }} style={{ flex: 1 }} />
+              <input type="range" min={0} max={100} value={selProject.progress} onChange={e => { const p = parseInt(e.target.value); setProjects(prev => prev.map(x => x.id === selProject.id ? { ...x, progress: p } : x)); setSelProject(s => ({ ...s, progress: p })); }} onMouseUp={async e => {
+                const p = parseInt(e.target.value);
+                try {
+                  const nowISO = new Date().toISOString();
+                  const updated = { ...selProject, progress: p, updated: nowISO };
+                  await axios.put(`${PROJECTS_API}/${selProject.id}`, updated);
+                  setProjects(prev => prev.map(x => x.id === selProject.id ? { ...updated, updated: new Date(nowISO) } : x));
+                } catch (err) { alert("Failed to save progress"); }
+              }} style={{ flex: 1 }} />
               <span style={{ fontSize: 14, fontWeight: 700, color: "#8b5cf6", minWidth: 40 }}>{selProject.progress}%</span>
             </div>
             <ProgressBar value={selProject.progress} color={selProject.progress > 70 ? "#22c55e" : selProject.progress > 40 ? "#f59e0b" : "#ef4444"} />
@@ -1867,7 +2115,18 @@ export default function HelpDesk() {
           <div style={{ borderTop: "1px solid #f1f5f9", paddingTop: 13 }}>
             <div style={{ fontSize: 11, fontWeight: 600, color: "#374151", marginBottom: 7 }}>ADD COMMENT</div>
             <textarea style={{ ...iS, height: 68, resize: "none" }} placeholder="Add a note or reply…" value={newProjComment} onChange={e => setNewProjComment(e.target.value)} />
-            <button onClick={() => setNewProjComment("")} style={{ ...bP, marginTop: 7, padding: "7px 15px", fontSize: 13, background: "linear-gradient(135deg,#8b5cf6,#6366f1)" }}>Post Comment</button>
+            <button onClick={async () => {
+              if (!newProjComment.trim()) return;
+              const nowISO = new Date().toISOString();
+              const comment = { by: currentUser.name, date: nowISO, text: newProjComment.trim() };
+              const updatedP = { ...selProject, updated: nowISO, comments: [...(selProject.comments || []), comment] };
+              try {
+                await axios.put(`${PROJECTS_API}/${selProject.id}`, updatedP);
+                setProjects(p => p.map(x => x.id === selProject.id ? { ...updatedP, updated: new Date(nowISO) } : x));
+                setSelProject({ ...updatedP, updated: new Date(nowISO) });
+                setNewProjComment("");
+              } catch (e) { alert("Failed to post comment"); }
+            }} style={{ ...bP, marginTop: 7, padding: "7px 15px", fontSize: 13, background: "linear-gradient(135deg,#8b5cf6,#6366f1)" }}>Post Comment</button>
           </div>
         </div>}
       </Modal>
