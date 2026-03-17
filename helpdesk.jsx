@@ -640,7 +640,16 @@ export default function HelpDesk() {
   }), [projects, cpv, currentUser, projStatusF, projPriorityF, projSearch]);
 
   const stats = useMemo(() => ({ total: fbr.length, open: fbr.filter(x => x.status === "Open").length, inProgress: fbr.filter(x => x.status === "In Progress").length, resolved: fbr.filter(x => x.status === "Resolved" || x.status === "Closed").length, critical: fbr.filter(x => x.priority === "Critical").length }), [fbr]);
-  const projStats = useMemo(() => ({ total: prbr.length, open: prbr.filter(x => x.status === "Open").length, inProgress: prbr.filter(x => x.status === "In Progress").length, resolved: prbr.filter(x => x.status === "Resolved" || x.status === "Closed").length, critical: prbr.filter(x => x.priority === "Critical").length }), [prbr]);
+
+  // For dashboard: Agents and Viewers only see stats for projects assigned to them
+  const dashboardProjects = useMemo(() => {
+    if (currentUser?.role === "Agent" || currentUser?.role === "Viewer") {
+      return prbr.filter(p => p.assignees?.some(a => a.id === currentUser?.id));
+    }
+    return prbr;
+  }, [prbr, currentUser]);
+
+  const projStats = useMemo(() => ({ total: dashboardProjects.length, open: dashboardProjects.filter(x => x.status === "Open").length, inProgress: dashboardProjects.filter(x => x.status === "In Progress").length, resolved: dashboardProjects.filter(x => x.status === "Resolved" || x.status === "Closed").length, critical: dashboardProjects.filter(x => x.priority === "Critical").length }), [dashboardProjects]);
   const agentStats = useMemo(() => users.map(u => ({ ...u, assigned: fbr.filter(t => t.assignees?.some(a => a.id === u.id)).length, resolved: fbr.filter(t => t.assignees?.some(a => a.id === u.id) && (t.status === "Resolved" || t.status === "Closed")).length, projAssigned: prbr.filter(p => p.assignees?.some(a => a.id === u.id)).length })), [fbr, prbr, users]);
   const dailyData = useMemo(() => { const days = parseInt(range) <= 7 ? parseInt(range) : 7; return Array.from({ length: days }, (_, i) => { const d = new Date(now - (days - 1 - i) * dayMs); return { label: d.toLocaleDateString("en", { weekday: "short" }), value: fbr.filter(t => t.created.getDate() === d.getDate() && t.created.getMonth() === d.getMonth()).length }; }); }, [fbr, range, now, dayMs]);
   const priorityDist = useMemo(() => PRIORITIES.map(p => ({ label: p, value: fbr.filter(t => t.priority === p).length, color: PRIORITY_COLOR[p] })), [fbr]);
@@ -1447,7 +1456,7 @@ export default function HelpDesk() {
             </div>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 12 }}>
               <SmartChart title="Ticket Status" data={STATUSES.map((s, i) => ({ label: s, color: Object.values(STATUS_COLOR)[i].text, value: fbr.filter(t => t.status === s).length }))} defaultType="pie" />
-              <SmartChart title="Project Status" data={PROJECT_STATUSES.map((s, i) => ({ label: s, color: Object.values(STATUS_COLOR)[i].text, value: prbr.filter(p => p.status === s).length }))} defaultType="pie" />
+              <SmartChart title="Project Status" data={PROJECT_STATUSES.map((s, i) => ({ label: s, color: Object.values(STATUS_COLOR)[i].text, value: dashboardProjects.filter(p => p.status === s).length }))} defaultType="pie" />
             </div>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
               <div style={{ background: "#fff", borderRadius: 12, padding: 16, boxShadow: "0 1px 4px rgba(0,0,0,0.06)" }}>
@@ -1870,7 +1879,7 @@ export default function HelpDesk() {
               <div style={{ background: "#fff", borderRadius: 12, padding: 18, boxShadow: "0 1px 4px rgba(0,0,0,0.06)" }}>
                 <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 4 }}>Project Status Distribution</div>
                 <div style={{ fontSize: 11, color: "#94a3b8", marginBottom: 12 }}>Open / Closed / In Progress</div>
-                <DonutChart data={["Open", "Closed", "In Progress"].map(s => ({ label: s, color: STATUS_COLOR[s]?.text || "#94a3b8", value: prbr.filter(p => p.status === s).length }))} />
+                <DonutChart data={["Open", "Closed", "In Progress"].map(s => ({ label: s, color: STATUS_COLOR[s]?.text || "#94a3b8", value: dashboardProjects.filter(p => p.status === s).length }))} />
               </div>
               <div style={{ background: "#fff", borderRadius: 12, padding: 18, boxShadow: "0 1px 4px rgba(0,0,0,0.06)" }}><div style={{ fontSize: 12, fontWeight: 600, marginBottom: 12 }}>Ticket Volume</div><BarChart data={dailyData} /></div>
               <div style={{ background: "#fff", borderRadius: 12, padding: 18, boxShadow: "0 1px 4px rgba(0,0,0,0.06)" }}><div style={{ fontSize: 12, fontWeight: 600, marginBottom: 12 }}>By Category</div><BarChart data={categoryDist} color="#8b5cf6" /></div>
