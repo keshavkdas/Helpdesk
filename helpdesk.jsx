@@ -421,6 +421,7 @@ export default function HelpDesk() {
   const [showNewProject, setShowNewProject] = useState(false);
   const [selTicket, setSelTicket] = useState(null);
   const [selProject, setSelProject] = useState(null);
+  const [selAgent, setSelAgent] = useState(null);
 
   // ── Satsangs ──
   const [satsangs, setSatsangs] = useState([]);
@@ -444,7 +445,7 @@ export default function HelpDesk() {
   // ── Settings forms ──
   const [newOrg, setNewOrg] = useState({ name: "", domain: "", phone: "" });
   const [newCat, setNewCat] = useState({ name: "", color: "#3b82f6" });
-  const [newUser, setNewUser] = useState({ name: "", email: "", role: "Agent" });
+  const [newUser, setNewUser] = useState({ name: "", email: "", role: "Viewer" });
   const [newAttr, setNewAttr] = useState({ name: "", type: "text", options: "", required: false });
 
   // ── Inline ticket/project category+attr managers ──
@@ -465,9 +466,12 @@ export default function HelpDesk() {
 
   // ── Forward ticket ──
   const [showForward, setShowForward] = useState(false);
+  const [showVendor, setShowVendor] = useState(false);
   const [fwdType, setFwdType] = useState("Agent");
   const [fwdReason, setFwdReason] = useState("");
   const [fwdTargetAgent, setFwdTargetAgent] = useState("");
+  const [vendorName, setVendorName] = useState("");
+  const [vendorEmail, setVendorEmail] = useState("");
   const [fwdVendorName, setFwdVendorName] = useState("");
   const [fwdVendorEmail, setFwdVendorEmail] = useState("");
 
@@ -475,6 +479,10 @@ export default function HelpDesk() {
   const [profileOpen, setProfileOpen] = useState(false);
   const [editProfileOpen, setEditProfileOpen] = useState(false);
   const [profileForm, setProfileForm] = useState({ phone: "", name: "" });
+  const [selectedTickets, setSelectedTickets] = useState(new Set());
+  const [ticketsPerPage, setTicketsPerPage] = useState(10);
+  const [showOtherActions, setShowOtherActions] = useState(false);
+  const [sortOrder, setSortOrder] = useState("desc"); // "desc" = newest first, "asc" = oldest first
 
   const statusOpts = [{ l: "Active", c: "#22c55e", bg: "#dcfce7" }, { l: "Not Active", c: "#ef4444", bg: "#fee2e2" }, { l: "Rest", c: "#f59e0b", bg: "#fef3c7" }];
 
@@ -505,8 +513,8 @@ export default function HelpDesk() {
         ...(data.webcasts || [])
       ].map(t => ({
         ...t,
-        created: new Date(t.created),
-        updated: new Date(t.updated),
+        created: new Date(t.createdAt || t.created),
+        updated: new Date(t.updatedAt || t.updated),
         isWebcast: t.isWebcast || false,
         satsangType: t.satsangType || "",
         location: t.location || ""
@@ -517,11 +525,23 @@ export default function HelpDesk() {
 
       const parsedProjects = (data.projects || []).map(p => ({
         ...p,
-        created: new Date(p.created),
-        updated: new Date(p.updated),
+        created: new Date(p.createdAt || p.created),
+        updated: new Date(p.updatedAt || p.updated),
         dueDate: p.dueDate ? new Date(p.dueDate) : null,
         isWebcast: p.isWebcast || false,
         progress: p.progress || 0,
+        org: p.org || "",
+        department: p.department || "",
+        reportedBy: p.reportedBy || "",
+        category: p.category || "",
+        location: p.location || "",
+        priority: p.priority || "Medium",
+        status: p.status || "Open",
+        assignees: Array.isArray(p.assignees) ? p.assignees : [],
+        cc: Array.isArray(p.cc) ? p.cc : [],
+        customAttrs: p.customAttrs || {},
+        satsangId: p.satsangId || null,
+        satsangType: p.satsangType || "",
       })).sort((a, b) => b.created - a.created);
 
       setProjects(parsedProjects);
@@ -534,9 +554,32 @@ export default function HelpDesk() {
   // On mount: always load app data; if session existed it was restored above via useState init
   useEffect(() => { loadData(); }, []);
 
-  const agentsOnly = useMemo(() => {
-    return users.filter(u => u.role !== "Viewer");
-  }, [users]);
+  // Periodic refresh of user data to keep status updated from database (every 15 seconds)
+  useEffect(() => {
+    if (!currentUser) return; // Don't refresh if not logged in
+    const interval = setInterval(async () => {
+      try {
+        const response = await axios.get(DB_API);
+        const data = response.data;
+        setUsers(data.users || []);
+      } catch (e) {
+        console.error("Error refreshing user data:", e);
+      }
+    }, 15000); // Refresh every 15 seconds
+    return () => clearInterval(interval);
+  }, [currentUser]);
+
+  // Calculate project progress based on status
+  const getProgressFromStatus = (status) => {
+    switch (status) {
+      case "Open": return 0;
+      case "In Progress": return 25;
+      case "Pending": return 50;
+      case "Resolved": return 90;
+      case "Closed": return 100;
+      default: return 0;
+    }
+  };
 
   // You can also add this for your dropdowns
   const managersOnly = useMemo(() => {
@@ -547,7 +590,7 @@ export default function HelpDesk() {
   const now = Date.now(), dayMs = 86400000, rangeMs = range === "all" ? Infinity : parseInt(range) * dayMs;
   const fbr = useMemo(() => {
     const inRange = range === "all" ? tickets : tickets.filter(t => now - t.created.getTime() <= rangeMs);
-    if (currentUser?.role === "Admin") return inRange;
+    if (currentUser?.role === "Admin" || currentUser?.role === "Manager") return inRange;
     return inRange.filter(t => t.reportedBy === currentUser?.name || t.assignees?.some(a => a.id === currentUser?.id));
   }, [tickets, rangeMs, now, currentUser]);
 
@@ -558,7 +601,8 @@ export default function HelpDesk() {
 
   const filtered = useMemo(() => tickets.filter(t => {
     if (!currentUser || !cvd.filter(t, currentUser)) return false;
-    if (currentUser.role === "Agent" && t.reportedBy !== currentUser.name && !t.assignees?.some(a => a.id === currentUser.id)) return false;
+    // Non-admins only see tickets assigned to them or reported by them
+    if (currentUser.role !== "Admin" && t.reportedBy !== currentUser.name && !t.assignees?.some(a => a.id === currentUser.id)) return false;
     if (statusF !== "All" && t.status !== statusF) return false;
     if (priorityF !== "All" && t.priority !== priorityF) return false;
     if (search) {
@@ -572,12 +616,23 @@ export default function HelpDesk() {
   }), [tickets, cvd, currentUser, statusF, priorityF, search]);
 
   const totalPages = Math.ceil(filtered.length / TICKETS_PER_PAGE);
-  const currentTickets = filtered.slice((currentPage - 1) * TICKETS_PER_PAGE,
+
+  // Sort tickets by created date with configurable order
+  const allSortedTickets = [...filtered].sort((a, b) => {
+    const dateA = a.created instanceof Date ? a.created.getTime() : new Date(a.created).getTime();
+    const dateB = b.created instanceof Date ? b.created.getTime() : new Date(b.created).getTime();
+    return sortOrder === "desc" ? dateB - dateA : dateA - dateB;
+  });
+
+  // Paginate the sorted list
+  const currentTickets = allSortedTickets.slice((currentPage - 1) * TICKETS_PER_PAGE,
     currentPage * TICKETS_PER_PAGE);
 
 
   const filteredProjects = useMemo(() => projects.filter(p => {
     if (!cpv.filter(p, currentUser)) return false;
+    // Agent/Viewer only see projects assigned to them, Admin/Manager see all
+    if ((currentUser?.role === "Agent" || currentUser?.role === "Viewer") && !p.assignees?.some(a => a.id === currentUser?.id)) return false;
     if (projStatusF !== "All" && p.status !== projStatusF) return false;
     if (projPriorityF !== "All" && p.priority !== projPriorityF) return false;
     if (projSearch && !p.title.toLowerCase().includes(projSearch.toLowerCase()) && !p.id.toLowerCase().includes(projSearch.toLowerCase()) && !p.org.toLowerCase().includes(projSearch.toLowerCase())) return false;
@@ -698,7 +753,11 @@ export default function HelpDesk() {
     try {
       const res = await axios.post(TICKETS_API, newT);
       const created = res.data;
-      setTickets(prev => [{ ...created, created: new Date(created.created), updated: new Date(created.updated) }, ...prev]);
+      setTickets(prev => [{
+        ...created,
+        created: new Date(created.createdAt || created.created || new Date()),
+        updated: new Date(created.updatedAt || created.updated || new Date())
+      }, ...prev]);
       setShowNewTicket(false); setForm(emptyForm); setAssigneeSearch(""); setShowAssigneeDD(false);
     } catch (e) {
       alert("Failed to save ticket: " + (e.response?.data?.error || e.message));
@@ -752,10 +811,11 @@ export default function HelpDesk() {
 
   const handleSendForRepair = async (vendorName, contactInfo) => {
     if (!vendorName) return alert("Vendor name is required.");
+    if (!fwdReason.trim()) return alert("Reason is required.");
     const t = selTicket;
     try {
       const nowISO = new Date().toISOString();
-      const update = { ...t, status: "Pending", updated: nowISO, timeline: [...(t.timeline || []), { action: `Sent for Repair: ${vendorName}`, by: currentUser.name, date: nowISO, note: `Contact: ${contactInfo}` }] };
+      const update = { ...t, status: "Pending", updated: nowISO, timeline: [...(t.timeline || []), { action: `Sent for Repair: ${vendorName}`, by: currentUser.name, date: nowISO, note: `Contact: ${contactInfo}\nReason: ${fwdReason}` }] };
       await axios.put(`${TICKETS_API}/${t.id}`, update);
       setTickets(p => p.map(x => x.id === t.id ? { ...update, updated: new Date(nowISO) } : x));
       setSelTicket({ ...update, updated: new Date(nowISO) });
@@ -794,7 +854,7 @@ export default function HelpDesk() {
       const response = await axios.post(USERS_API, {
         ...newUser,
         active: true,
-        status: "Offline" // Default status
+        status: "Not Active" // Default status for newly added users
       });
 
       const created = response.data;
@@ -824,8 +884,6 @@ export default function HelpDesk() {
 
   // --- CATEGORIES ---
   const deleteCat = async (id) => {
-    console.log("Attempting to delete category with ID:", id); // 👈 This will tell us if the ID is undefined
-
     if (!id || typeof id === 'object') {
       alert("Cannot delete: This category has no valid ID. It is likely corrupted data.");
       return;
@@ -978,16 +1036,25 @@ export default function HelpDesk() {
 
       const u = response.data;
 
-      // 2. Prepare the updated user object with Active status
+      // 2. Check if user is deactivated
+      if (!u.active) {
+        setAuthError("Your account has been deactivated. Please contact an administrator.");
+        return;
+      }
+
+      // 3. Prepare the updated user object with Active status
       const updatedUser = { ...u, status: "Active" };
 
-      // 3. Update the user in the database via the USERS_API URL
+      // 4. Update the user in the database via the USERS_API URL
       // We use axios.put to the specific user's ID endpoint
       await axios.put(`${USERS_API}/${u.id}`, updatedUser);
 
-      // 4. Update local state and session
+      // 5. Update local state and session
       saveSession(updatedUser); // persists 12-hour session
       setCurrentUser(updatedUser);
+
+      // 6. Reload all data to get updated user statuses
+      await loadData();
 
     } catch (err) {
       console.error("Login error:", err);
@@ -1020,9 +1087,9 @@ export default function HelpDesk() {
         email: authForm.email,
         phone: `${authForm.countryCode} ${authForm.phone}`.trim(),
         password: authForm.password,
-        role: isFirstUser ? "Admin" : "Agent",
+        role: isFirstUser ? "Admin" : "Viewer",
         active: true,
-        status: "Active",
+        status: "Not Active",
         confirmed: true,
       };
 
@@ -1065,7 +1132,7 @@ export default function HelpDesk() {
   };
 
   // ─── NAVIGATION HELPERS ────────────────────────────────────────────────────
-  const sideNav = [
+  const sideNav = (currentUser?.role === "Admin" || currentUser?.role === "Manager") ? [
     { id: "dashboard", label: "Dashboard", icon: "▦" },
     { id: "tickets", label: "All Tickets", icon: "◈" },
     { id: "projects", label: "Projects", icon: "📁" },
@@ -1073,8 +1140,14 @@ export default function HelpDesk() {
     { id: "reports", label: "Reports", icon: "◉" },
     { id: "users", label: "Agents", icon: "◎" },
     { id: "settings", label: "Settings", icon: "⚙" },
+  ] : [
+    { id: "dashboard", label: "Dashboard", icon: "▦" },
+    { id: "tickets", label: "All Tickets", icon: "◈" },
+    { id: "projects", label: "Projects", icon: "📁" },
+    { id: "webcast", label: "Webcast", icon: "📡" },
+    { id: "settings", label: "Settings", icon: "⚙" },
   ];
-  const stabs = [
+  const stabs = currentUser?.role === "Admin" ? [
     { id: "ticketviews", label: "Ticket Views", icon: "👁" },
     { id: "projectviews", label: "Project Views", icon: "📂" },
     { id: "organisations", label: "Organisations", icon: "🏢" },
@@ -1082,6 +1155,16 @@ export default function HelpDesk() {
     { id: "usermgmt", label: "User Management", icon: "👥" },
     { id: "customattrs", label: "Custom Attributes", icon: "✏️" },
     { id: "dbmgmt", label: "Database Mgmt", icon: "💾" },
+  ] : currentUser?.role === "Manager" ? [
+    { id: "ticketviews", label: "Ticket Views", icon: "👁" },
+    { id: "projectviews", label: "Project Views", icon: "📂" },
+    { id: "organisations", label: "Organisations", icon: "🏢" },
+    { id: "categories", label: "Categories", icon: "🏷" },
+    { id: "usermgmt", label: "User Management", icon: "👥" },
+    { id: "customattrs", label: "Custom Attributes", icon: "✏️" },
+  ] : [
+    { id: "ticketviews", label: "Ticket Views", icon: "👁" },
+    { id: "projectviews", label: "Project Views", icon: "📂" },
   ];
   const getPageTitle = () => {
     if (view === "dashboard") return "Dashboard";
@@ -1241,7 +1324,7 @@ export default function HelpDesk() {
         {/* New Ticket / Project buttons */}
         <div style={{ padding: "8px 8px 10px", display: "flex", flexDirection: "column", gap: 5 }}>
           <button onClick={() => setShowNewTicket(true)} style={{ width: "100%", padding: "8px", borderRadius: 9, border: "none", background: "linear-gradient(135deg,#3b82f6,#6366f1)", color: "#fff", fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: "'DM Sans',sans-serif" }}>+ New Ticket</button>
-          <button onClick={() => setShowNewProject(true)} style={{ width: "100%", padding: "8px", borderRadius: 9, border: "1.5px solid #1e40af", background: "transparent", color: "#60a5fa", fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: "'DM Sans',sans-serif" }}>+ New Project</button>
+          <button onClick={() => setShowNewProject(true)} style={{ width: "100%", padding: "8px", borderRadius: 9, border: "1.5px solid #1e40af", background: "transparent", color: "#60a5fa", fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: "'DM Sans',sans-serif", display: (currentUser?.role === "Admin" || currentUser?.role === "Manager") ? "block" : "none" }}>+ New Project</button>
         </div>
 
         {/* Profile section (v1 full profile panel) */}
@@ -1262,7 +1345,7 @@ export default function HelpDesk() {
               <button onClick={() => { setProfileForm({ name: currentUser.name, phone: currentUser.phone || "" }); setEditProfileOpen(true); }} style={{ width: "100%", padding: "6px 10px", background: "#334155", border: "none", borderRadius: 6, color: "#f8fafc", fontSize: 12, fontWeight: 600, cursor: "pointer", marginBottom: 8, textAlign: "left" }}>👤 View Profile</button>
               <div style={{ fontSize: 10, fontWeight: 600, color: "#94a3b8", marginBottom: 6, textTransform: "uppercase", padding: "0 4px" }}>Set Status</div>
               <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-                {statusOpts.map(s => (
+                {statusOpts.filter(s => s.l !== "Not Active").map(s => (
                   <button key={s.l} onClick={() => updateStatusDirect(s.l)} style={{ display: "flex", alignItems: "center", gap: 6, background: "transparent", border: "none", padding: "4px 8px", borderRadius: 4, cursor: "pointer", color: currentUser.status === s.l ? s.c : "#cbd5e1" }}>
                     <span style={{ width: 8, height: 8, borderRadius: "50%", background: s.c, boxShadow: currentUser.status === s.l ? `0 0 0 2px ${s.bg}` : "none" }} />
                     <span style={{ fontSize: 11, fontWeight: currentUser.status === s.l ? 700 : 500 }}>{s.l}</span>
@@ -1369,7 +1452,7 @@ export default function HelpDesk() {
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
               <div style={{ background: "#fff", borderRadius: 12, padding: 16, boxShadow: "0 1px 4px rgba(0,0,0,0.06)" }}>
                 <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 10, color: "#374151" }}>Recent Tickets</div>
-                {tickets.slice(0, 5).map(t => (
+                {(currentUser?.role === "Admin" ? tickets : tickets.filter(t => t.reportedBy === currentUser?.name || t.assignees?.some(a => a.id === currentUser?.id))).slice(0, 5).map(t => (
                   <div key={t.id} onClick={() => setSelTicket(t)} style={{ display: "flex", alignItems: "center", gap: 9, padding: "6px", borderRadius: 8, cursor: "pointer", border: "1px solid #f1f5f9", marginBottom: 5 }}>
                     <div style={{ display: "flex" }}>{(t.assignees || []).slice(0, 2).map((a, i) => <div key={a.id} style={{ marginLeft: i > 0 ? -6 : 0, border: "2px solid #fff", borderRadius: "50%" }}><Avatar name={a.name} size={24} /></div>)}{!t.assignees?.length && <Avatar name="?" size={24} />}</div>
                     <div style={{ flex: 1, minWidth: 0 }}><div style={{ fontSize: 12, fontWeight: 600, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{t.summary}</div><div style={{ fontSize: 10, color: "#94a3b8" }}>{t.id} · {t.org}</div></div>
@@ -1379,17 +1462,17 @@ export default function HelpDesk() {
               </div>
               <div style={{ background: "#fff", borderRadius: 12, padding: 16, boxShadow: "0 1px 4px rgba(0,0,0,0.06)" }}>
                 <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 10, color: "#374151" }}>Recent Projects</div>
-                {projects.slice(0, 5).map(p => (
+                {(currentUser?.role === "Admin" ? projects : projects.filter(p => p.assignees?.some(a => a.id === currentUser?.id))).slice(0, 5).map(p => (
                   <div key={p.id} onClick={() => setSelProject(p)} style={{ display: "flex", alignItems: "center", gap: 9, padding: "6px", borderRadius: 8, cursor: "pointer", border: "1px solid #f1f5f9", marginBottom: 5 }}>
                     <div style={{ width: 24, height: 24, background: "#eff6ff", borderRadius: 6, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, flexShrink: 0 }}>📁</div>
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <div style={{ fontSize: 12, fontWeight: 600, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{p.title}</div>
-                      <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 2 }}><ProgressBar value={p.progress} /><span style={{ fontSize: 10, color: "#94a3b8", whiteSpace: "nowrap" }}>{p.progress}%</span></div>
+                      <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 2 }}><ProgressBar value={getProgressFromStatus(p.status)} /><span style={{ fontSize: 10, color: "#94a3b8", whiteSpace: "nowrap" }}>{getProgressFromStatus(p.status)}%</span></div>
                     </div>
                     <Badge label={p.status} style={{ ...STATUS_COLOR[p.status], fontSize: 10 }} />
                   </div>
                 ))}
-                {projects.length === 0 && <div style={{ textAlign: "center", color: "#94a3b8", padding: 20, fontSize: 13 }}>No projects yet. Create one!</div>}
+                {(currentUser?.role === "Admin" ? projects : projects.filter(p => p.assignees?.some(a => a.id === currentUser?.id))).length === 0 && <div style={{ textAlign: "center", color: "#94a3b8", padding: 20, fontSize: 13 }}>No projects assigned yet.</div>}
               </div>
             </div>
           </>}
@@ -1403,6 +1486,108 @@ export default function HelpDesk() {
               <span style={{ fontSize: 12, color: "#64748b" }}>{filtered.length} tickets</span>
               <div style={{ marginLeft: "auto", display: "flex", gap: 8, alignItems: "center" }}>
                 {selectedIds.size > 0 && <span style={{ fontSize: 12, color: "#3b82f6", fontWeight: 600, background: "#eff6ff", padding: "4px 10px", borderRadius: 99 }}>{selectedIds.size} selected</span>}
+
+                {/* Mark All as Closed Button */}
+                {selectedIds.size > 0 && (
+                  <button onClick={async () => {
+                    if (!window.confirm(`Close ${selectedIds.size} ticket(s)?`)) return;
+                    const nowISO = new Date().toISOString();
+                    try {
+                      for (const id of selectedIds) {
+                        const t = tickets.find(x => x.id === id);
+                        if (t) {
+                          const update = { ...t, status: "Closed", updated: nowISO };
+                          await axios.put(`${TICKETS_API}/${id}`, update);
+                        }
+                      }
+                      setTickets(p => p.map(x => selectedIds.has(x.id) ? { ...x, status: "Closed", updated: new Date(nowISO) } : x));
+                      setSelectedIds(new Set());
+                    } catch (e) { alert("Failed to close tickets"); }
+                  }} style={{ ...bP, padding: "7px 13px", fontSize: 12, background: "#22c55e", color: "#fff" }}>✓ Mark All Closed</button>
+                )}
+
+                {/* Other Actions Dropdown */}
+                <div style={{ position: "relative" }}>
+                  <button onClick={() => setShowOtherActions(!showOtherActions)} style={{ ...bG, display: "flex", alignItems: "center", gap: 6, padding: "7px 13px", fontSize: 12 }}>⚙ Other Actions <span style={{ fontSize: 10 }}>▾</span></button>
+                  {showOtherActions && <><div style={{ position: "fixed", inset: 0, zIndex: 149 }} onClick={() => setShowOtherActions(false)} />
+                    <div style={{ position: "absolute", right: 0, top: "calc(100% + 4px)", background: "#fff", border: "1.5px solid #e2e8f0", borderRadius: 10, zIndex: 150, boxShadow: "0 8px 24px rgba(0,0,0,0.12)", minWidth: 220, overflow: "hidden" }}>
+                      <button onClick={() => {
+                        const pageTicketIds = new Set(currentTickets.map(t => t.id));
+                        setSelectedIds(pageTicketIds);
+                        setShowOtherActions(false);
+                      }} style={{ display: "block", width: "100%", padding: "10px 14px", border: "none", background: "#fff", cursor: "pointer", fontSize: 13, textAlign: "left", fontFamily: "'DM Sans',sans-serif", borderBottom: "1px solid #f8fafc" }}>☑ Select All on Page</button>
+
+                      {selectedIds.size > 0 && <>
+                        <button onClick={async () => {
+                          if (!window.confirm(`Mark ${selectedIds.size} as Open?`)) return;
+                          const nowISO = new Date().toISOString();
+                          try {
+                            for (const id of selectedIds) {
+                              const t = tickets.find(x => x.id === id);
+                              if (t) {
+                                const update = { ...t, status: "Open", updated: nowISO };
+                                await axios.put(`${TICKETS_API}/${id}`, update);
+                              }
+                            }
+                            setTickets(p => p.map(x => selectedIds.has(x.id) ? { ...x, status: "Open", updated: new Date(nowISO) } : x));
+                            setShowOtherActions(false);
+                          } catch (e) { alert("Failed to update tickets"); }
+                        }} style={{ display: "block", width: "100%", padding: "10px 14px", border: "none", background: "#fff", cursor: "pointer", fontSize: 13, textAlign: "left", fontFamily: "'DM Sans',sans-serif", borderBottom: "1px solid #f8fafc" }}>📂 Mark as Open</button>
+
+                        <button onClick={async () => {
+                          if (!window.confirm(`Mark ${selectedIds.size} as In Progress?`)) return;
+                          const nowISO = new Date().toISOString();
+                          try {
+                            for (const id of selectedIds) {
+                              const t = tickets.find(x => x.id === id);
+                              if (t) {
+                                const update = { ...t, status: "In Progress", updated: nowISO };
+                                await axios.put(`${TICKETS_API}/${id}`, update);
+                              }
+                            }
+                            setTickets(p => p.map(x => selectedIds.has(x.id) ? { ...x, status: "In Progress", updated: new Date(nowISO) } : x));
+                            setShowOtherActions(false);
+                          } catch (e) { alert("Failed to update tickets"); }
+                        }} style={{ display: "block", width: "100%", padding: "10px 14px", border: "none", background: "#fff", cursor: "pointer", fontSize: 13, textAlign: "left", fontFamily: "'DM Sans',sans-serif", borderBottom: "1px solid #f8fafc" }}>⚙ Mark as In Progress</button>
+
+                        <button onClick={async () => {
+                          if (!window.confirm(`Mark ${selectedIds.size} as Pending?`)) return;
+                          const nowISO = new Date().toISOString();
+                          try {
+                            for (const id of selectedIds) {
+                              const t = tickets.find(x => x.id === id);
+                              if (t) {
+                                const update = { ...t, status: "Pending", updated: nowISO };
+                                await axios.put(`${TICKETS_API}/${id}`, update);
+                              }
+                            }
+                            setTickets(p => p.map(x => selectedIds.has(x.id) ? { ...x, status: "Pending", updated: new Date(nowISO) } : x));
+                            setShowOtherActions(false);
+                          } catch (e) { alert("Failed to update tickets"); }
+                        }} style={{ display: "block", width: "100%", padding: "10px 14px", border: "none", background: "#fff", cursor: "pointer", fontSize: 13, textAlign: "left", fontFamily: "'DM Sans',sans-serif", borderBottom: "1px solid #f8fafc" }}>⏳ Mark as Pending</button>
+
+                        <button onClick={async () => {
+                          if (!window.confirm(`Mark ${selectedIds.size} as Resolved?`)) return;
+                          const nowISO = new Date().toISOString();
+                          try {
+                            for (const id of selectedIds) {
+                              const t = tickets.find(x => x.id === id);
+                              if (t) {
+                                const update = { ...t, status: "Resolved", updated: nowISO };
+                                await axios.put(`${TICKETS_API}/${id}`, update);
+                              }
+                            }
+                            setTickets(p => p.map(x => selectedIds.has(x.id) ? { ...x, status: "Resolved", updated: new Date(nowISO) } : x));
+                            setShowOtherActions(false);
+                          } catch (e) { alert("Failed to update tickets"); }
+                        }} style={{ display: "block", width: "100%", padding: "10px 14px", border: "none", background: "#fff", cursor: "pointer", fontSize: 13, textAlign: "left", fontFamily: "'DM Sans',sans-serif", borderBottom: "1px solid #f8fafc" }}>✅ Mark as Resolved</button>
+
+
+                      </>}
+                    </div>
+                  </>}
+                </div>
+
                 <button onClick={() => setShowManageTicket(showManageTicket === "categories" ? null : "categories")} style={{ ...bG, padding: "7px 12px", fontSize: 12, background: showManageTicket === "categories" ? "#eff6ff" : "#fff", color: showManageTicket === "categories" ? "#3b82f6" : "#374151" }}>🏷 Categories</button>
                 <button onClick={() => setShowManageTicket(showManageTicket === "customattrs" ? null : "customattrs")} style={{ ...bG, padding: "7px 12px", fontSize: 12, background: showManageTicket === "customattrs" ? "#eff6ff" : "#fff", color: showManageTicket === "customattrs" ? "#3b82f6" : "#374151" }}>✏️ Fields</button>
                 <div style={{ position: "relative" }}>
@@ -1471,7 +1656,12 @@ export default function HelpDesk() {
               <table style={{ width: "100%", borderCollapse: "collapse" }}>
                 <thead><tr style={{ background: "#f8fafc" }}>
                   <th style={{ ...thStyle, width: 40 }}><input type="checkbox" checked={selectedIds.size === filtered.length && filtered.length > 0} onChange={toggleAll} style={{ cursor: "pointer" }} /></th>
-                  {["ID", "Summary", "Org / Dept", "Reported By", "Assignees", "Priority", "Category", "Status", "Created", "Action"].map(h => <th key={h} style={thStyle}>{h}</th>)}
+                  {["ID", "Summary", "Org / Dept", "Reported By", "Assignees", "Priority", "Category", "Status", "Created", "Action"].map(h => (
+                    <th key={h} style={{ ...thStyle, cursor: h === "Created" ? "pointer" : "default", background: h === "Created" ? "#e0f2fe" : "#f8fafc" }} onClick={h === "Created" ? () => setSortOrder(sortOrder === "desc" ? "asc" : "desc") : undefined}>
+                      {h}
+                      {h === "Created" && <span style={{ marginLeft: 4, fontSize: 10 }}>{sortOrder === "desc" ? "↓" : "↑"}</span>}
+                    </th>
+                  ))}
                 </tr></thead>
                 <tbody>{currentTickets.map(t => (
                   <tr key={t.id} className="rh" style={{ cursor: "pointer", background: selectedIds.has(t.id) ? "#eff6ff" : "#fff" }}>
@@ -1490,17 +1680,20 @@ export default function HelpDesk() {
                     <td style={tdStyle} onClick={() => setSelTicket(t)}><div style={{ display: "flex", alignItems: "center", gap: 4 }}><span style={{ width: 7, height: 7, borderRadius: "50%", background: PRIORITY_COLOR[t.priority], display: "inline-block" }} /><span style={{ fontSize: 12 }}>{t.priority}</span></div></td>
                     <td style={tdStyle} onClick={() => setSelTicket(t)}><span style={{ fontSize: 12, color: "#64748b" }}>{t.category || "—"}</span></td>
                     <td style={tdStyle} onClick={() => setSelTicket(t)}><Badge label={t.status} style={{ ...STATUS_COLOR[t.status] }} /></td>
-                    <td style={tdStyle} onClick={() => setSelTicket(t)}><span style={{ fontSize: 11, color: "#94a3b8" }}>{t.created.toLocaleDateString()}</span></td>
+                    <td style={tdStyle} onClick={() => setSelTicket(t)}><span style={{ fontSize: 11, color: "#94a3b8" }}>{t.created ? new Date(String(t.created)).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' }) : "—"}</span></td>
                     <td style={tdStyle} onClick={e => e.stopPropagation()}><select value={t.status} onChange={e => updateStatus(t.id, e.target.value)} style={{ ...sS, width: 108, fontSize: 12, padding: "4px 7px" }}>{STATUSES.map(s => <option key={s}>{s}</option>)}</select></td>
                   </tr>
                 ))}</tbody>
               </table>
-              {filtered.length === 0 && <div style={{ padding: 36, textAlign: "center", color: "#94a3b8" }}>No tickets found</div>}
+
+
+
+              {allSortedTickets.length === 0 && <div style={{ padding: 36, textAlign: "center", color: "#94a3b8" }}>No tickets found</div>}
 
               {totalPages > 1 && (
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "15px 20px", borderTop: "1px solid #e2e8f0", backgroundColor: "#f8fafc" }}>
                   <div style={{ fontSize: 13, color: "#64748b" }}>
-                    Showing {((currentPage - 1) * TICKETS_PER_PAGE) + 1} to {Math.min(currentPage * TICKETS_PER_PAGE, filtered.length)} of {filtered.length} tickets
+                    Showing {((currentPage - 1) * TICKETS_PER_PAGE) + 1} to {Math.min(currentPage * TICKETS_PER_PAGE, allSortedTickets.length)} of {allSortedTickets.length} tickets
                   </div>
                   <div style={{ display: "flex", gap: "10px" }}>
                     <button onClick={() => setCurrentPage(p => Math.max(1, p - 1))} disabled={currentPage === 1} style={{ padding: "6px 12px", border: "1px solid #cbd5e1", borderRadius: 4, backgroundColor: currentPage === 1 ? "#f1f5f9" : "#fff", color: currentPage === 1 ? "#94a3b8" : "#334155", cursor: currentPage === 1 ? "not-allowed" : "pointer", fontSize: 13 }} >Previous</button>
@@ -1534,7 +1727,7 @@ export default function HelpDesk() {
                     </div>
                   </>}
                 </div>
-                <button onClick={() => setShowNewProject(true)} style={{ ...bP, padding: "7px 13px", fontSize: 13, background: "linear-gradient(135deg,#8b5cf6,#6366f1)" }}>+ New Project</button>
+                <button onClick={() => setShowNewProject(true)} style={{ ...bP, padding: "7px 13px", fontSize: 13, background: "linear-gradient(135deg,#8b5cf6,#6366f1)", display: (currentUser?.role === "Admin" || currentUser?.role === "Manager") ? "block" : "none" }}>+ New Project</button>
               </div>
             </div>
 
@@ -1610,8 +1803,8 @@ export default function HelpDesk() {
                     <td style={tdStyle} onClick={() => setSelProject(p)}><Badge label={p.status} style={{ ...STATUS_COLOR[p.status] }} /></td>
                     <td style={tdStyle} onClick={() => setSelProject(p)}>
                       <div style={{ display: "flex", alignItems: "center", gap: 7 }}>
-                        <ProgressBar value={p.progress} color={p.progress > 70 ? "#22c55e" : p.progress > 40 ? "#f59e0b" : "#ef4444"} />
-                        <span style={{ fontSize: 11, fontWeight: 600, color: "#374151", minWidth: 28 }}>{p.progress}%</span>
+                        <ProgressBar value={getProgressFromStatus(p.status)} color={getProgressFromStatus(p.status) > 70 ? "#22c55e" : getProgressFromStatus(p.status) > 40 ? "#f59e0b" : "#ef4444"} />
+                        <span style={{ fontSize: 11, fontWeight: 600, color: "#374151", minWidth: 28 }}>{getProgressFromStatus(p.status)}%</span>
                       </div>
                     </td>
                     <td style={tdStyle} onClick={() => setSelProject(p)}><span style={{ fontSize: 11, color: "#94a3b8" }}>{p.dueDate?.toLocaleDateString() || "—"}</span></td>
@@ -1625,12 +1818,13 @@ export default function HelpDesk() {
 
           {/* ── WEBCAST ── */}
           {view === "webcast" && <>
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 9, marginBottom: 16 }}>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(5,1fr)", gap: 9, marginBottom: 16 }}>
               {[
-                { label: "Total Webcasts", value: satsangs.length, color: "#f97316", icon: "📡" },
-                { label: "Live Now", value: satsangs.filter(e => e.status === "Live").length, color: "#ef4444", icon: "🔴" },
-                { label: "Completed", value: satsangs.filter(e => e.status === "Completed").length, color: "#22c55e", icon: "✅" },
-                { label: "Total Attendees", value: satsangs.reduce((s, e) => s + (e.attendees || 0), 0).toLocaleString(), color: "#3b82f6", icon: "👥" },
+                { label: "Total Webcasts", value: tickets.filter(t => t.isWebcast).length, color: "#f97316", icon: "📡" },
+                { label: "Open", value: tickets.filter(t => t.isWebcast && t.status === "Open").length, color: "#3b82f6", icon: "📂" },
+                { label: "In Progress", value: tickets.filter(t => t.isWebcast && t.status === "In Progress").length, color: "#eab308", icon: "⚙️" },
+                { label: "Closed", value: tickets.filter(t => t.isWebcast && t.status === "Closed").length, color: "#64748b", icon: "✅" },
+                { label: "Critical", value: tickets.filter(t => t.isWebcast && t.priority === "Critical").length, color: "#ef4444", icon: "🔥" },
               ].map(s => (
                 <div key={s.label} style={{ background: "#fff", borderRadius: 12, padding: "14px 16px", boxShadow: "0 1px 4px rgba(0,0,0,0.06)", borderTop: `3px solid ${s.color}` }}>
                   <div style={{ fontSize: 20, marginBottom: 5 }}>{s.icon}</div>
@@ -1638,35 +1832,6 @@ export default function HelpDesk() {
                   <div style={{ fontSize: 11, color: "#64748b" }}>{s.label}</div>
                 </div>
               ))}
-            </div>
-            <div style={{ background: "#fff", borderRadius: 12, padding: 22, boxShadow: "0 1px 4px rgba(0,0,0,0.06)", marginBottom: 16 }}>
-              <h3 style={{ margin: "0 0 4px", fontSize: 15, fontWeight: 700 }}>Previous Satsang Records</h3>
-              <p style={{ margin: "0 0 18px", fontSize: 12, color: "#64748b" }}>Archive of all Satsang webcasts with G</p>
-              <div style={{ display: "grid", gap: 10 }}>
-                {satsangs.map(e => (
-                  <div key={e.id} style={{ display: "flex", alignItems: "center", gap: 14, padding: "14px 16px", borderRadius: 10, border: "1.5px solid #f1f5f9", background: "#fafafa" }}>
-                    <div style={{ width: 44, height: 44, background: e.status === "Live" ? "#fee2e2" : "#eff6ff", borderRadius: 10, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 22, flexShrink: 0 }}>{e.status === "Live" ? "🔴" : "📡"}</div>
-                    <div style={{ flex: 1 }}>
-                      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                        <span style={{ fontSize: 14, fontWeight: 700 }}>{e.name}</span>
-                        {e.status === "Live" && <span style={{ background: "#fee2e2", color: "#ef4444", fontSize: 10, fontWeight: 700, padding: "2px 7px", borderRadius: 99, animation: "pulse 1s infinite" }}>● LIVE</span>}
-                        {e.status === "Completed" && <Badge label="Completed" style={{ background: "#dcfce7", color: "#15803d" }} />}
-                      </div>
-                      <div style={{ display: "flex", alignItems: "center", gap: 14, marginTop: 4 }}>
-                        <span style={{ fontSize: 12, color: "#64748b" }}>📍 {e.location}</span>
-                        <span style={{ fontSize: 12, color: "#64748b" }}>📅 {e.date}</span>
-                        <span style={{ fontSize: 12, color: "#64748b" }}>👥 {(e.attendees || 0).toLocaleString()} attendees</span>
-                        <span style={{ fontSize: 12, color: "#64748b" }}>🏷 {e.type}</span>
-                      </div>
-                    </div>
-                    <div style={{ display: "flex", gap: 7 }}>
-                      {e.status === "Live" && <button style={{ ...bP, padding: "6px 12px", fontSize: 12, background: "linear-gradient(135deg,#ef4444,#f97316)" }}>🔴 Watch Live</button>}
-                      <button onClick={() => { setView("tickets"); setTvFilter("all"); setSearch(`event:${e.id}`); }} style={{ ...bG, padding: "6px 12px", fontSize: 12 }}>🎫 Tickets</button>
-                    </div>
-                  </div>
-                ))}
-                {satsangs.length === 0 && <div style={{ padding: 24, textAlign: "center", color: "#94a3b8", fontSize: 13 }}>No satsang records found.</div>}
-              </div>
             </div>
             <div style={{ background: "#fff", borderRadius: 12, padding: 22, boxShadow: "0 1px 4px rgba(0,0,0,0.06)" }}>
               <h3 style={{ margin: "0 0 14px", fontSize: 15, fontWeight: 700 }}>Webcast Tickets</h3>
@@ -1730,28 +1895,81 @@ export default function HelpDesk() {
           </>}
 
           {/* ── AGENTS ── */}
-          {view === "users" && <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(240px,1fr))", gap: 12 }}>
-            {agentStats.map(a => (
-              <div key={a.id} style={{ background: "#fff", borderRadius: 12, padding: 18, boxShadow: "0 1px 4px rgba(0,0,0,0.06)" }}>
-                <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12 }}>
-                  <Avatar name={a.name} size={40} />
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontSize: 14, fontWeight: 700, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }} title={a.name}>{a.name}</div>
-                    <div style={{ fontSize: 11, color: "#94a3b8", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }} title={a.email}>{a.email}</div>
-                    <div style={{ display: "flex", gap: 4, marginTop: 3, flexWrap: "wrap" }}>
-                      <Badge label={a.role} style={{ background: "#ede9fe", color: "#6d28d9" }} />
-                      {a.status && <Badge label={a.status} style={{ background: statusOpts.find(s => s.l === a.status)?.bg || "#f1f5f9", color: statusOpts.find(s => s.l === a.status)?.c || "#64748b" }} />}
+          {view === "users" && !selAgent ? <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(240px,1fr))", gap: 12 }}>
+            {agentStats.map(a => {
+              const userInfo = users.find(u => u.id === a.id);
+              return (
+                <div key={a.id} onClick={() => setSelAgent(a)} style={{ background: "#fff", borderRadius: 12, padding: 18, boxShadow: "0 1px 4px rgba(0,0,0,0.06)", cursor: "pointer", transition: "all 0.2s", border: "1.5px solid transparent" }}
+                  onMouseEnter={e => { e.currentTarget.style.boxShadow = "0 4px 12px rgba(0,0,0,0.1)"; e.currentTarget.style.borderColor = "#3b82f6"; }}
+                  onMouseLeave={e => { e.currentTarget.style.boxShadow = "0 1px 4px rgba(0,0,0,0.06)"; e.currentTarget.style.borderColor = "transparent"; }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12 }}>
+                    <Avatar name={a.name} size={40} />
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: 14, fontWeight: 700, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }} title={a.name}>{a.name}</div>
+                      <div style={{ fontSize: 11, color: "#94a3b8", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }} title={a.email}>{a.email}</div>
+                      <div style={{ display: "flex", gap: 4, marginTop: 3, flexWrap: "wrap" }}>
+                        <Badge label={a.role} style={{ background: "#ede9fe", color: "#6d28d9" }} />
+                        {(() => {
+                          const foundUser = users.find(u => u.id === a.id);
+                          const statusValue = foundUser?.status;
+                          const statusStyle = statusOpts.find(s => s.l === statusValue);
+                          if (statusValue && statusStyle) {
+                            return <Badge label={statusValue} style={{ background: statusStyle.bg, color: statusStyle.c }} />;
+                          }
+                          return null;
+                        })()}
+                      </div>
                     </div>
                   </div>
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 7 }}>
+                    {[{ l: "Assigned", v: a.assigned, c: "#3b82f6" }, { l: "Resolved", v: a.resolved, c: "#22c55e" }, { l: "Open", v: a.assigned - a.resolved, c: "#f59e0b" }].map(s => (
+                      <div key={s.l} style={{ textAlign: "center", padding: "8px 4px", background: "#f8fafc", borderRadius: 8 }}><div style={{ fontSize: 17, fontWeight: 700, color: s.c }}>{s.v}</div><div style={{ fontSize: 10, color: "#94a3b8" }}>{s.l}</div></div>
+                    ))}
+                  </div>
                 </div>
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 7 }}>
-                  {[{ l: "Assigned", v: a.assigned, c: "#3b82f6" }, { l: "Resolved", v: a.resolved, c: "#22c55e" }, { l: "Open", v: a.assigned - a.resolved, c: "#f59e0b" }].map(s => (
-                    <div key={s.l} style={{ textAlign: "center", padding: "8px 4px", background: "#f8fafc", borderRadius: 8 }}><div style={{ fontSize: 17, fontWeight: 700, color: s.c }}>{s.v}</div><div style={{ fontSize: 10, color: "#94a3b8" }}>{s.l}</div></div>
-                  ))}
+              );
+            })}
+          </div> : view === "users" && selAgent ? <div>
+            <button onClick={() => setSelAgent(null)} style={{ ...bG, padding: "7px 14px", marginBottom: 14, fontSize: 12 }}>← Back to Agents</button>
+            <div style={{ background: "#fff", borderRadius: 12, padding: 18, boxShadow: "0 1px 4px rgba(0,0,0,0.06)", marginBottom: 16 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 14, marginBottom: 16 }}>
+                <Avatar name={selAgent.name} size={56} />
+                <div>
+                  <div style={{ fontSize: 18, fontWeight: 700 }}>{selAgent.name}</div>
+                  <div style={{ fontSize: 13, color: "#64748b", marginTop: 2 }}>{selAgent.email}</div>
+                  <div style={{ display: "flex", gap: 6, marginTop: 6 }}>
+                    <Badge label={selAgent.role} style={{ background: "#ede9fe", color: "#6d28d9" }} />
+                    {users.find(u => u.id === selAgent.id)?.status && <Badge label={users.find(u => u.id === selAgent.id).status} style={{ background: statusOpts.find(s => s.l === users.find(u => u.id === selAgent.id).status)?.bg || "#f1f5f9", color: statusOpts.find(s => s.l === users.find(u => u.id === selAgent.id).status)?.c || "#64748b" }} />}
+                  </div>
                 </div>
               </div>
-            ))}
-          </div>}
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10 }}>
+                {[{ l: "Assigned", v: selAgent.assigned, c: "#3b82f6" }, { l: "Resolved", v: selAgent.resolved, c: "#22c55e" }, { l: "Open", v: selAgent.assigned - selAgent.resolved, c: "#f59e0b" }].map(s => (
+                  <div key={s.l} style={{ textAlign: "center", padding: "12px 8px", background: "#f8fafc", borderRadius: 10 }}><div style={{ fontSize: 22, fontWeight: 700, color: s.c }}>{s.v}</div><div style={{ fontSize: 11, color: "#94a3b8", marginTop: 4 }}>{s.l}</div></div>
+                ))}
+              </div>
+            </div>
+            <div style={{ background: "#fff", borderRadius: 12, padding: 16, boxShadow: "0 1px 4px rgba(0,0,0,0.06)" }}>
+              <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 14, color: "#374151" }}>Assigned Tickets</div>
+              {tickets.filter(t => t.assignees?.some(a => a.id === selAgent.id)).length > 0 ? (
+                <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                  {tickets.filter(t => t.assignees?.some(a => a.id === selAgent.id)).map(t => (
+                    <div key={t.id} onClick={() => { setSelTicket(t); setSelAgent(null); }} style={{ display: "flex", alignItems: "center", gap: 10, padding: "12px", borderRadius: 9, border: "1px solid #f1f5f9", cursor: "pointer", transition: "all 0.2s", background: "#fff" }}
+                      onMouseEnter={e => { e.currentTarget.style.background = "#f8fafc"; e.currentTarget.style.borderColor = "#3b82f6"; }}
+                      onMouseLeave={e => { e.currentTarget.style.background = "#fff"; e.currentTarget.style.borderColor = "#f1f5f9"; }}>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ fontSize: 13, fontWeight: 600, color: "#1e293b" }}>{t.summary}</div>
+                        <div style={{ fontSize: 11, color: "#64748b", marginTop: 2 }}>{t.id} · {t.org}</div>
+                      </div>
+                      <Badge label={t.status} style={{ ...STATUS_COLOR[t.status], fontSize: 11 }} />
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div style={{ textAlign: "center", padding: 24, color: "#94a3b8", fontSize: 13 }}>No assigned tickets</div>
+              )}
+            </div>
+          </div> : null}
 
           {/* ── SETTINGS ── */}
           {view === "settings" && <div style={{ display: "flex", gap: 18, alignItems: "flex-start" }}>
@@ -1836,19 +2054,22 @@ export default function HelpDesk() {
                     <select style={{ ...sS, width: 110 }} value={newUser.role} onChange={e => setNewUser({ ...newUser, role: e.target.value })}>{ROLES.map(r => <option key={r}>{r}</option>)}</select>
                     <button onClick={addUser} style={bP}>Add</button>
                   </div>
-                ) : <div style={{ marginBottom: 18, padding: "10px 14px", background: "#fef3c7", color: "#92400e", borderRadius: 8, fontSize: 13, fontWeight: 500 }}>Read Only: User management is restricted to Admins.</div>}
+                ) : currentUser?.role === "Manager" ? (
+                  <div style={{ marginBottom: 18, padding: "10px 14px", background: "#fef3c7", color: "#92400e", borderRadius: 8, fontSize: 13, fontWeight: 500 }}>View Only: Managers can view users but cannot add, delete, or change roles.</div>
+                ) : (
+                  <div style={{ marginBottom: 18, padding: "10px 14px", background: "#fef3c7", color: "#92400e", borderRadius: 8, fontSize: 13, fontWeight: 500 }}>Read Only: User management is restricted to Admins and Managers.</div>
+                )}
                 <table style={{ width: "100%", borderCollapse: "collapse" }}>
-                  <thead><tr>{["User", "Email", "Role", "Status", currentUser?.role === "Admin" ? "Actions" : null].filter(Boolean).map(h => <th key={h} style={thStyle}>{h}</th>)}</tr></thead>
+                  <thead><tr>{["User", "Email", "Role", "Status", "Account Status", currentUser?.role === "Admin" ? "Actions" : null].filter(Boolean).map(h => <th key={h} style={thStyle}>{h}</th>)}</tr></thead>
                   <tbody>{users.map(u => (
                     <tr key={u.id} className="rh">
                       <td style={tdStyle}><div style={{ display: "flex", alignItems: "center", gap: 8 }}><Avatar name={u.name} size={28} /><span style={{ fontSize: 13, fontWeight: 600 }}>{u.name}</span></div></td>
                       <td style={{ ...tdStyle, color: "#64748b", fontSize: 12 }}>{u.email}</td>
                       <td style={tdStyle}><Badge label={u.role} style={{ background: "#ede9fe", color: "#6d28d9" }} /></td>
-                      <td style={tdStyle}><div style={{ display: "flex", gap: 4 }}>
-                        <Badge label={u.active ? "Active" : "Inactive"} style={{ background: u.active ? "#dcfce7" : "#fee2e2", color: u.active ? "#15803d" : "#ef4444" }} />
-                        {u.status && <Badge label={u.status} style={{ background: statusOpts.find(s => s.l === u.status)?.bg || "#f1f5f9", color: statusOpts.find(s => s.l === u.status)?.c || "#64748b" }} />}
-                      </div></td>
-                      {currentUser?.role === "Admin" && <td style={tdStyle}><div style={{ display: "flex", gap: 6 }}>
+                      <td style={tdStyle}><Badge label={u.id === currentUser?.id ? "Active" : "Not Active"} style={{ background: u.id === currentUser?.id ? "#dcfce7" : "#fee2e2", color: u.id === currentUser?.id ? "#15803d" : "#ef4444" }} /></td>
+                      <td style={tdStyle}><Badge label={u.active ? "Activated" : "Deactivated"} style={{ background: u.active ? "#dcfce7" : "#fee2e2", color: u.active ? "#15803d" : "#ef4444" }} /></td>
+                      {currentUser?.role === "Admin" && <td style={tdStyle}><div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                        <select value={u.role} onChange={async (e) => { const newRole = e.target.value; try { const updated = { ...u, role: newRole }; await axios.put(`${USERS_API}/${u.id}`, updated); setUsers(users.map(x => x.id === u.id ? updated : x)); } catch (err) { alert("Failed to update role"); } }} style={{ ...sS, fontSize: 11, padding: "4px 8px" }}>{ROLES.map(r => <option key={r}>{r}</option>)}</select>
                         <button onClick={async () => { try { const updated = { ...u, active: !u.active }; await axios.put(`${USERS_API}/${u.id}`, updated); setUsers(users.map(x => x.id === u.id ? updated : x)); } catch (err) { alert("Failed to update user"); } }} style={{ border: "none", background: u.active ? "#fef9c3" : "#dcfce7", color: u.active ? "#854d0e" : "#15803d", borderRadius: 6, padding: "4px 9px", cursor: "pointer", fontSize: 12, fontWeight: 600 }}>{u.active ? "Deactivate" : "Activate"}</button>
                         {u.id !== currentUser.id && <button onClick={async () => { if (window.confirm(`Delete ${u.name}?`)) { try { await axios.delete(`${USERS_API}/${u.id}`); setUsers(users.filter(x => x.id !== u.id)); } catch (err) { console.error("Delete failed:", err); } } }} style={{ border: "none", background: "#fee2e2", color: "#ef4444", borderRadius: 6, padding: "4px 9px", cursor: "pointer", fontSize: 12, fontWeight: 600 }}>Delete</button>}
                       </div></td>}
@@ -1921,25 +2142,31 @@ export default function HelpDesk() {
           <FF label="Due Date"><input type="date" style={iS} value={form.dueDate || ""} onChange={e => setForm({ ...form, dueDate: e.target.value })} /></FF>
         </div>
         <FF label="Assignees">
-          <div style={{ position: "relative" }}>
-            <div onClick={() => setShowAssigneeDD(!showAssigneeDD)} style={{ ...iS, cursor: "pointer", minHeight: 40, display: "flex", alignItems: "center", flexWrap: "wrap", gap: 5, padding: form.assignees.length ? "6px 10px" : "9px 12px" }}>
-              {!form.assignees.length && <span style={{ color: "#94a3b8" }}>Click to assign agents…</span>}
-              {form.assignees.map(a => <span key={a.id} style={{ display: "flex", alignItems: "center", gap: 4, padding: "2px 6px 2px 3px", background: "#dbeafe", color: "#1d4ed8", borderRadius: 99, fontSize: 12, fontWeight: 600 }}>
-                <Avatar name={a.name} size={17} />{a.name.split(" ")[0]}<span onClick={e => { e.stopPropagation(); toggleAssignee(a); }} style={{ cursor: "pointer", fontWeight: 700, marginLeft: 2 }}>×</span>
-              </span>)}
-              <span style={{ marginLeft: "auto", color: "#94a3b8", fontSize: 11 }}>▾</span>
+          {currentUser?.role === "Admin" || currentUser?.role === "Manager" ? (
+            <div style={{ position: "relative" }}>
+              <div onClick={() => setShowAssigneeDD(!showAssigneeDD)} style={{ ...iS, cursor: "pointer", minHeight: 40, display: "flex", alignItems: "center", flexWrap: "wrap", gap: 5, padding: form.assignees.length ? "6px 10px" : "9px 12px" }}>
+                {!form.assignees.length && <span style={{ color: "#94a3b8" }}>Click to assign agents…</span>}
+                {form.assignees.map(a => <span key={a.id} style={{ display: "flex", alignItems: "center", gap: 4, padding: "2px 6px 2px 3px", background: "#dbeafe", color: "#1d4ed8", borderRadius: 99, fontSize: 12, fontWeight: 600 }}>
+                  <Avatar name={a.name} size={17} />{a.name.split(" ")[0]}<span onClick={e => { e.stopPropagation(); toggleAssignee(a); }} style={{ cursor: "pointer", fontWeight: 700, marginLeft: 2 }}>×</span>
+                </span>)}
+                <span style={{ marginLeft: "auto", color: "#94a3b8", fontSize: 11 }}>▾</span>
+              </div>
+              {showAssigneeDD && <div style={{ position: "absolute", top: "calc(100% + 3px)", left: 0, right: 0, background: "#fff", border: "1.5px solid #e2e8f0", borderRadius: 10, zIndex: 200, boxShadow: "0 8px 24px rgba(0,0,0,0.12)", overflow: "hidden" }}>
+                <div style={{ padding: 7, borderBottom: "1px solid #f1f5f9" }}><input style={{ ...iS, fontSize: 13 }} placeholder="Search agents…" value={assigneeSearch} onChange={e => setAssigneeSearch(e.target.value)} onClick={e => e.stopPropagation()} autoFocus /></div>
+                {users.filter(u => u.active && u.name.toLowerCase().includes(assigneeSearch.toLowerCase())).map(u => {
+                  const sel = form.assignees.find(a => a.id === u.id); return (
+                    <div key={u.id} onClick={() => toggleAssignee(u)} style={{ display: "flex", alignItems: "center", gap: 9, padding: "8px 13px", cursor: "pointer", background: sel ? "#eff6ff" : "#fff" }}>
+                      <Avatar name={u.name} size={26} /><div style={{ flex: 1 }}><div style={{ fontSize: 13, fontWeight: 600 }}>{u.name}</div><div style={{ fontSize: 11, color: "#94a3b8" }}>{u.role}</div></div>
+                      {sel && <span style={{ color: "#3b82f6", fontWeight: 700 }}>✓</span>}
+                    </div>);
+                })}
+              </div>}
             </div>
-            {showAssigneeDD && <div style={{ position: "absolute", top: "calc(100% + 3px)", left: 0, right: 0, background: "#fff", border: "1.5px solid #e2e8f0", borderRadius: 10, zIndex: 200, boxShadow: "0 8px 24px rgba(0,0,0,0.12)", overflow: "hidden" }}>
-              <div style={{ padding: 7, borderBottom: "1px solid #f1f5f9" }}><input style={{ ...iS, fontSize: 13 }} placeholder="Search agents…" value={assigneeSearch} onChange={e => setAssigneeSearch(e.target.value)} onClick={e => e.stopPropagation()} autoFocus /></div>
-              {users.filter(u => u.active && u.name.toLowerCase().includes(assigneeSearch.toLowerCase())).map(u => {
-                const sel = form.assignees.find(a => a.id === u.id); return (
-                  <div key={u.id} onClick={() => toggleAssignee(u)} style={{ display: "flex", alignItems: "center", gap: 9, padding: "8px 13px", cursor: "pointer", background: sel ? "#eff6ff" : "#fff" }}>
-                    <Avatar name={u.name} size={26} /><div style={{ flex: 1 }}><div style={{ fontSize: 13, fontWeight: 600 }}>{u.name}</div><div style={{ fontSize: 11, color: "#94a3b8" }}>{u.role}</div></div>
-                    {sel && <span style={{ color: "#3b82f6", fontWeight: 700 }}>✓</span>}
-                  </div>);
-              })}
-            </div>}
-          </div>
+          ) : (
+            <div style={{ padding: "10px 12px", background: "#eff6ff", border: "1.5px solid #bfdbfe", borderRadius: 8, color: "#1d4ed8", fontSize: 13 }}>
+              Only Admins and Managers can assign users. Please create the ticket first, then assign users in ticket details.
+            </div>
+          )}
         </FF>
         <FF label="Summary" required><input style={iS} placeholder="Brief description of the issue" value={form.summary} onChange={e => setForm({ ...form, summary: e.target.value })} /></FF>
         <FF label="Description"><textarea style={{ ...iS, height: 88, resize: "vertical" }} placeholder="Detailed description…" value={form.description} onChange={e => setForm({ ...form, description: e.target.value })} /></FF>
@@ -1972,35 +2199,33 @@ export default function HelpDesk() {
           <FF label="Reported By"><input style={iS} value={projForm.reportedBy} onChange={e => setProjForm({ ...projForm, reportedBy: e.target.value })} /></FF>
           <FF label="Priority"><select style={sS} value={projForm.priority} onChange={e => setProjForm({ ...projForm, priority: e.target.value })}>{PROJECT_PRIORITIES.map(p => <option key={p}>{p}</option>)}</select></FF>
           <FF label="Category"><select style={sS} value={projForm.category} onChange={e => setProjForm({ ...projForm, category: e.target.value })}><option value="">Select…</option>{projectCategories.map(c => <option key={c.id}>{c.name}</option>)}</select></FF>
+          <FF label="Location"><select style={sS} value={projForm.location} onChange={e => setProjForm({ ...projForm, location: e.target.value })}><option value="">Select…</option>{LOCATIONS.map(l => <option key={l}>{l}</option>)}</select></FF>
           <FF label="Due Date"><input type="date" style={iS} value={projForm.dueDate} onChange={e => setProjForm({ ...projForm, dueDate: e.target.value })} /></FF>
         </div>
         {projForm.category === "Webcast" && <WebcastFields f={projForm} setF={setProjForm} />}
         <FF label="Assignees">
-          <div style={{ ...iS, cursor: "pointer", minHeight: 40, display: "flex", alignItems: "center", flexWrap: "wrap", gap: 5, padding: projForm.assignees.length ? "6px 10px" : "9px 12px" }} onClick={() => { }}>
-            {!projForm.assignees.length && <span style={{ color: "#94a3b8" }}>Select assignees below…</span>}
-            {projForm.assignees.map(a => <span key={a.id} style={{ display: "flex", alignItems: "center", gap: 4, padding: "2px 6px 2px 3px", background: "#f5f3ff", color: "#6d28d9", borderRadius: 99, fontSize: 12, fontWeight: 600 }}>
-              <Avatar name={a.name} size={17} />{a.name.split(" ")[0]}<span onClick={() => setProjForm({ ...projForm, assignees: projForm.assignees.filter(x => x.id !== a.id) })} style={{ cursor: "pointer", fontWeight: 700, marginLeft: 2 }}>×</span>
-            </span>)}
-          </div>
-          <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 7 }}>
-            {users.filter(u => u.active).map(u => {
-              const sel = projForm.assignees.find(a => a.id === u.id); return (
-                <button key={u.id} onClick={() => setProjForm({ ...projForm, assignees: sel ? projForm.assignees.filter(a => a.id !== u.id) : [...projForm.assignees, u] })}
-                  style={{ display: "flex", alignItems: "center", gap: 5, padding: "4px 8px", borderRadius: 6, border: `1.5px solid ${sel ? "#8b5cf6" : "#e2e8f0"}`, background: sel ? "#f5f3ff" : "#fff", cursor: "pointer", fontSize: 12, fontWeight: sel ? 600 : 400 }}>
-                  <Avatar name={u.name} size={18} />{u.name.split(" ")[0]}
-                </button>);
-            })}
+          <div style={{ position: "relative" }}>
+            <div onClick={() => setShowAssigneeDD(!showAssigneeDD)} style={{ ...iS, cursor: "pointer", minHeight: 40, display: "flex", alignItems: "center", flexWrap: "wrap", gap: 5, padding: projForm.assignees.length ? "6px 10px" : "9px 12px" }}>
+              {!projForm.assignees.length && <span style={{ color: "#94a3b8" }}>Click to assign users…</span>}
+              {projForm.assignees.map(a => <span key={a.id} style={{ display: "flex", alignItems: "center", gap: 4, padding: "2px 6px 2px 3px", background: "#f5f3ff", color: "#6d28d9", borderRadius: 99, fontSize: 12, fontWeight: 600 }}>
+                <Avatar name={a.name} size={17} />{a.name.split(" ")[0]}<span onClick={e => { e.stopPropagation(); setProjForm({ ...projForm, assignees: projForm.assignees.filter(x => x.id !== a.id) }); }} style={{ cursor: "pointer", fontWeight: 700, marginLeft: 2 }}>×</span>
+              </span>)}
+              <span style={{ marginLeft: "auto", color: "#94a3b8", fontSize: 11 }}>▾</span>
+            </div>
+            {showAssigneeDD && <div style={{ position: "absolute", top: "calc(100% + 3px)", left: 0, right: 0, background: "#fff", border: "1.5px solid #e2e8f0", borderRadius: 10, zIndex: 200, boxShadow: "0 8px 24px rgba(0,0,0,0.12)", overflow: "hidden", maxHeight: 300, overflowY: "auto" }}>
+              <div style={{ padding: 7, borderBottom: "1px solid #f1f5f9", position: "sticky", top: 0, background: "#fff" }}><input style={{ ...iS, fontSize: 13 }} placeholder="Search users…" value={assigneeSearch} onChange={e => setAssigneeSearch(e.target.value)} onClick={e => e.stopPropagation()} autoFocus /></div>
+              {users.filter(u => u.active && u.name.toLowerCase().includes(assigneeSearch.toLowerCase())).map(u => {
+                const sel = projForm.assignees.find(a => a.id === u.id); return (
+                  <div key={u.id} onClick={() => setProjForm({ ...projForm, assignees: sel ? projForm.assignees.filter(a => a.id !== u.id) : [...projForm.assignees, u] })} style={{ display: "flex", alignItems: "center", gap: 9, padding: "8px 13px", cursor: "pointer", background: sel ? "#eff6ff" : "#fff", borderBottom: "1px solid #f1f5f9" }}>
+                    <Avatar name={u.name} size={26} /><div style={{ flex: 1 }}><div style={{ fontSize: 13, fontWeight: 600 }}>{u.name}</div><div style={{ fontSize: 11, color: "#94a3b8" }}>{u.role}</div></div>
+                    {sel && <span style={{ color: "#8b5cf6", fontWeight: 700 }}>✓</span>}
+                  </div>);
+              })}
+            </div>}
           </div>
         </FF>
         <FF label="Project Title" required><input style={iS} placeholder="Brief project name" value={projForm.title} onChange={e => setProjForm({ ...projForm, title: e.target.value })} /></FF>
         <FF label="Description"><textarea style={{ ...iS, height: 88, resize: "vertical" }} placeholder="Detailed description…" value={projForm.description} onChange={e => setProjForm({ ...projForm, description: e.target.value })} /></FF>
-        <FF label="Initial Progress (%)">
-          <div style={{ display: "flex", alignItems: "center", gap: 11 }}>
-            <input type="range" min={0} max={100} value={projForm.progress} onChange={e => setProjForm({ ...projForm, progress: parseInt(e.target.value) })} style={{ flex: 1 }} />
-            <span style={{ fontSize: 14, fontWeight: 700, color: "#8b5cf6", minWidth: 40 }}>{projForm.progress}%</span>
-          </div>
-          <ProgressBar value={projForm.progress} color="#8b5cf6" />
-        </FF>
         {projForm.category === "Webcast" && <WebcastFields f={projForm} setF={setProjForm} />}
         <FF label="CC Users">
           <div style={{ display: "flex", gap: 8 }}><input style={{ ...iS, flex: 1 }} placeholder="Add email address" value={projCcInput} onChange={e => setProjCcInput(e.target.value)} onKeyDown={e => e.key === "Enter" && addProjCC()} /><button onClick={addProjCC} style={bG}>Add</button></div>
@@ -2033,10 +2258,29 @@ export default function HelpDesk() {
           </div>}
           <div style={{ marginBottom: 14, padding: "11px 13px", background: "#f8fafc", borderRadius: 9 }}>
             <div style={{ fontSize: 10, fontWeight: 600, color: "#94a3b8", textTransform: "uppercase", marginBottom: 7 }}>Assignees</div>
-            <div style={{ display: "flex", flexWrap: "wrap", gap: 7 }}>
-              {(selTicket.assignees || []).map(a => <div key={a.id} style={{ display: "flex", alignItems: "center", gap: 7, background: "#fff", padding: "5px 9px", borderRadius: 7, border: "1px solid #e2e8f0" }}><Avatar name={a.name} size={24} /><div><div style={{ fontSize: 12, fontWeight: 600 }}>{a.name}</div><div style={{ fontSize: 10, color: "#94a3b8" }}>{a.role}</div></div></div>)}
-              {!selTicket.assignees?.length && <span style={{ fontSize: 13, color: "#94a3b8" }}>Unassigned</span>}
-            </div>
+            {currentUser?.role === "Admin" || currentUser?.role === "Manager" ? (
+              <div>
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 7, marginBottom: 10 }}>
+                  {(selTicket.assignees || []).map(a => <div key={a.id} style={{ display: "flex", alignItems: "center", gap: 7, background: "#dbeafe", padding: "5px 9px", borderRadius: 7, border: "1px solid #bfdbfe" }}><Avatar name={a.name} size={24} /><div><div style={{ fontSize: 12, fontWeight: 600 }}>{a.name}</div><div style={{ fontSize: 10, color: "#64748b" }}>{a.role}</div></div><span onClick={async () => { const updated = { ...selTicket, assignees: selTicket.assignees.filter(x => x.id !== a.id), updated: new Date().toISOString() }; try { await axios.put(`${TICKETS_API}/${selTicket.id}`, updated); setTickets(t => t.map(x => x.id === selTicket.id ? { ...updated, updated: new Date(updated.updated) } : x)); setSelTicket(updated); } catch (e) { alert("Failed to remove assignee"); } }} style={{ cursor: "pointer", fontWeight: 700, marginLeft: 4, color: "#ef4444" }}>×</span></div>)}
+                  {!selTicket.assignees?.length && <span style={{ fontSize: 13, color: "#94a3b8" }}>Unassigned</span>}
+                </div>
+                <div style={{ position: "relative" }}>
+                  <input type="text" placeholder="Add assignee..." value={assigneeSearch} onChange={e => setAssigneeSearch(e.target.value)} onFocus={() => setAssigneeSearch(assigneeSearch || " ")} style={{ ...iS, width: "100%", fontSize: 12 }} />
+                  {assigneeSearch && <div style={{ position: "absolute", top: "calc(100% + 3px)", left: 0, right: 0, background: "#fff", border: "1.5px solid #e2e8f0", borderRadius: 8, zIndex: 200, boxShadow: "0 4px 12px rgba(0,0,0,0.1)", maxHeight: 200, overflowY: "auto" }}>
+                    {users.filter(u => u.active && (assigneeSearch.trim() === "" || u.name.toLowerCase().includes(assigneeSearch.toLowerCase())) && !selTicket.assignees?.find(a => a.id === u.id)).map(u => (
+                      <div key={u.id} onClick={async () => { const updated = { ...selTicket, assignees: [...(selTicket.assignees || []), u], updated: new Date().toISOString() }; try { await axios.put(`${TICKETS_API}/${selTicket.id}`, updated); setTickets(t => t.map(x => x.id === selTicket.id ? { ...updated, updated: new Date(updated.updated) } : x)); setSelTicket(updated); setAssigneeSearch(""); } catch (e) { alert("Failed to add assignee"); } }} style={{ display: "flex", alignItems: "center", gap: 9, padding: "8px 12px", cursor: "pointer", borderBottom: "1px solid #f1f5f9" }}>
+                        <Avatar name={u.name} size={24} /><div><div style={{ fontSize: 12, fontWeight: 600 }}>{u.name}</div><div style={{ fontSize: 11, color: "#94a3b8" }}>{u.role}</div></div>
+                      </div>
+                    ))}
+                  </div>}
+                </div>
+              </div>
+            ) : (
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 7 }}>
+                {(selTicket.assignees || []).map(a => <div key={a.id} style={{ display: "flex", alignItems: "center", gap: 7, background: "#fff", padding: "5px 9px", borderRadius: 7, border: "1px solid #e2e8f0" }}><Avatar name={a.name} size={24} /><div><div style={{ fontSize: 12, fontWeight: 600 }}>{a.name}</div><div style={{ fontSize: 10, color: "#94a3b8" }}>{a.role}</div></div></div>)}
+                {!selTicket.assignees?.length && <span style={{ fontSize: 13, color: "#94a3b8" }}>Unassigned</span>}
+              </div>
+            )}
             {selTicket.vendor && (
               <div style={{ marginTop: 10, paddingTop: 10, borderTop: "1px solid #e2e8f0" }}>
                 <div style={{ fontSize: 10, fontWeight: 600, color: "#94a3b8", textTransform: "uppercase", marginBottom: 4 }}>Vendor</div>
@@ -2045,28 +2289,37 @@ export default function HelpDesk() {
             )}
           </div>
 
-          {/* Forward Ticket (v1) */}
-          {!showForward ? (
-            <button onClick={() => setShowForward(true)} style={{ ...bG, padding: "6px 14px", marginBottom: 14, fontSize: 12 }}>Forward Ticket ➦</button>
-          ) : (
+          {/* Forward Ticket Button */}
+          <button onClick={() => setShowForward(true)} style={{ ...bG, padding: "6px 14px", marginBottom: 14, fontSize: 12 }}>Forward Ticket ➦</button>
+
+          {/* Send to Vendor Button */}
+          <button onClick={() => setShowVendor(true)} style={{ ...bG, padding: "6px 14px", marginBottom: 14, marginLeft: 8, fontSize: 12, background: "#fff7ed", color: "#ea580c" }}>Send to Vendor 🏭</button>
+
+          {/* Forward Ticket Modal (Agent Only) */}
+          {showForward && (
             <div style={{ marginBottom: 14, padding: "14px", background: "#eff6ff", borderRadius: 9, border: "1px solid #bfdbfe" }}>
-              <div style={{ fontSize: 12, fontWeight: 700, color: "#1e40af", marginBottom: 10 }}>Forward Ticket</div>
-              <div style={{ display: "flex", gap: 14, marginBottom: 10 }}>
-                <label style={{ fontSize: 13, display: "flex", alignItems: "center", gap: 6 }}><input type="radio" checked={fwdType === "Agent"} onChange={() => setFwdType("Agent")} /> Internal Agent</label>
-                <label style={{ fontSize: 13, display: "flex", alignItems: "center", gap: 6 }}><input type="radio" checked={fwdType === "Vendor"} onChange={() => setFwdType("Vendor")} /> External Vendor</label>
-              </div>
-              {fwdType === "Agent" ? (
-                <FF label="Select Agent" required><select style={sS} value={fwdTargetAgent} onChange={e => setFwdTargetAgent(e.target.value)}><option value="">Select...</option>{users.filter(u => u.active).map(u => <option key={u.id} value={u.id}>{u.name} ({u.role})</option>)}</select></FF>
-              ) : (
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0 10px" }}>
-                  <FF label="Vendor Name" required><input style={iS} value={fwdVendorName} onChange={e => setFwdVendorName(e.target.value)} placeholder="e.g. Dell Support" /></FF>
-                  <FF label="Vendor Email" required><input type="email" style={iS} value={fwdVendorEmail} onChange={e => setFwdVendorEmail(e.target.value)} placeholder="vendor@example.com" /></FF>
-                </div>
-              )}
+              <div style={{ fontSize: 12, fontWeight: 700, color: "#1e40af", marginBottom: 10 }}>Forward to Agent</div>
+              <FF label="Select Agent" required><select style={sS} value={fwdTargetAgent} onChange={e => setFwdTargetAgent(e.target.value)}><option value="">Select...</option>{users.filter(u => u.active).map(u => <option key={u.id} value={u.id}>{u.name} ({u.role})</option>)}</select></FF>
               <FF label="Reason for Forwarding" required><textarea style={{ ...iS, height: 50, resize: "none" }} value={fwdReason} onChange={e => setFwdReason(e.target.value)} placeholder="Why is this ticket being forwarded?" /></FF>
               <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 8 }}>
-                <button onClick={() => { setShowForward(false); setFwdReason(""); }} style={bG}>Cancel</button>
-                <button onClick={handleForward} style={{ ...bP, background: "#2563eb", boxShadow: "0 2px 6px rgba(37,99,235,0.3)" }}>Confirm Forward</button>
+                <button onClick={() => { setShowForward(false); setFwdReason(""); setFwdTargetAgent(""); }} style={bG}>Cancel</button>
+                <button onClick={() => handleForwardToAgent(fwdTargetAgent)} style={{ ...bP, background: "#2563eb", boxShadow: "0 2px 6px rgba(37,99,235,0.3)" }}>Confirm Forward</button>
+              </div>
+            </div>
+          )}
+
+          {/* Send to Vendor Modal */}
+          {showVendor && (
+            <div style={{ marginBottom: 14, padding: "14px", background: "#fff7ed", borderRadius: 9, border: "1px solid #fed7aa" }}>
+              <div style={{ fontSize: 12, fontWeight: 700, color: "#ea580c", marginBottom: 10 }}>Send to Vendor</div>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0 10px" }}>
+                <FF label="Vendor Name" required><input style={iS} value={vendorName} onChange={e => setVendorName(e.target.value)} placeholder="e.g. Dell Support" /></FF>
+                <FF label="Vendor Email" required><input type="email" style={iS} value={vendorEmail} onChange={e => setVendorEmail(e.target.value)} placeholder="vendor@example.com" /></FF>
+              </div>
+              <FF label="Reason for Sending to Vendor" required><textarea style={{ ...iS, height: 50, resize: "none" }} value={fwdReason} onChange={e => setFwdReason(e.target.value)} placeholder="Why is this ticket being sent to vendor?" /></FF>
+              <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 8 }}>
+                <button onClick={() => { setShowVendor(false); setVendorName(""); setVendorEmail(""); setFwdReason(""); }} style={bG}>Cancel</button>
+                <button onClick={() => { handleSendForRepair(vendorName, vendorEmail); setShowVendor(false); setVendorName(""); setVendorEmail(""); setFwdReason(""); }} style={{ ...bP, background: "#ea580c", boxShadow: "0 2px 6px rgba(234,88,12,0.3)" }}>Confirm Send</button>
               </div>
             </div>
           )}
@@ -2126,10 +2379,10 @@ export default function HelpDesk() {
           <h2 style={{ margin: "0 0 9px", fontSize: 17, fontWeight: 700 }}>{selProject.title}</h2>
           <div style={{ marginBottom: 14, padding: "11px 14px", background: "#f8fafc", borderRadius: 9 }}>
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
-              <span style={{ fontSize: 11, fontWeight: 600, color: "#94a3b8", textTransform: "uppercase" }}>Progress</span>
-              <span style={{ fontSize: 14, fontWeight: 700, color: "#8b5cf6" }}>{selProject.progress}%</span>
+              <span style={{ fontSize: 11, fontWeight: 600, color: "#94a3b8", textTransform: "uppercase" }}>Progress (Based on Status)</span>
+              <span style={{ fontSize: 14, fontWeight: 700, color: "#8b5cf6" }}>{getProgressFromStatus(selProject.status)}%</span>
             </div>
-            <ProgressBar value={selProject.progress} color={selProject.progress > 70 ? "#22c55e" : selProject.progress > 40 ? "#f59e0b" : "#ef4444"} />
+            <ProgressBar value={getProgressFromStatus(selProject.status)} color={getProgressFromStatus(selProject.status) > 70 ? "#22c55e" : getProgressFromStatus(selProject.status) > 40 ? "#f59e0b" : "#ef4444"} />
           </div>
           <p style={{ margin: "0 0 16px", color: "#64748b", fontSize: 14, lineHeight: 1.6 }}>{selProject.description}</p>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 9, marginBottom: 14 }}>
@@ -2139,30 +2392,33 @@ export default function HelpDesk() {
           </div>
           <div style={{ marginBottom: 14, padding: "11px 13px", background: "#f8fafc", borderRadius: 9 }}>
             <div style={{ fontSize: 10, fontWeight: 600, color: "#94a3b8", textTransform: "uppercase", marginBottom: 7 }}>Assignees</div>
-            <div style={{ display: "flex", flexWrap: "wrap", gap: 7 }}>
-              {(selProject.assignees || []).map(a => <div key={a.id} style={{ display: "flex", alignItems: "center", gap: 7, background: "#fff", padding: "5px 9px", borderRadius: 7, border: "1px solid #e2e8f0" }}><Avatar name={a.name} size={24} /><div><div style={{ fontSize: 12, fontWeight: 600 }}>{a.name}</div><div style={{ fontSize: 10, color: "#94a3b8" }}>{a.role}</div></div></div>)}
-              {!selProject.assignees?.length && <span style={{ fontSize: 13, color: "#94a3b8" }}>Unassigned</span>}
-            </div>
+            {currentUser?.role === "Admin" || currentUser?.role === "Manager" ? (
+              <div>
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 7, marginBottom: 10 }}>
+                  {(selProject.assignees || []).map(a => <div key={a.id} style={{ display: "flex", alignItems: "center", gap: 7, background: "#dbeafe", padding: "5px 9px", borderRadius: 7, border: "1px solid #bfdbfe" }}><Avatar name={a.name} size={24} /><div><div style={{ fontSize: 12, fontWeight: 600 }}>{a.name}</div><div style={{ fontSize: 10, color: "#64748b" }}>{a.role}</div></div><span onClick={async () => { const updated = { ...selProject, assignees: selProject.assignees.filter(x => x.id !== a.id), updated: new Date().toISOString() }; try { await axios.put(`${PROJECTS_API}/${selProject.id}`, updated); setProjects(p => p.map(x => x.id === selProject.id ? { ...updated, updated: new Date(updated.updated) } : x)); setSelProject(updated); } catch (e) { alert("Failed to remove assignee"); } }} style={{ cursor: "pointer", fontWeight: 700, marginLeft: 4, color: "#ef4444" }}>×</span></div>)}
+                  {!selProject.assignees?.length && <span style={{ fontSize: 13, color: "#94a3b8" }}>Unassigned</span>}
+                </div>
+                <div style={{ position: "relative" }}>
+                  <input type="text" placeholder="Add assignee..." value={assigneeSearch} onChange={e => setAssigneeSearch(e.target.value)} style={{ ...iS, width: "100%", fontSize: 12 }} />
+                  {assigneeSearch && <div style={{ position: "absolute", top: "calc(100% + 3px)", left: 0, right: 0, background: "#fff", border: "1.5px solid #e2e8f0", borderRadius: 8, zIndex: 200, boxShadow: "0 4px 12px rgba(0,0,0,0.1)", maxHeight: 200, overflowY: "auto" }}>
+                    {users.filter(u => u.active && u.name.toLowerCase().includes(assigneeSearch.toLowerCase()) && !selProject.assignees?.find(a => a.id === u.id)).map(u => (
+                      <div key={u.id} onClick={async () => { const updated = { ...selProject, assignees: [...(selProject.assignees || []), u], updated: new Date().toISOString() }; try { await axios.put(`${PROJECTS_API}/${selProject.id}`, updated); setProjects(p => p.map(x => x.id === selProject.id ? { ...updated, updated: new Date(updated.updated) } : x)); setSelProject(updated); setAssigneeSearch(""); } catch (e) { alert("Failed to add assignee"); } }} style={{ display: "flex", alignItems: "center", gap: 9, padding: "8px 12px", cursor: "pointer", borderBottom: "1px solid #f1f5f9" }}>
+                        <Avatar name={u.name} size={24} /><div><div style={{ fontSize: 12, fontWeight: 600 }}>{u.name}</div><div style={{ fontSize: 11, color: "#94a3b8" }}>{u.role}</div></div>
+                      </div>
+                    ))}
+                  </div>}
+                </div>
+              </div>
+            ) : (
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 7 }}>
+                {(selProject.assignees || []).map(a => <div key={a.id} style={{ display: "flex", alignItems: "center", gap: 7, background: "#fff", padding: "5px 9px", borderRadius: 7, border: "1px solid #e2e8f0" }}><Avatar name={a.name} size={24} /><div><div style={{ fontSize: 12, fontWeight: 600 }}>{a.name}</div><div style={{ fontSize: 10, color: "#94a3b8" }}>{a.role}</div></div></div>)}
+                {!selProject.assignees?.length && <span style={{ fontSize: 13, color: "#94a3b8" }}>Unassigned</span>}
+              </div>
+            )}
           </div>
           <div style={{ marginBottom: 14 }}>
             <div style={{ fontSize: 11, fontWeight: 600, color: "#374151", marginBottom: 7 }}>UPDATE STATUS</div>
             <div style={{ display: "flex", gap: 7, flexWrap: "wrap" }}>{PROJECT_STATUSES.map(s => <button key={s} onClick={() => updateProjectStatus(selProject.id, s)} style={{ padding: "5px 13px", borderRadius: 7, border: "none", cursor: "pointer", fontSize: 12, fontWeight: 600, fontFamily: "'DM Sans',sans-serif", background: selProject.status === s ? STATUS_COLOR[s].text : "#f1f5f9", color: selProject.status === s ? "#fff" : "#64748b" }}>{s}</button>)}</div>
-          </div>
-          <div style={{ marginBottom: 14 }}>
-            <div style={{ fontSize: 11, fontWeight: 600, color: "#374151", marginBottom: 7 }}>UPDATE PROGRESS</div>
-            <div style={{ display: "flex", alignItems: "center", gap: 11 }}>
-              <input type="range" min={0} max={100} value={selProject.progress} onChange={e => { const p = parseInt(e.target.value); setProjects(prev => prev.map(x => x.id === selProject.id ? { ...x, progress: p } : x)); setSelProject(s => ({ ...s, progress: p })); }} onMouseUp={async e => {
-                const p = parseInt(e.target.value);
-                try {
-                  const nowISO = new Date().toISOString();
-                  const updated = { ...selProject, progress: p, updated: nowISO };
-                  await axios.put(`${PROJECTS_API}/${selProject.id}`, updated);
-                  setProjects(prev => prev.map(x => x.id === selProject.id ? { ...updated, updated: new Date(nowISO) } : x));
-                } catch (err) { alert("Failed to save progress"); }
-              }} style={{ flex: 1 }} />
-              <span style={{ fontSize: 14, fontWeight: 700, color: "#8b5cf6", minWidth: 40 }}>{selProject.progress}%</span>
-            </div>
-            <ProgressBar value={selProject.progress} color={selProject.progress > 70 ? "#22c55e" : selProject.progress > 40 ? "#f59e0b" : "#ef4444"} />
           </div>
           <div style={{ borderTop: "1px solid #f1f5f9", paddingTop: 13 }}>
             <div style={{ fontSize: 11, fontWeight: 600, color: "#374151", marginBottom: 7 }}>ADD COMMENT</div>
