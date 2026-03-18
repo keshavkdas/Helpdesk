@@ -2,7 +2,7 @@ import { useState, useMemo, useEffect, useRef } from "react";
 import axios from "axios";
 
 // --- SERVER CONFIGURATION ---
-const SERVER_IP = "10.0.100.41";
+const SERVER_IP = "10.0.2.111";
 const BASE_URL = `http://${SERVER_IP}:5000/api`;
 
 // --- API ENDPOINTS ---
