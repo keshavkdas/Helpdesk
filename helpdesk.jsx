@@ -349,11 +349,16 @@ const SmartChart = ({ title, data, defaultType = "bar", defaultColor = "#3b82f6"
 };
 
 // ─── SESSION HELPERS (12-hour localStorage session) ───────────────────────────
+// ✅ IMPORTANT: Role is NOT cached — always fetched from database
 const SESSION_KEY = "deskflow_session";
 const SESSION_TTL = 12 * 60 * 60 * 1000;
 
 function saveSession(user) {
-  try { localStorage.setItem(SESSION_KEY, JSON.stringify({ user, expiresAt: Date.now() + SESSION_TTL })); } catch (_) { }
+  try {
+    // ✅ Remove role from cached session — it will be fetched from DB
+    const { role, ...userWithoutRole } = user;
+    localStorage.setItem(SESSION_KEY, JSON.stringify({ user: userWithoutRole, expiresAt: Date.now() + SESSION_TTL }));
+  } catch (_) { }
 }
 
 function loadSession() {
@@ -362,6 +367,7 @@ function loadSession() {
     if (!raw) return null;
     const { user, expiresAt } = JSON.parse(raw);
     if (Date.now() > expiresAt) { localStorage.removeItem(SESSION_KEY); return null; }
+    // ✅ Return user WITHOUT role — it will be fetched from DB
     return user;
   } catch (_) { return null; }
 }
@@ -484,6 +490,10 @@ export default function HelpDesk() {
   const [showOtherActions, setShowOtherActions] = useState(false);
   const [sortOrder, setSortOrder] = useState("desc"); // "desc" = newest first, "asc" = oldest first
 
+  // ✅ NEW: Admin edit user modal
+  const [editUserOpen, setEditUserOpen] = useState(null); // Holds the user being edited
+  const [editUserForm, setEditUserForm] = useState({ name: "", email: "", password: "" });
+
   const statusOpts = [{ l: "Logged-In", c: "#22c55e", bg: "#dcfce7" }, { l: "Logged-Out", c: "#ef4444", bg: "#fee2e2" }, { l: "Rest", c: "#f59e0b", bg: "#fef3c7" }];
 
   // ── Password strength ──
@@ -554,14 +564,22 @@ export default function HelpDesk() {
   // On mount: always load app data; if session existed it was restored above via useState init
   useEffect(() => { loadData(); }, []);
 
-  // Periodic refresh of user data to keep status updated from database (every 15 seconds)
+  // ✅ Periodic refresh: Fetch user role from database every 15 seconds
+  // This ensures role changes by admin are immediately reflected
   useEffect(() => {
-    if (!currentUser) return; // Don't refresh if not logged in
+    if (!currentUser) return;
     const interval = setInterval(async () => {
       try {
         const response = await axios.get(DB_API);
         const data = response.data;
         setUsers(data.users || []);
+
+        // ✅ CRITICAL: Fetch current user's role from database
+        const freshUser = data.users.find(u => u.id === currentUser.id);
+        if (freshUser && freshUser.role !== currentUser.role) {
+          // Role changed by admin — update currentUser immediately
+          setCurrentUser({ ...currentUser, role: freshUser.role });
+        }
       } catch (e) {
         console.error("Error refreshing user data:", e);
       }
@@ -922,6 +940,40 @@ export default function HelpDesk() {
       alert("Failed to delete user.");
     }
   };
+
+  // ✅ NEW: Admin can edit user name and password
+  const editUser = async () => {
+    if (!editUserForm.name) {
+      alert("Name is required");
+      return;
+    }
+    if (editUserForm.password && editUserForm.password.length < 6) {
+      alert("Password must be at least 6 characters");
+      return;
+    }
+
+    try {
+      const updates = {
+        name: editUserForm.name,
+        email: editUserForm.email
+      };
+      // Only send password if it was changed
+      if (editUserForm.password) {
+        updates.password = editUserForm.password;
+      }
+
+      await axios.put(`${USERS_API}/${editUserOpen.id}`, updates);
+      setUsers(users.map(u => u.id === editUserOpen.id ? { ...u, ...updates } : u));
+
+      alert(`${editUserForm.name}'s profile has been updated.`);
+      setEditUserOpen(null);
+      setEditUserForm({ name: "", email: "", password: "" });
+    } catch (err) {
+      console.error("Error editing user:", err);
+      alert("Failed to update user.");
+    }
+  };
+
   const addAttr = async () => {
     if (!newAttr.name) return;
     try {
@@ -1393,6 +1445,57 @@ export default function HelpDesk() {
           <button onClick={() => setEditProfileOpen(false)} style={bG}>Cancel</button>
           <button onClick={saveProfile} style={bP}>Save Changes</button>
         </div>
+      </Modal>
+
+      {/* ✅ NEW: Admin Edit User Modal (Name & Password) */}
+      <Modal open={!!editUserOpen} onClose={() => { setEditUserOpen(null); setEditUserForm({ name: "", email: "", password: "" }); }} title="Edit User" width={400}>
+        {editUserOpen && (
+          <div>
+            <div style={{ marginBottom: 20, padding: "12px 14px", background: "#f0f9ff", borderRadius: 8, borderLeft: "4px solid #3b82f6" }}>
+              <div style={{ fontSize: 12, color: "#0c4a6e", fontWeight: 600 }}>Admin Edit Mode</div>
+              <div style={{ fontSize: 12, color: "#0c4a6e", marginTop: 4 }}>You are editing: <strong>{editUserOpen.name}</strong></div>
+            </div>
+
+            <div style={{ marginBottom: 16 }}>
+              <label style={{ display: "block", fontSize: 12, fontWeight: 600, color: "#334155", marginBottom: 6 }}>Full Name</label>
+              <input
+                style={iS}
+                value={editUserForm.name}
+                onChange={e => setEditUserForm({ ...editUserForm, name: e.target.value })}
+                placeholder="Enter full name"
+              />
+            </div>
+
+            <div style={{ marginBottom: 16 }}>
+              <label style={{ display: "block", fontSize: 12, fontWeight: 600, color: "#334155", marginBottom: 6 }}>Email Address</label>
+              <input
+                style={iS}
+                value={editUserForm.email}
+                onChange={e => setEditUserForm({ ...editUserForm, email: e.target.value })}
+                placeholder="Enter email"
+              />
+            </div>
+
+            <div style={{ marginBottom: 18 }}>
+              <label style={{ display: "block", fontSize: 12, fontWeight: 600, color: "#334155", marginBottom: 6 }}>New Password (Leave blank to keep current)</label>
+              <input
+                style={iS}
+                type="password"
+                value={editUserForm.password}
+                onChange={e => setEditUserForm({ ...editUserForm, password: e.target.value })}
+                placeholder="Enter new password (min 6 characters)"
+              />
+              {editUserForm.password && editUserForm.password.length < 6 && (
+                <div style={{ fontSize: 11, color: "#ef4444", marginTop: 4 }}>Password must be at least 6 characters</div>
+              )}
+            </div>
+
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
+              <button onClick={() => { setEditUserOpen(null); setEditUserForm({ name: "", email: "", password: "" }); }} style={bG}>Cancel</button>
+              <button onClick={editUser} style={bP}>Update User</button>
+            </div>
+          </div>
+        )}
       </Modal>
 
       {/* ── MAIN CONTENT ────────────────────────────────────────────────── */}
@@ -2111,9 +2214,34 @@ export default function HelpDesk() {
                       })()}</td>
                       <td style={tdStyle}><Badge label={u.active ? "Activated" : "Deactivated"} style={{ background: u.active ? "#dcfce7" : "#fee2e2", color: u.active ? "#15803d" : "#ef4444" }} /></td>
                       {currentUser?.role === "Admin" && <td style={tdStyle}><div style={{ display: "flex", gap: 6, alignItems: "center" }}>
-                        <select value={u.role} onChange={async (e) => { const newRole = e.target.value; try { const updated = { ...u, role: newRole }; await axios.put(`${USERS_API}/${u.id}`, updated); setUsers(users.map(x => x.id === u.id ? updated : x)); } catch (err) { alert("Failed to update role"); } }} style={{ ...sS, fontSize: 11, padding: "4px 8px" }}>{ROLES.map(r => <option key={r}>{r}</option>)}</select>
+                        <select value={u.role} onChange={async (e) => {
+                          const newRole = e.target.value;
+
+                          // ✅ Ask for confirmation before changing role
+                          if (!window.confirm(`Are you sure you want to change ${u.name}'s role to ${newRole}? This will take effect immediately.`)) {
+                            return;
+                          }
+
+                          try {
+                            const updated = { ...u, role: newRole };
+                            await axios.put(`${USERS_API}/${u.id}`, updated);
+                            setUsers(users.map(x => x.id === u.id ? updated : x));
+
+                            // ✅ If we changed current user's own role, update it immediately
+                            if (u.id === currentUser.id) {
+                              setCurrentUser({ ...currentUser, role: newRole });
+                              alert(`Your role has been changed to ${newRole}. Please refresh the page to see all updated features.`);
+                            } else {
+                              alert(`${u.name}'s role has been changed to ${newRole}.`);
+                            }
+                          } catch (err) {
+                            alert("Failed to update role");
+                          }
+                        }} style={{ ...sS, fontSize: 11, padding: "4px 8px" }}>{ROLES.map(r => <option key={r}>{r}</option>)}</select>
                         <button onClick={async () => { try { const updated = { ...u, active: !u.active }; await axios.put(`${USERS_API}/${u.id}`, updated); setUsers(users.map(x => x.id === u.id ? updated : x)); } catch (err) { alert("Failed to update user"); } }} style={{ border: "none", background: u.active ? "#fef9c3" : "#dcfce7", color: u.active ? "#854d0e" : "#15803d", borderRadius: 6, padding: "4px 9px", cursor: "pointer", fontSize: 12, fontWeight: 600 }}>{u.active ? "Deactivate" : "Activate"}</button>
                         {u.id !== currentUser.id && <button onClick={async () => { if (window.confirm(`Delete ${u.name}?`)) { try { await axios.delete(`${USERS_API}/${u.id}`); setUsers(users.filter(x => x.id !== u.id)); } catch (err) { console.error("Delete failed:", err); } } }} style={{ border: "none", background: "#fee2e2", color: "#ef4444", borderRadius: 6, padding: "4px 9px", cursor: "pointer", fontSize: 12, fontWeight: 600 }}>Delete</button>}
+                        {/* ✅ NEW: Admin can edit name and password */}
+                        <button onClick={() => { setEditUserOpen(u); setEditUserForm({ name: u.name, email: u.email, password: "" }); }} style={{ border: "none", background: "#dbeafe", color: "#1e40af", borderRadius: 6, padding: "4px 9px", cursor: "pointer", fontSize: 12, fontWeight: 600 }}>Edit</button>
                       </div></td>}
                     </tr>
                   ))}</tbody>
