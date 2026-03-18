@@ -38,7 +38,7 @@ const User = sequelize.define("User", {
     phone: { type: DataTypes.STRING, defaultValue: "" },
     role: { type: DataTypes.ENUM("Admin", "Manager", "Agent", "Viewer"), defaultValue: "Agent" },
     active: { type: DataTypes.BOOLEAN, defaultValue: true },
-    status: { type: DataTypes.STRING, defaultValue: "Active" },
+    status: { type: DataTypes.STRING, defaultValue: "Logged-Out" },
     confirmed: { type: DataTypes.BOOLEAN, defaultValue: true },
 }, { timestamps: true });
 
@@ -551,8 +551,18 @@ app.post("/api/all-data/import", async (req, res) => {
 
 // ─── START ────────────────────────────────────────────────────────────────────
 const PORT = process.env.PORT || 5000;
-sequelize.sync({ alter: true }).then(() => {
+sequelize.sync({ alter: true }).then(async () => {
     console.log("✅ MySQL Synced & Connected");
+    
+    // Data Migration: Normalize user statuses
+    try {
+        await User.update({ status: "Logged-In" }, { where: { status: "Active" } });
+        await User.update({ status: "Logged-Out" }, { where: { status: { [Op.or]: ["Not Active", "Logged-out"] } } });
+        console.log("📊 User status data migrated successfully");
+    } catch (migErr) {
+        console.error("⚠️ Status migration warning:", migErr.message);
+    }
+
     app.listen(PORT, () => console.log(`🚀 DeskFlow API → http://localhost:${PORT}`));
 }).catch(err => {
     console.error("❌ Sync Error. Check if MySQL service is running.");

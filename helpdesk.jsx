@@ -484,7 +484,7 @@ export default function HelpDesk() {
   const [showOtherActions, setShowOtherActions] = useState(false);
   const [sortOrder, setSortOrder] = useState("desc"); // "desc" = newest first, "asc" = oldest first
 
-  const statusOpts = [{ l: "Active", c: "#22c55e", bg: "#dcfce7" }, { l: "Not Active", c: "#ef4444", bg: "#fee2e2" }, { l: "Rest", c: "#f59e0b", bg: "#fef3c7" }];
+  const statusOpts = [{ l: "Logged-In", c: "#22c55e", bg: "#dcfce7" }, { l: "Logged-Out", c: "#ef4444", bg: "#fee2e2" }, { l: "Rest", c: "#f59e0b", bg: "#fef3c7" }];
 
   // ── Password strength ──
   const calcPwdStr = (pwd) => { if (!pwd) return 0; let s = 0; if (pwd.length >= 8) s += 25; if (/[A-Z]/.test(pwd)) s += 25; if (/[a-z]/.test(pwd)) s += 25; if (/[^A-Za-z0-9]/.test(pwd)) s += 25; return s; };
@@ -863,7 +863,7 @@ export default function HelpDesk() {
       const response = await axios.post(USERS_API, {
         ...newUser,
         active: true,
-        status: "Not Active" // Default status for newly added users
+        status: "Logged-Out" // Default status for newly added users
       });
 
       const created = response.data;
@@ -1052,7 +1052,7 @@ export default function HelpDesk() {
       }
 
       // 3. Prepare the updated user object with Active status
-      const updatedUser = { ...u, status: "Active" };
+      const updatedUser = { ...u, status: "Logged-In" };
 
       // 4. Update the user in the database via the USERS_API URL
       // We use axios.put to the specific user's ID endpoint
@@ -1073,7 +1073,7 @@ export default function HelpDesk() {
 
   const handleLogout = async () => {
     if (currentUser) {
-      try { await axios.put(`${USERS_API}/${currentUser.id}`, { ...currentUser, status: "Not Active" }); }
+      try { await axios.put(`${USERS_API}/${currentUser.id}`, { ...currentUser, status: "Logged-Out" }); }
       catch (e) { console.error("Logout status update failed"); }
     }
     clearSession();
@@ -1098,7 +1098,7 @@ export default function HelpDesk() {
         password: authForm.password,
         role: isFirstUser ? "Admin" : "Viewer",
         active: true,
-        status: "Not Active",
+        status: "Logged-Out",
         confirmed: true,
       };
 
@@ -1227,11 +1227,21 @@ export default function HelpDesk() {
 
   // ─── AUTH SCREENS ──────────────────────────────────────────────────────────
   if (!currentUser) return (
-    <div style={{ display: "flex", height: "100vh", alignItems: "center", justifyContent: "center", background: "#f8fafc", fontFamily: "'DM Sans',sans-serif", perspective: "1000px" }}>
-      <div style={{ width: "100%", maxWidth: 400, position: "relative", transition: "transform 0.6s cubic-bezier(0.4,0,0.2,1)", transformStyle: "preserve-3d", transform: isLogin ? "rotateY(0deg)" : "rotateY(-180deg)" }}>
+    <div style={{ display: "flex", height: "100vh", alignItems: "center", justifyContent: "center", background: "#f8fafc", fontFamily: "'DM Sans',sans-serif", perspective: "1000px", position: "relative", overflow: "hidden" }}>
+      {/* Background Image with Opacity */}
+      <div style={{
+        position: "absolute",
+        inset: 0,
+        backgroundImage: 'url("/res/login_page_bg.jpeg")',
+        backgroundSize: "fill",
+        backgroundPosition: "center",
+        opacity: 0.6,
+        zIndex: 0
+      }} />
+      <div style={{ width: "100%", maxWidth: 400, position: "relative", transition: "transform 0.6s cubic-bezier(0.4,0,0.2,1)", transformStyle: "preserve-3d", transform: isLogin ? "rotateY(0deg)" : "rotateY(-180deg)", zIndex: 1 }}>
 
         {/* FRONT: LOGIN */}
-        <div style={{ background: "#fff", padding: 40, borderRadius: 20, boxShadow: "0 10px 40px rgba(0,0,0,0.08)", backfaceVisibility: "hidden", position: isLogin ? "relative" : "absolute", top: 0, left: 0, width: "100%" }}>
+        <div style={{ background: "rgba(255, 255, 255, 0.45)", backdropFilter: "blur(20px)", padding: 40, borderRadius: 20, boxShadow: "0 10px 40px rgba(0,0,0,0.12)", backfaceVisibility: "hidden", position: isLogin ? "relative" : "absolute", top: 0, left: 0, width: "100%", border: "1px solid rgba(255, 255, 255, 0.3)" }}>
           <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 10, marginBottom: 30 }}>
             <div style={{ width: 44, height: 44, background: "linear-gradient(135deg,#3b82f6,#8b5cf6)", borderRadius: 12, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 22, color: "#fff" }}>⚡</div>
             <div style={{ fontSize: 24, fontWeight: 700, color: "#0f172a" }}>DeskFlow</div>
@@ -1251,7 +1261,7 @@ export default function HelpDesk() {
         </div>
 
         {/* BACK: SIGNUP */}
-        <div style={{ background: "#fff", padding: 40, borderRadius: 20, boxShadow: "0 10px 40px rgba(0,0,0,0.08)", backfaceVisibility: "hidden", transform: "rotateY(180deg)", position: !isLogin ? "relative" : "absolute", top: 0, left: 0, width: "100%" }}>
+        <div style={{ background: "rgba(255, 255, 255, 0.45)", backdropFilter: "blur(20px)", padding: 40, borderRadius: 20, boxShadow: "0 10px 40px rgba(0,0,0,0.12)", backfaceVisibility: "hidden", transform: "rotateY(180deg)", position: !isLogin ? "relative" : "absolute", top: 0, left: 0, width: "100%", border: "1px solid rgba(255, 255, 255, 0.3)" }}>
           <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 10, marginBottom: 30 }}>
             <div style={{ width: 44, height: 44, background: "linear-gradient(135deg,#3b82f6,#8b5cf6)", borderRadius: 12, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 22, color: "#fff" }}>⚡</div>
             <div style={{ fontSize: 24, fontWeight: 700, color: "#0f172a" }}>DeskFlow</div>
@@ -1343,7 +1353,7 @@ export default function HelpDesk() {
             <div style={{ flex: 1, minWidth: 0 }}>
               <div style={{ fontSize: 12, fontWeight: 600, color: "#e2e8f0", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{currentUser.name}</div>
               <div style={{ fontSize: 10, color: "#94a3b8", display: "flex", alignItems: "center", gap: 4 }}>
-                <span style={{ width: 6, height: 6, borderRadius: "50%", background: statusOpts.find(s => s.l === currentUser.status)?.c || "#94a3b8" }} />
+                <span style={{ width: 6, height: 6, borderRadius: "50%", background: (statusOpts.find(s => s.l === (currentUser.status === "Active" ? "Logged-In" : (currentUser.status === "Not Active" || currentUser.status?.toLowerCase() === "logged-out") ? "Logged-Out" : currentUser.status))?.c || "#94a3b8") }} />
                 {currentUser.role}
               </div>
             </div>
@@ -1354,7 +1364,7 @@ export default function HelpDesk() {
               <button onClick={() => { setProfileForm({ name: currentUser.name, phone: currentUser.phone || "" }); setEditProfileOpen(true); }} style={{ width: "100%", padding: "6px 10px", background: "#334155", border: "none", borderRadius: 6, color: "#f8fafc", fontSize: 12, fontWeight: 600, cursor: "pointer", marginBottom: 8, textAlign: "left" }}>👤 View Profile</button>
               <div style={{ fontSize: 10, fontWeight: 600, color: "#94a3b8", marginBottom: 6, textTransform: "uppercase", padding: "0 4px" }}>Set Status</div>
               <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-                {statusOpts.filter(s => s.l !== "Not Active").map(s => (
+                {statusOpts.filter(s => s.l !== "Logged-Out").map(s => (
                   <button key={s.l} onClick={() => updateStatusDirect(s.l)} style={{ display: "flex", alignItems: "center", gap: 6, background: "transparent", border: "none", padding: "4px 8px", borderRadius: 4, cursor: "pointer", color: currentUser.status === s.l ? s.c : "#cbd5e1" }}>
                     <span style={{ width: 8, height: 8, borderRadius: "50%", background: s.c, boxShadow: currentUser.status === s.l ? `0 0 0 2px ${s.bg}` : "none" }} />
                     <span style={{ fontSize: 11, fontWeight: currentUser.status === s.l ? 700 : 500 }}>{s.l}</span>
@@ -1402,86 +1412,98 @@ export default function HelpDesk() {
           </div>
         </div>
 
-        <div style={{ flex: 1, padding: 20, overflow: "auto" }}>
-
+        <div style={{ flex: 1, padding: 20, overflow: "auto", position: "relative" }}>
           {/* ── DASHBOARD (v2 layout + SmartCharts) ── */}
           {view === "dashboard" && <>
-            {/* ── ROW 1: TICKETS ── */}
-            <div style={{ marginBottom: 4 }}>
-              <span style={{ fontSize: 10, fontWeight: 700, color: "#94a3b8", textTransform: "uppercase", letterSpacing: "0.07em", marginLeft: 2 }}>🎫 Tickets</span>
-            </div>
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(5,1fr)", gap: 9, marginBottom: 14 }}>
-              {[
-                { label: "Open", value: stats.open, bg: "#fef3c7", accent: "#f59e0b", icon: "📬", action: () => { setView("tickets"); setTvFilter("open"); setStatusF("All"); setPriorityF("All"); } },
-                { label: "In Progress", value: stats.inProgress, bg: "#ede9fe", accent: "#6366f1", icon: "⚙️", action: () => { setView("tickets"); setTvFilter("all"); setStatusF("In Progress"); setPriorityF("All"); } },
-                { label: "Critical", value: stats.critical, bg: "#fee2e2", accent: "#ef4444", icon: "🔥", action: () => { setView("tickets"); setTvFilter("alerts"); setStatusF("All"); setPriorityF("Critical"); } },
-                { label: "Resolved", value: stats.resolved, bg: "#dcfce7", accent: "#22c55e", icon: "✅", action: () => { setView("tickets"); setTvFilter("closed"); setStatusF("All"); setPriorityF("All"); } },
-                { label: "Total", value: stats.total, bg: "#dbeafe", accent: "#3b82f6", icon: "🎫", action: () => { setView("tickets"); setTvFilter("all"); setStatusF("All"); setPriorityF("All"); } },
-              ].map(s => (
-                <div key={s.label} onClick={s.action} style={{ background: s.bg, borderRadius: 12, padding: "14px 16px", boxShadow: "0 1px 4px rgba(0,0,0,0.06)", borderLeft: `4px solid ${s.accent}`, cursor: "pointer", transition: "box-shadow 0.15s" }}
-                  onMouseEnter={e => e.currentTarget.style.boxShadow = "0 4px 16px rgba(0,0,0,0.12)"}
-                  onMouseLeave={e => e.currentTarget.style.boxShadow = "0 1px 4px rgba(0,0,0,0.06)"}>
-                  <div style={{ fontSize: 18, marginBottom: 4 }}>{s.icon}</div>
-                  <div style={{ fontSize: 26, fontWeight: 800, color: s.accent }}>{s.value}</div>
-                  <div style={{ fontSize: 11, fontWeight: 600, color: "#374151", marginTop: 2 }}>{s.label}</div>
-                </div>
-              ))}
-            </div>
-
-            {/* ── ROW 2: PROJECTS ── */}
-            <div style={{ marginBottom: 4 }}>
-              <span style={{ fontSize: 10, fontWeight: 700, color: "#94a3b8", textTransform: "uppercase", letterSpacing: "0.07em", marginLeft: 2 }}>📁 Projects</span>
-            </div>
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(5,1fr)", gap: 9, marginBottom: 14 }}>
-              {[
-                { label: "Open", value: projStats.open, bg: "#fef3c7", accent: "#f59e0b", icon: "📂", action: () => { setView("projects"); setPvFilter("open"); setProjStatusF("All"); setProjPriorityF("All"); } },
-                { label: "In Progress", value: projStats.inProgress, bg: "#ede9fe", accent: "#6366f1", icon: "⚙️", action: () => { setView("projects"); setPvFilter("inprogress"); setProjStatusF("All"); setProjPriorityF("All"); } },
-                { label: "Critical", value: projStats.critical, bg: "#fee2e2", accent: "#ef4444", icon: "🔥", action: () => { setView("projects"); setPvFilter("critical"); setProjStatusF("All"); setProjPriorityF("All"); } },
-                { label: "Resolved", value: projStats.resolved, bg: "#dcfce7", accent: "#22c55e", icon: "✅", action: () => { setView("projects"); setPvFilter("closed"); setProjStatusF("All"); setProjPriorityF("All"); } },
-                { label: "Total", value: projStats.total, bg: "#ede9fe", accent: "#8b5cf6", icon: "📁", action: () => { setView("projects"); setPvFilter("all"); setProjStatusF("All"); setProjPriorityF("All"); } },
-              ].map(s => (
-                <div key={s.label} onClick={s.action} style={{ background: s.bg, borderRadius: 12, padding: "14px 16px", boxShadow: "0 1px 4px rgba(0,0,0,0.06)", borderLeft: `4px solid ${s.accent}`, cursor: "pointer", transition: "box-shadow 0.15s" }}
-                  onMouseEnter={e => e.currentTarget.style.boxShadow = "0 4px 16px rgba(0,0,0,0.12)"}
-                  onMouseLeave={e => e.currentTarget.style.boxShadow = "0 1px 4px rgba(0,0,0,0.06)"}>
-                  <div style={{ fontSize: 18, marginBottom: 4 }}>{s.icon}</div>
-                  <div style={{ fontSize: 26, fontWeight: 800, color: s.accent }}>{s.value}</div>
-                  <div style={{ fontSize: 11, fontWeight: 600, color: "#374151", marginTop: 2 }}>{s.label}</div>
-                </div>
-              ))}
-            </div>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12, marginBottom: 12 }}>
-              <SmartChart title="Tickets Over Time" data={dailyData} defaultColor="#3b82f6" />
-              <SmartChart title="Ticket Priority" data={priorityDist} defaultType="pie" />
-              <SmartChart title="By Category" data={categoryDist} defaultColor="#8b5cf6" />
-            </div>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 12 }}>
-              <SmartChart title="Ticket Status" data={STATUSES.map((s, i) => ({ label: s, color: Object.values(STATUS_COLOR)[i].text, value: fbr.filter(t => t.status === s).length }))} defaultType="pie" />
-              <SmartChart title="Project Status" data={PROJECT_STATUSES.map((s, i) => ({ label: s, color: Object.values(STATUS_COLOR)[i].text, value: dashboardProjects.filter(p => p.status === s).length }))} defaultType="pie" />
-            </div>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-              <div style={{ background: "#fff", borderRadius: 12, padding: 16, boxShadow: "0 1px 4px rgba(0,0,0,0.06)" }}>
-                <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 10, color: "#374151" }}>Recent Tickets</div>
-                {(currentUser?.role === "Admin" ? tickets : tickets.filter(t => t.reportedBy === currentUser?.name || t.assignees?.some(a => a.id === currentUser?.id))).slice(0, 5).map(t => (
-                  <div key={t.id} onClick={() => setSelTicket(t)} style={{ display: "flex", alignItems: "center", gap: 9, padding: "6px", borderRadius: 8, cursor: "pointer", border: "1px solid #f1f5f9", marginBottom: 5 }}>
-                    <div style={{ display: "flex" }}>{(t.assignees || []).slice(0, 2).map((a, i) => <div key={a.id} style={{ marginLeft: i > 0 ? -6 : 0, border: "2px solid #fff", borderRadius: "50%" }}><Avatar name={a.name} size={24} /></div>)}{!t.assignees?.length && <Avatar name="?" size={24} />}</div>
-                    <div style={{ flex: 1, minWidth: 0 }}><div style={{ fontSize: 12, fontWeight: 600, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{t.summary}</div><div style={{ fontSize: 10, color: "#94a3b8" }}>{t.id} · {t.org}</div></div>
-                    <Badge label={t.status} style={{ ...STATUS_COLOR[t.status], fontSize: 10 }} />
+            {/* Background Image with Opacity for Dashboard */}
+            <div style={{
+              position: "absolute",
+              inset: 0,
+              backgroundImage: 'url("/res/login_page_bg.jpeg")', // USER: Static asset from public/res folder
+              backgroundSize: "fill",
+              backgroundPosition: "center",
+              opacity: 0.5,
+              zIndex: 0,
+              pointerEvents: "none"
+            }} />
+            <div style={{ position: "relative", zIndex: 1 }}>
+              {/* ── ROW 1: TICKETS ── */}
+              <div style={{ marginBottom: 4 }}>
+                <span style={{ fontSize: 10, fontWeight: 700, color: "#94a3b8", textTransform: "uppercase", letterSpacing: "0.07em", marginLeft: 2 }}>🎫 Tickets</span>
+              </div>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(5,1fr)", gap: 9, marginBottom: 14 }}>
+                {[
+                  { label: "Open", value: stats.open, bg: "#fef3c7", accent: "#f59e0b", icon: "📬", action: () => { setView("tickets"); setTvFilter("open"); setStatusF("All"); setPriorityF("All"); } },
+                  { label: "In Progress", value: stats.inProgress, bg: "#ede9fe", accent: "#6366f1", icon: "⚙️", action: () => { setView("tickets"); setTvFilter("all"); setStatusF("In Progress"); setPriorityF("All"); } },
+                  { label: "Critical", value: stats.critical, bg: "#fee2e2", accent: "#ef4444", icon: "🔥", action: () => { setView("tickets"); setTvFilter("alerts"); setStatusF("All"); setPriorityF("Critical"); } },
+                  { label: "Resolved", value: stats.resolved, bg: "#dcfce7", accent: "#22c55e", icon: "✅", action: () => { setView("tickets"); setTvFilter("closed"); setStatusF("All"); setPriorityF("All"); } },
+                  { label: "Total", value: stats.total, bg: "#dbeafe", accent: "#3b82f6", icon: "🎫", action: () => { setView("tickets"); setTvFilter("all"); setStatusF("All"); setPriorityF("All"); } },
+                ].map(s => (
+                  <div key={s.label} onClick={s.action} style={{ background: s.bg, borderRadius: 12, padding: "14px 16px", boxShadow: "0 1px 4px rgba(0,0,0,0.06)", borderLeft: `4px solid ${s.accent}`, cursor: "pointer", transition: "box-shadow 0.15s" }}
+                    onMouseEnter={e => e.currentTarget.style.boxShadow = "0 4px 16px rgba(0,0,0,0.12)"}
+                    onMouseLeave={e => e.currentTarget.style.boxShadow = "0 1px 4px rgba(0,0,0,0.06)"}>
+                    <div style={{ fontSize: 18, marginBottom: 4 }}>{s.icon}</div>
+                    <div style={{ fontSize: 26, fontWeight: 800, color: s.accent }}>{s.value}</div>
+                    <div style={{ fontSize: 11, fontWeight: 600, color: "#374151", marginTop: 2 }}>{s.label}</div>
                   </div>
                 ))}
               </div>
-              <div style={{ background: "#fff", borderRadius: 12, padding: 16, boxShadow: "0 1px 4px rgba(0,0,0,0.06)" }}>
-                <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 10, color: "#374151" }}>Recent Projects</div>
-                {(currentUser?.role === "Admin" ? projects : projects.filter(p => p.assignees?.some(a => a.id === currentUser?.id))).slice(0, 5).map(p => (
-                  <div key={p.id} onClick={() => setSelProject(p)} style={{ display: "flex", alignItems: "center", gap: 9, padding: "6px", borderRadius: 8, cursor: "pointer", border: "1px solid #f1f5f9", marginBottom: 5 }}>
-                    <div style={{ width: 24, height: 24, background: "#eff6ff", borderRadius: 6, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, flexShrink: 0 }}>📁</div>
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ fontSize: 12, fontWeight: 600, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{p.title}</div>
-                      <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 2 }}><ProgressBar value={getProgressFromStatus(p.status)} /><span style={{ fontSize: 10, color: "#94a3b8", whiteSpace: "nowrap" }}>{getProgressFromStatus(p.status)}%</span></div>
-                    </div>
-                    <Badge label={p.status} style={{ ...STATUS_COLOR[p.status], fontSize: 10 }} />
+
+              {/* ── ROW 2: PROJECTS ── */}
+              <div style={{ marginBottom: 4 }}>
+                <span style={{ fontSize: 10, fontWeight: 700, color: "#94a3b8", textTransform: "uppercase", letterSpacing: "0.07em", marginLeft: 2 }}>📁 Projects</span>
+              </div>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(5,1fr)", gap: 9, marginBottom: 14 }}>
+                {[
+                  { label: "Open", value: projStats.open, bg: "#fef3c7", accent: "#f59e0b", icon: "📂", action: () => { setView("projects"); setPvFilter("open"); setProjStatusF("All"); setProjPriorityF("All"); } },
+                  { label: "In Progress", value: projStats.inProgress, bg: "#ede9fe", accent: "#6366f1", icon: "⚙️", action: () => { setView("projects"); setPvFilter("inprogress"); setProjStatusF("All"); setProjPriorityF("All"); } },
+                  { label: "Critical", value: projStats.critical, bg: "#fee2e2", accent: "#ef4444", icon: "🔥", action: () => { setView("projects"); setPvFilter("critical"); setProjStatusF("All"); setProjPriorityF("All"); } },
+                  { label: "Resolved", value: projStats.resolved, bg: "#dcfce7", accent: "#22c55e", icon: "✅", action: () => { setView("projects"); setPvFilter("closed"); setProjStatusF("All"); setProjPriorityF("All"); } },
+                  { label: "Total", value: projStats.total, bg: "#ede9fe", accent: "#8b5cf6", icon: "📁", action: () => { setView("projects"); setPvFilter("all"); setProjStatusF("All"); setProjPriorityF("All"); } },
+                ].map(s => (
+                  <div key={s.label} onClick={s.action} style={{ background: s.bg, borderRadius: 12, padding: "14px 16px", boxShadow: "0 1px 4px rgba(0,0,0,0.06)", borderLeft: `4px solid ${s.accent}`, cursor: "pointer", transition: "box-shadow 0.15s" }}
+                    onMouseEnter={e => e.currentTarget.style.boxShadow = "0 4px 16px rgba(0,0,0,0.12)"}
+                    onMouseLeave={e => e.currentTarget.style.boxShadow = "0 1px 4px rgba(0,0,0,0.06)"}>
+                    <div style={{ fontSize: 18, marginBottom: 4 }}>{s.icon}</div>
+                    <div style={{ fontSize: 26, fontWeight: 800, color: s.accent }}>{s.value}</div>
+                    <div style={{ fontSize: 11, fontWeight: 600, color: "#374151", marginTop: 2 }}>{s.label}</div>
                   </div>
                 ))}
-                {(currentUser?.role === "Admin" ? projects : projects.filter(p => p.assignees?.some(a => a.id === currentUser?.id))).length === 0 && <div style={{ textAlign: "center", color: "#94a3b8", padding: 20, fontSize: 13 }}>No projects assigned yet.</div>}
+              </div>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12, marginBottom: 12 }}>
+                <SmartChart title="Tickets Over Time" data={dailyData} defaultColor="#3b82f6" />
+                <SmartChart title="Ticket Priority" data={priorityDist} defaultType="pie" />
+                <SmartChart title="By Category" data={categoryDist} defaultColor="#8b5cf6" />
+              </div>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 12 }}>
+                <SmartChart title="Ticket Status" data={STATUSES.map((s, i) => ({ label: s, color: Object.values(STATUS_COLOR)[i].text, value: fbr.filter(t => t.status === s).length }))} defaultType="pie" />
+                <SmartChart title="Project Status" data={PROJECT_STATUSES.map((s, i) => ({ label: s, color: Object.values(STATUS_COLOR)[i].text, value: dashboardProjects.filter(p => p.status === s).length }))} defaultType="pie" />
+              </div>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+                <div style={{ background: "#fff", borderRadius: 12, padding: 16, boxShadow: "0 1px 4px rgba(0,0,0,0.06)" }}>
+                  <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 10, color: "#374151" }}>Recent Tickets</div>
+                  {(currentUser?.role === "Admin" ? tickets : tickets.filter(t => t.reportedBy === currentUser?.name || t.assignees?.some(a => a.id === currentUser?.id))).slice(0, 5).map(t => (
+                    <div key={t.id} onClick={() => setSelTicket(t)} style={{ display: "flex", alignItems: "center", gap: 9, padding: "6px", borderRadius: 8, cursor: "pointer", border: "1px solid #f1f5f9", marginBottom: 5 }}>
+                      <div style={{ display: "flex" }}>{(t.assignees || []).slice(0, 2).map((a, i) => <div key={a.id} style={{ marginLeft: i > 0 ? -6 : 0, border: "2px solid #fff", borderRadius: "50%" }}><Avatar name={a.name} size={24} /></div>)}{!t.assignees?.length && <Avatar name="?" size={24} />}</div>
+                      <div style={{ flex: 1, minWidth: 0 }}><div style={{ fontSize: 12, fontWeight: 600, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{t.summary}</div><div style={{ fontSize: 10, color: "#94a3b8" }}>{t.id} · {t.org}</div></div>
+                      <Badge label={t.status} style={{ ...STATUS_COLOR[t.status], fontSize: 10 }} />
+                    </div>
+                  ))}
+                </div>
+                <div style={{ background: "#fff", borderRadius: 12, padding: 16, boxShadow: "0 1px 4px rgba(0,0,0,0.06)" }}>
+                  <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 10, color: "#374151" }}>Recent Projects</div>
+                  {(currentUser?.role === "Admin" ? projects : projects.filter(p => p.assignees?.some(a => a.id === currentUser?.id))).slice(0, 5).map(p => (
+                    <div key={p.id} onClick={() => setSelProject(p)} style={{ display: "flex", alignItems: "center", gap: 9, padding: "6px", borderRadius: 8, cursor: "pointer", border: "1px solid #f1f5f9", marginBottom: 5 }}>
+                      <div style={{ width: 24, height: 24, background: "#eff6ff", borderRadius: 6, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, flexShrink: 0 }}>📁</div>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ fontSize: 12, fontWeight: 600, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{p.title}</div>
+                        <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 2 }}><ProgressBar value={getProgressFromStatus(p.status)} /><span style={{ fontSize: 10, color: "#94a3b8", whiteSpace: "nowrap" }}>{getProgressFromStatus(p.status)}%</span></div>
+                      </div>
+                      <Badge label={p.status} style={{ ...STATUS_COLOR[p.status], fontSize: 10 }} />
+                    </div>
+                  ))}
+                  {(currentUser?.role === "Admin" ? projects : projects.filter(p => p.assignees?.some(a => a.id === currentUser?.id))).length === 0 && <div style={{ textAlign: "center", color: "#94a3b8", padding: 20, fontSize: 13 }}>No projects assigned yet.</div>}
+                </div>
               </div>
             </div>
           </>}
@@ -1920,10 +1942,11 @@ export default function HelpDesk() {
                         <Badge label={a.role} style={{ background: "#ede9fe", color: "#6d28d9" }} />
                         {(() => {
                           const foundUser = users.find(u => u.id === a.id);
-                          const statusValue = foundUser?.status;
+                          const rawStatus = foundUser?.status;
+                          const statusValue = rawStatus === "Active" ? "Logged-In" : (rawStatus === "Not Active" || rawStatus?.toLowerCase() === "logged-out") ? "Logged-Out" : rawStatus;
                           const statusStyle = statusOpts.find(s => s.l === statusValue);
-                          if (statusValue && statusStyle) {
-                            return <Badge label={statusValue} style={{ background: statusStyle.bg, color: statusStyle.c }} />;
+                          if (statusStyle) {
+                            return <Badge label={statusStyle.l} style={{ background: statusStyle.bg, color: statusStyle.c }} />;
                           }
                           return null;
                         })()}
@@ -1948,7 +1971,13 @@ export default function HelpDesk() {
                   <div style={{ fontSize: 13, color: "#64748b", marginTop: 2 }}>{selAgent.email}</div>
                   <div style={{ display: "flex", gap: 6, marginTop: 6 }}>
                     <Badge label={selAgent.role} style={{ background: "#ede9fe", color: "#6d28d9" }} />
-                    {users.find(u => u.id === selAgent.id)?.status && <Badge label={users.find(u => u.id === selAgent.id).status} style={{ background: statusOpts.find(s => s.l === users.find(u => u.id === selAgent.id).status)?.bg || "#f1f5f9", color: statusOpts.find(s => s.l === users.find(u => u.id === selAgent.id).status)?.c || "#64748b" }} />}
+                    {(() => {
+                      const u = users.find(x => x.id === selAgent.id);
+                      if (!u?.status) return null;
+                      const statusValue = u.status === "Active" ? "Logged-In" : (u.status === "Not Active" || u.status?.toLowerCase() === "logged-out") ? "Logged-Out" : u.status;
+                      const sStyle = statusOpts.find(s => s.l === statusValue);
+                      return sStyle ? <Badge label={sStyle.l} style={{ background: sStyle.bg, color: sStyle.c }} /> : null;
+                    })()}
                   </div>
                 </div>
               </div>
@@ -2075,7 +2104,11 @@ export default function HelpDesk() {
                       <td style={tdStyle}><div style={{ display: "flex", alignItems: "center", gap: 8 }}><Avatar name={u.name} size={28} /><span style={{ fontSize: 13, fontWeight: 600 }}>{u.name}</span></div></td>
                       <td style={{ ...tdStyle, color: "#64748b", fontSize: 12 }}>{u.email}</td>
                       <td style={tdStyle}><Badge label={u.role} style={{ background: "#ede9fe", color: "#6d28d9" }} /></td>
-                      <td style={tdStyle}><Badge label={u.id === currentUser?.id ? "Active" : "Not Active"} style={{ background: u.id === currentUser?.id ? "#dcfce7" : "#fee2e2", color: u.id === currentUser?.id ? "#15803d" : "#ef4444" }} /></td>
+                      <td style={tdStyle}>{(() => {
+                        const statusValue = u.status === "Active" ? "Logged-In" : (u.status === "Not Active" || u.status?.toLowerCase() === "logged-out") ? "Logged-Out" : u.status;
+                        const sStyle = statusOpts.find(s => s.l === statusValue);
+                        return sStyle ? <Badge label={sStyle.l} style={{ background: sStyle.bg, color: sStyle.c }} /> : <Badge label={u.status || "—"} />;
+                      })()}</td>
                       <td style={tdStyle}><Badge label={u.active ? "Activated" : "Deactivated"} style={{ background: u.active ? "#dcfce7" : "#fee2e2", color: u.active ? "#15803d" : "#ef4444" }} /></td>
                       {currentUser?.role === "Admin" && <td style={tdStyle}><div style={{ display: "flex", gap: 6, alignItems: "center" }}>
                         <select value={u.role} onChange={async (e) => { const newRole = e.target.value; try { const updated = { ...u, role: newRole }; await axios.put(`${USERS_API}/${u.id}`, updated); setUsers(users.map(x => x.id === u.id ? updated : x)); } catch (err) { alert("Failed to update role"); } }} style={{ ...sS, fontSize: 11, padding: "4px 8px" }}>{ROLES.map(r => <option key={r}>{r}</option>)}</select>
