@@ -3358,19 +3358,19 @@ export default function HelpDesk() {
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 9, marginBottom: 14 }}>
             {[
               { l: "Organisation", v: selTicket.org, field: "org", type: "select", options: orgs.map(o => o.name) },
-              { l: "Department", v: selTicket.department, field: "department", type: "select", options: DEPARTMENTS },
+              { l: "Department", v: selTicket.department && departments.map(d => d.name).includes(selTicket.department) ? selTicket.department : "", field: "department", type: "select", options: departments.map(d => d.name).length > 0 ? departments.map(d => d.name) : ["No departments available"] },
               { l: "Contact", v: selTicket.contact, field: "contact", type: "text" },
               { l: "Reported By", v: selTicket.reportedBy, field: "reportedBy", type: "text" },
               { l: "Category", v: selTicket.category, field: "category", type: "select", options: categories.map(c => c.name) },
-              { l: "Location", v: selTicket.location || "—", field: "location", type: "select", options: LOCATIONS },
-              { l: "Due Date", v: selTicket.dueDate ? new Date(selTicket.dueDate).toLocaleDateString() : "—", field: "dueDate", type: "date" },
+              { l: "Location", v: selTicket.location || "", field: "location", type: "select", options: LOCATIONS },
+              { l: "Due Date", v: selTicket.dueDate ? new Date(selTicket.dueDate).toLocaleDateString() : "", field: "dueDate", type: "date" },
               { l: "Priority", v: selTicket.priority, field: "priority", type: "select", options: PRIORITIES }
             ].map(f => (
               <div key={f.l} style={{ background: "#f8fafc", padding: "9px 13px", borderRadius: 9, cursor: "pointer" }} onClick={() => {
                 let newVal;
                 if (f.type === "select") {
                   newVal = prompt(`Select ${f.l}:\n${f.options.join(", ")}`, f.v || "");
-                  if (newVal && f.options.includes(newVal)) {
+                  if (newVal && (f.options.includes(newVal) || newVal === "")) {
                     const updated = { ...selTicket, [f.field]: newVal, updated: new Date().toISOString() };
                     axios.put(`${TICKETS_API}/${selTicket.id}`, updated).then(() => {
                       setTickets(t => t.map(x => x.id === selTicket.id ? { ...updated, updated: new Date(updated.updated) } : x));
@@ -3398,7 +3398,7 @@ export default function HelpDesk() {
                 }
               }}>
                 <div style={{ fontSize: 10, fontWeight: 600, color: "#94a3b8", textTransform: "uppercase", marginBottom: 3 }}>{f.l} ✏️</div>
-                <div style={{ fontSize: 13, fontWeight: 500 }}>{f.v || "—"}</div>
+                <div style={{ fontSize: 13, fontWeight: 500, color: !f.v ? "#d1d5db" : "#1f2937" }}>{f.v || "—"}</div>
               </div>
             ))}
           </div>
