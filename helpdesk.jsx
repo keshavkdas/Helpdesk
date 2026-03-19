@@ -2249,10 +2249,10 @@ export default function HelpDesk() {
               <div style={{ display: "grid", gridTemplateColumns: "repeat(6,1fr)", gap: 9, marginBottom: 14 }}>
                 {[
                   { label: "Open", value: stats.open, bg: "#fef3c7", accent: "#f59e0b", icon: "📬", action: () => { setView("tickets"); setTvFilter("open"); setStatusF("All"); setPriorityF("All"); } },
+                  { label: "Unassigned", value: fbr.filter(t => !t.assignees || t.assignees.length === 0).length, bg: "#f3e8ff", accent: "#a855f7", icon: "🔸", action: () => { setView("tickets"); setTvFilter("unassigned"); } },
                   { label: "In Progress", value: stats.inProgress, bg: "#ede9fe", accent: "#6366f1", icon: "⚙️", action: () => { setView("tickets"); setTvFilter("all"); setStatusF("In Progress"); setPriorityF("All"); } },
                   { label: "Critical", value: stats.critical, bg: "#fee2e2", accent: "#ef4444", icon: "🔥", action: () => { setView("tickets"); setTvFilter("alerts"); setStatusF("All"); setPriorityF("Critical"); } },
                   { label: "Resolved", value: stats.resolved, bg: "#dcfce7", accent: "#22c55e", icon: "✅", action: () => { setView("tickets"); setTvFilter("closed"); setStatusF("All"); setPriorityF("All"); } },
-                  { label: "Unassigned", value: fbr.filter(t => !t.assignees || t.assignees.length === 0).length, bg: "#f3e8ff", accent: "#a855f7", icon: "🔸", action: () => { setView("tickets"); setTvFilter("unassigned"); } },
                   { label: "Total", value: stats.total, bg: "#dbeafe", accent: "#3b82f6", icon: "🎫", action: () => { setView("tickets"); setTvFilter("all"); setStatusF("All"); setPriorityF("All"); } },
                 ].map(s => (
                   <div key={s.label} onClick={s.action} style={{ background: s.bg, borderRadius: 12, padding: "14px 16px", boxShadow: "0 1px 4px rgba(0,0,0,0.06)", borderLeft: `4px solid ${s.accent}`, cursor: "pointer", transition: "box-shadow 0.15s" }}
