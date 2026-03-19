@@ -2296,9 +2296,8 @@ export default function HelpDesk() {
               </div>
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 12 }}>
                 <SmartChart title="Ticket Status" data={STATUSES.map((s, i) => ({ label: s, color: Object.values(STATUS_COLOR)[i].text, value: fbr.filter(t => t.status === s).length }))} defaultType="pie" />
-                <SmartChart title="Project Status" data={PROJECT_STATUSES.map((s, i) => ({ label: s, color: Object.values(STATUS_COLOR)[i].text, value: dashboardProjects.filter(p => p.status === s).length }))} defaultType="pie" />
               </div>
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr", gap: 12 }}>
                 <div style={{ background: "#fff", borderRadius: 12, padding: 16, boxShadow: "0 1px 4px rgba(0,0,0,0.06)" }}>
                   <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 10, color: "#374151" }}>Recent Tickets</div>
                   {(currentUser?.role === "Admin" ? tickets : tickets.filter(t => t.reportedBy === currentUser?.name || t.assignees?.some(a => a.id === currentUser?.id))).slice(0, 5).map(t => (
@@ -2308,20 +2307,6 @@ export default function HelpDesk() {
                       <Badge label={t.status} style={{ ...STATUS_COLOR[t.status], fontSize: 10 }} />
                     </div>
                   ))}
-                </div>
-                <div style={{ background: "#fff", borderRadius: 12, padding: 16, boxShadow: "0 1px 4px rgba(0,0,0,0.06)" }}>
-                  <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 10, color: "#374151" }}>Recent Projects</div>
-                  {(currentUser?.role === "Admin" ? projects : projects.filter(p => p.assignees?.some(a => a.id === currentUser?.id))).slice(0, 5).map(p => (
-                    <div key={p.id} onClick={() => setSelProject(p)} style={{ display: "flex", alignItems: "center", gap: 9, padding: "6px", borderRadius: 8, cursor: "pointer", border: "1px solid #f1f5f9", marginBottom: 5 }}>
-                      <div style={{ width: 24, height: 24, background: "#eff6ff", borderRadius: 6, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, flexShrink: 0 }}>📁</div>
-                      <div style={{ flex: 1, minWidth: 0 }}>
-                        <div style={{ fontSize: 12, fontWeight: 600, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{p.title}</div>
-                        <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 2 }}><ProgressBar value={getProgressFromStatus(p.status)} /><span style={{ fontSize: 10, color: "#94a3b8", whiteSpace: "nowrap" }}>{getProgressFromStatus(p.status)}%</span></div>
-                      </div>
-                      <Badge label={p.status} style={{ ...STATUS_COLOR[p.status], fontSize: 10 }} />
-                    </div>
-                  ))}
-                  {(currentUser?.role === "Admin" ? projects : projects.filter(p => p.assignees?.some(a => a.id === currentUser?.id))).length === 0 && <div style={{ textAlign: "center", color: "#94a3b8", padding: 20, fontSize: 13 }}>No projects assigned yet.</div>}
                 </div>
               </div>
             </div>
@@ -3364,11 +3349,57 @@ export default function HelpDesk() {
             {selTicket.isWebcast && <Badge label="📡 Webcast" style={{ background: "#fff7ed", color: "#f97316" }} />}
             <span style={{ fontSize: 12, color: "#94a3b8" }}>Created {new Date(selTicket.created).toLocaleString()}</span>
           </div>
-          <h2 style={{ margin: "0 0 9px", fontSize: 17, fontWeight: 700 }}>{selTicket.summary}</h2>
-          <p style={{ margin: "0 0 16px", color: "#64748b", fontSize: 14, lineHeight: 1.6 }}>{selTicket.description}</p>
+          <h2 style={{ margin: "0 0 9px", fontSize: 17, fontWeight: 700, cursor: "pointer", color: "#1e293b" }} onClick={() => { const newSummary = prompt("Edit ticket summary:", selTicket.summary); if (newSummary && newSummary !== selTicket.summary) { const updated = { ...selTicket, summary: newSummary, updated: new Date().toISOString() }; axios.put(`${TICKETS_API}/${selTicket.id}`, updated).then(() => { setTickets(t => t.map(x => x.id === selTicket.id ? { ...updated, updated: new Date(updated.updated) } : x)); setSelTicket(updated); }).catch(e => alert("Failed to update")); } }}>
+            {selTicket.summary} <span style={{ fontSize: 12, color: "#94a3b8", cursor: "pointer" }}>✏️</span>
+          </h2>
+          <p style={{ margin: "0 0 16px", color: "#64748b", fontSize: 14, lineHeight: 1.6, cursor: "pointer" }} onClick={() => { const newDesc = prompt("Edit description:", selTicket.description || ""); if (newDesc !== undefined && newDesc !== (selTicket.description || "")) { const updated = { ...selTicket, description: newDesc, updated: new Date().toISOString() }; axios.put(`${TICKETS_API}/${selTicket.id}`, updated).then(() => { setTickets(t => t.map(x => x.id === selTicket.id ? { ...updated, updated: new Date(updated.updated) } : x)); setSelTicket(updated); }).catch(e => alert("Failed to update")); } }}>
+            {selTicket.description} <span style={{ fontSize: 12, color: "#94a3b8" }}>✏️</span>
+          </p>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 9, marginBottom: 14 }}>
-            {[{ l: "Organisation", v: selTicket.org }, { l: "Department", v: selTicket.department }, { l: "Contact", v: selTicket.contact }, { l: "Reported By", v: selTicket.reportedBy }, { l: "Category", v: selTicket.category }, { l: "Location", v: selTicket.location || "—" }, { l: "Due Date", v: selTicket.dueDate ? new Date(selTicket.dueDate).toLocaleDateString() : "—" }].map(f => (
-              <div key={f.l} style={{ background: "#f8fafc", padding: "9px 13px", borderRadius: 9 }}><div style={{ fontSize: 10, fontWeight: 600, color: "#94a3b8", textTransform: "uppercase", marginBottom: 3 }}>{f.l}</div><div style={{ fontSize: 13, fontWeight: 500 }}>{f.v || "—"}</div></div>
+            {[
+              { l: "Organisation", v: selTicket.org, field: "org", type: "select", options: orgs.map(o => o.name) },
+              { l: "Department", v: selTicket.department, field: "department", type: "select", options: DEPARTMENTS },
+              { l: "Contact", v: selTicket.contact, field: "contact", type: "text" },
+              { l: "Reported By", v: selTicket.reportedBy, field: "reportedBy", type: "text" },
+              { l: "Category", v: selTicket.category, field: "category", type: "select", options: categories.map(c => c.name) },
+              { l: "Location", v: selTicket.location || "—", field: "location", type: "select", options: LOCATIONS },
+              { l: "Due Date", v: selTicket.dueDate ? new Date(selTicket.dueDate).toLocaleDateString() : "—", field: "dueDate", type: "date" },
+              { l: "Priority", v: selTicket.priority, field: "priority", type: "select", options: PRIORITIES }
+            ].map(f => (
+              <div key={f.l} style={{ background: "#f8fafc", padding: "9px 13px", borderRadius: 9, cursor: "pointer" }} onClick={() => {
+                let newVal;
+                if (f.type === "select") {
+                  newVal = prompt(`Select ${f.l}:\n${f.options.join(", ")}`, f.v || "");
+                  if (newVal && f.options.includes(newVal)) {
+                    const updated = { ...selTicket, [f.field]: newVal, updated: new Date().toISOString() };
+                    axios.put(`${TICKETS_API}/${selTicket.id}`, updated).then(() => {
+                      setTickets(t => t.map(x => x.id === selTicket.id ? { ...updated, updated: new Date(updated.updated) } : x));
+                      setSelTicket(updated);
+                    }).catch(e => alert("Failed to update"));
+                  }
+                } else if (f.type === "date") {
+                  newVal = prompt(`Edit ${f.l}:`, selTicket.dueDate ? new Date(selTicket.dueDate).toISOString().split('T')[0] : "");
+                  if (newVal) {
+                    const updated = { ...selTicket, [f.field]: new Date(newVal).toISOString(), updated: new Date().toISOString() };
+                    axios.put(`${TICKETS_API}/${selTicket.id}`, updated).then(() => {
+                      setTickets(t => t.map(x => x.id === selTicket.id ? { ...updated, updated: new Date(updated.updated) } : x));
+                      setSelTicket(updated);
+                    }).catch(e => alert("Failed to update"));
+                  }
+                } else {
+                  newVal = prompt(`Edit ${f.l}:`, f.v || "");
+                  if (newVal !== null && newVal !== f.v) {
+                    const updated = { ...selTicket, [f.field]: newVal, updated: new Date().toISOString() };
+                    axios.put(`${TICKETS_API}/${selTicket.id}`, updated).then(() => {
+                      setTickets(t => t.map(x => x.id === selTicket.id ? { ...updated, updated: new Date(updated.updated) } : x));
+                      setSelTicket(updated);
+                    }).catch(e => alert("Failed to update"));
+                  }
+                }
+              }}>
+                <div style={{ fontSize: 10, fontWeight: 600, color: "#94a3b8", textTransform: "uppercase", marginBottom: 3 }}>{f.l} ✏️</div>
+                <div style={{ fontSize: 13, fontWeight: 500 }}>{f.v || "—"}</div>
+              </div>
             ))}
           </div>
           {selTicket.customAttrs && Object.keys(selTicket.customAttrs).length > 0 && <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 9, marginBottom: 14 }}>
