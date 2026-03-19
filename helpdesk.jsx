@@ -748,6 +748,20 @@ export default function HelpDesk() {
   const [authError, setAuthError] = useState("");
   const [authMessage, setAuthMessage] = useState("");
 
+  // ── Toast Notifications ──
+  const [toasts, setToasts] = useState([]);
+  const showToast = (message, type = "success", duration = 3000) => {
+    const id = Date.now();
+    setToasts(prev => [...prev, { id, message, type }]);
+    setTimeout(() => {
+      setToasts(prev => prev.filter(t => t.id !== id));
+    }, duration);
+  };
+
+  // ── Ticket Edit Mode ──
+  const [editMode, setEditMode] = useState(false);
+  const [editTicket, setEditTicket] = useState(null);
+
   // ── Forward ticket ──
   const [showForward, setShowForward] = useState(false);
   const [showVendor, setShowVendor] = useState(false);
@@ -3341,67 +3355,124 @@ export default function HelpDesk() {
       </Modal>
 
       {/* ── TICKET DETAIL MODAL (v1 full - timeline, forward, custom attrs, vendor) ── */}
-      <Modal open={!!selTicket} onClose={() => { setSelTicket(null); setShowForward(false); setFwdReason(""); }} title={selTicket?.id || ""} width={720}>
+      <Modal open={!!selTicket} onClose={() => { setSelTicket(null); setShowForward(false); setFwdReason(""); setEditMode(false); setEditTicket(null); }} title={selTicket?.id || ""} width={720}>
         {selTicket && <div>
-          <div style={{ display: "flex", gap: 9, marginBottom: 16, flexWrap: "wrap" }}>
-            <Badge label={selTicket.status} style={{ ...STATUS_COLOR[selTicket.status], padding: "4px 12px", fontSize: 12 }} />
-            <div style={{ display: "flex", alignItems: "center", gap: 5 }}><span style={{ width: 9, height: 9, borderRadius: "50%", background: PRIORITY_COLOR[selTicket.priority] }} /><span style={{ fontSize: 13, fontWeight: 600 }}>{selTicket.priority} Priority</span></div>
-            {selTicket.isWebcast && <Badge label="📡 Webcast" style={{ background: "#fff7ed", color: "#f97316" }} />}
-            <span style={{ fontSize: 12, color: "#94a3b8" }}>Created {new Date(selTicket.created).toLocaleString()}</span>
+          {/* Edit/View Toggle Button */}
+          <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginBottom: 14 }}>
+            {!editMode ? (
+              <button onClick={() => { setEditMode(true); setEditTicket({ ...selTicket }); }} style={{ padding: "6px 14px", fontSize: 12, fontWeight: 600, borderRadius: 7, border: "none", cursor: "pointer", background: "#3b82f6", color: "#fff" }}>✏️ Edit Ticket</button>
+            ) : (
+              <>
+                <button onClick={() => { setEditMode(false); setEditTicket(null); }} style={{ padding: "6px 14px", fontSize: 12, fontWeight: 600, borderRadius: 7, border: "1.5px solid #e2e8f0", cursor: "pointer", background: "#fff", color: "#64748b" }}>Cancel</button>
+                <button onClick={async () => { try { await axios.put(`${TICKETS_API}/${selTicket.id}`, { ...editTicket, updated: new Date().toISOString() }); setTickets(t => t.map(x => x.id === selTicket.id ? { ...editTicket, updated: new Date() } : x)); setSelTicket(editTicket); setEditMode(false); setEditTicket(null); showToast("Ticket updated successfully ✓", "success"); } catch (e) { showToast("Failed to save ticket", "error"); } }} style={{ padding: "6px 14px", fontSize: 12, fontWeight: 600, borderRadius: 7, border: "none", cursor: "pointer", background: "#22c55e", color: "#fff" }}>💾 Save Changes</button>
+              </>
+            )}
           </div>
-          <h2 style={{ margin: "0 0 9px", fontSize: 17, fontWeight: 700, cursor: "pointer", color: "#1e293b" }} onClick={() => { const newSummary = prompt("Edit ticket summary:", selTicket.summary); if (newSummary && newSummary !== selTicket.summary) { const updated = { ...selTicket, summary: newSummary, updated: new Date().toISOString() }; axios.put(`${TICKETS_API}/${selTicket.id}`, updated).then(() => { setTickets(t => t.map(x => x.id === selTicket.id ? { ...updated, updated: new Date(updated.updated) } : x)); setSelTicket(updated); }).catch(e => alert("Failed to update")); } }}>
-            {selTicket.summary} <span style={{ fontSize: 12, color: "#94a3b8", cursor: "pointer" }}>✏️</span>
-          </h2>
-          <p style={{ margin: "0 0 16px", color: "#64748b", fontSize: 14, lineHeight: 1.6, cursor: "pointer" }} onClick={() => { const newDesc = prompt("Edit description:", selTicket.description || ""); if (newDesc !== undefined && newDesc !== (selTicket.description || "")) { const updated = { ...selTicket, description: newDesc, updated: new Date().toISOString() }; axios.put(`${TICKETS_API}/${selTicket.id}`, updated).then(() => { setTickets(t => t.map(x => x.id === selTicket.id ? { ...updated, updated: new Date(updated.updated) } : x)); setSelTicket(updated); }).catch(e => alert("Failed to update")); } }}>
-            {selTicket.description} <span style={{ fontSize: 12, color: "#94a3b8" }}>✏️</span>
-          </p>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 9, marginBottom: 14 }}>
-            {[
-              { l: "Organisation", v: selTicket.org, field: "org", type: "select", options: orgs.map(o => o.name) },
-              { l: "Department", v: selTicket.department && departments.map(d => d.name).includes(selTicket.department) ? selTicket.department : "", field: "department", type: "select", options: departments.map(d => d.name).length > 0 ? departments.map(d => d.name) : ["No departments available"] },
-              { l: "Contact", v: selTicket.contact, field: "contact", type: "text" },
-              { l: "Reported By", v: selTicket.reportedBy, field: "reportedBy", type: "text" },
-              { l: "Category", v: selTicket.category, field: "category", type: "select", options: categories.map(c => c.name) },
-              { l: "Location", v: selTicket.location || "", field: "location", type: "select", options: LOCATIONS },
-              { l: "Due Date", v: selTicket.dueDate ? new Date(selTicket.dueDate).toLocaleDateString() : "", field: "dueDate", type: "date" },
-              { l: "Priority", v: selTicket.priority, field: "priority", type: "select", options: PRIORITIES }
-            ].map(f => (
-              <div key={f.l} style={{ background: "#f8fafc", padding: "9px 13px", borderRadius: 9, cursor: "pointer" }} onClick={() => {
-                let newVal;
-                if (f.type === "select") {
-                  newVal = prompt(`Select ${f.l}:\n${f.options.join(", ")}`, f.v || "");
-                  if (newVal && (f.options.includes(newVal) || newVal === "")) {
-                    const updated = { ...selTicket, [f.field]: newVal, updated: new Date().toISOString() };
-                    axios.put(`${TICKETS_API}/${selTicket.id}`, updated).then(() => {
-                      setTickets(t => t.map(x => x.id === selTicket.id ? { ...updated, updated: new Date(updated.updated) } : x));
-                      setSelTicket(updated);
-                    }).catch(e => alert("Failed to update"));
-                  }
-                } else if (f.type === "date") {
-                  newVal = prompt(`Edit ${f.l}:`, selTicket.dueDate ? new Date(selTicket.dueDate).toISOString().split('T')[0] : "");
-                  if (newVal) {
-                    const updated = { ...selTicket, [f.field]: new Date(newVal).toISOString(), updated: new Date().toISOString() };
-                    axios.put(`${TICKETS_API}/${selTicket.id}`, updated).then(() => {
-                      setTickets(t => t.map(x => x.id === selTicket.id ? { ...updated, updated: new Date(updated.updated) } : x));
-                      setSelTicket(updated);
-                    }).catch(e => alert("Failed to update"));
-                  }
-                } else {
-                  newVal = prompt(`Edit ${f.l}:`, f.v || "");
-                  if (newVal !== null && newVal !== f.v) {
-                    const updated = { ...selTicket, [f.field]: newVal, updated: new Date().toISOString() };
-                    axios.put(`${TICKETS_API}/${selTicket.id}`, updated).then(() => {
-                      setTickets(t => t.map(x => x.id === selTicket.id ? { ...updated, updated: new Date(updated.updated) } : x));
-                      setSelTicket(updated);
-                    }).catch(e => alert("Failed to update"));
-                  }
-                }
-              }}>
-                <div style={{ fontSize: 10, fontWeight: 600, color: "#94a3b8", textTransform: "uppercase", marginBottom: 3 }}>{f.l} ✏️</div>
-                <div style={{ fontSize: 13, fontWeight: 500, color: !f.v ? "#d1d5db" : "#1f2937" }}>{f.v || "—"}</div>
+
+          {editMode && editTicket ? (
+            /* ── EDIT MODE ── */
+            <div>
+              <div style={{ marginBottom: 14 }}>
+                <label style={{ fontSize: 11, fontWeight: 600, color: "#94a3b8", textTransform: "uppercase", display: "block", marginBottom: 5 }}>Summary *</label>
+                <input type="text" value={editTicket.summary} onChange={e => setEditTicket({ ...editTicket, summary: e.target.value })} style={{ ...iS, width: "100%", fontSize: 13 }} />
               </div>
-            ))}
-          </div>
+
+              <div style={{ marginBottom: 14 }}>
+                <label style={{ fontSize: 11, fontWeight: 600, color: "#94a3b8", textTransform: "uppercase", display: "block", marginBottom: 5 }}>Description</label>
+                <textarea value={editTicket.description || ""} onChange={e => setEditTicket({ ...editTicket, description: e.target.value })} style={{ ...iS, width: "100%", fontSize: 13, height: 100, resize: "vertical" }} />
+              </div>
+
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 9, marginBottom: 14 }}>
+                <div>
+                  <label style={{ fontSize: 11, fontWeight: 600, color: "#94a3b8", textTransform: "uppercase", display: "block", marginBottom: 5 }}>Organisation *</label>
+                  <select value={editTicket.org} onChange={e => setEditTicket({ ...editTicket, org: e.target.value })} style={{ ...iS, width: "100%", fontSize: 13 }}>
+                    <option value="">Select…</option>
+                    {orgs.map(o => <option key={o.id}>{o.name}</option>)}
+                  </select>
+                </div>
+
+                <div>
+                  <label style={{ fontSize: 11, fontWeight: 600, color: "#94a3b8", textTransform: "uppercase", display: "block", marginBottom: 5 }}>Department</label>
+                  <select value={editTicket.department} onChange={e => setEditTicket({ ...editTicket, department: e.target.value })} style={{ ...iS, width: "100%", fontSize: 13 }}>
+                    <option value="">Select…</option>
+                    {departments.map(d => <option key={d.id}>{d.name}</option>)}
+                  </select>
+                </div>
+
+                <div>
+                  <label style={{ fontSize: 11, fontWeight: 600, color: "#94a3b8", textTransform: "uppercase", display: "block", marginBottom: 5 }}>Contact</label>
+                  <input type="text" value={editTicket.contact} onChange={e => setEditTicket({ ...editTicket, contact: e.target.value })} style={{ ...iS, width: "100%", fontSize: 13 }} />
+                </div>
+
+                <div>
+                  <label style={{ fontSize: 11, fontWeight: 600, color: "#94a3b8", textTransform: "uppercase", display: "block", marginBottom: 5 }}>Reported By</label>
+                  <input type="text" value={editTicket.reportedBy} onChange={e => setEditTicket({ ...editTicket, reportedBy: e.target.value })} style={{ ...iS, width: "100%", fontSize: 13 }} />
+                </div>
+
+                <div>
+                  <label style={{ fontSize: 11, fontWeight: 600, color: "#94a3b8", textTransform: "uppercase", display: "block", marginBottom: 5 }}>Category</label>
+                  <select value={editTicket.category} onChange={e => setEditTicket({ ...editTicket, category: e.target.value })} style={{ ...iS, width: "100%", fontSize: 13 }}>
+                    <option value="">Select…</option>
+                    {categories.map(c => <option key={c.id}>{c.name}</option>)}
+                  </select>
+                </div>
+
+                <div>
+                  <label style={{ fontSize: 11, fontWeight: 600, color: "#94a3b8", textTransform: "uppercase", display: "block", marginBottom: 5 }}>Location</label>
+                  <select value={editTicket.location || ""} onChange={e => setEditTicket({ ...editTicket, location: e.target.value })} style={{ ...iS, width: "100%", fontSize: 13 }}>
+                    <option value="">Select…</option>
+                    {LOCATIONS.map(l => <option key={l}>{l}</option>)}
+                  </select>
+                </div>
+
+                <div>
+                  <label style={{ fontSize: 11, fontWeight: 600, color: "#94a3b8", textTransform: "uppercase", display: "block", marginBottom: 5 }}>Priority</label>
+                  <select value={editTicket.priority} onChange={e => setEditTicket({ ...editTicket, priority: e.target.value })} style={{ ...iS, width: "100%", fontSize: 13 }}>
+                    {PRIORITIES.map(p => <option key={p}>{p}</option>)}
+                  </select>
+                </div>
+
+                <div>
+                  <label style={{ fontSize: 11, fontWeight: 600, color: "#94a3b8", textTransform: "uppercase", display: "block", marginBottom: 5 }}>Due Date</label>
+                  <input type="date" value={editTicket.dueDate ? new Date(editTicket.dueDate).toISOString().split('T')[0] : ""} onChange={e => setEditTicket({ ...editTicket, dueDate: e.target.value ? new Date(e.target.value).toISOString() : "" })} style={{ ...iS, width: "100%", fontSize: 13 }} />
+                </div>
+              </div>
+            </div>
+          ) : (
+            /* ── VIEW MODE ── */
+            <div>
+              <div style={{ display: "flex", gap: 9, marginBottom: 16, flexWrap: "wrap" }}>
+                <Badge label={selTicket.status} style={{ ...STATUS_COLOR[selTicket.status], padding: "4px 12px", fontSize: 12 }} />
+                <div style={{ display: "flex", alignItems: "center", gap: 5 }}><span style={{ width: 9, height: 9, borderRadius: "50%", background: PRIORITY_COLOR[selTicket.priority] }} /><span style={{ fontSize: 13, fontWeight: 600 }}>{selTicket.priority} Priority</span></div>
+                {selTicket.isWebcast && <Badge label="📡 Webcast" style={{ background: "#fff7ed", color: "#f97316" }} />}
+                <span style={{ fontSize: 12, color: "#94a3b8" }}>Created {new Date(selTicket.created).toLocaleString()}</span>
+              </div>
+              <h2 style={{ margin: "0 0 9px", fontSize: 17, fontWeight: 700, color: "#1e293b" }}>
+                {selTicket.summary}
+              </h2>
+              <p style={{ margin: "0 0 16px", color: "#64748b", fontSize: 14, lineHeight: 1.6 }}>
+                {selTicket.description}
+              </p>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 9, marginBottom: 14 }}>
+                {[
+                  { l: "Organisation", v: selTicket.org },
+                  { l: "Department", v: selTicket.department || "—" },
+                  { l: "Contact", v: selTicket.contact || "—" },
+                  { l: "Reported By", v: selTicket.reportedBy || "—" },
+                  { l: "Category", v: selTicket.category || "—" },
+                  { l: "Location", v: selTicket.location || "—" },
+                  { l: "Due Date", v: selTicket.dueDate ? new Date(selTicket.dueDate).toLocaleDateString() : "—" },
+                  { l: "Priority", v: selTicket.priority }
+                ].map(f => (
+                  <div key={f.l} style={{ background: "#f8fafc", padding: "9px 13px", borderRadius: 9 }}>
+                    <div style={{ fontSize: 10, fontWeight: 600, color: "#94a3b8", textTransform: "uppercase", marginBottom: 3 }}>{f.l}</div>
+                    <div style={{ fontSize: 13, fontWeight: 500 }}>{f.v}</div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
           {selTicket.customAttrs && Object.keys(selTicket.customAttrs).length > 0 && <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 9, marginBottom: 14 }}>
             {Object.entries(selTicket.customAttrs).map(([k, v]) => <div key={k} style={{ background: "#fffbeb", padding: "9px 13px", borderRadius: 9, border: "1px solid #fde68a" }}><div style={{ fontSize: 10, fontWeight: 600, color: "#92400e", textTransform: "uppercase", marginBottom: 3 }}>{k}</div><div style={{ fontSize: 13, fontWeight: 500 }}>{String(v) || "—"}</div></div>)}
           </div>}
@@ -3596,6 +3667,47 @@ export default function HelpDesk() {
           </div>
         </div>}
       </Modal>
+
+      {/* ── Toast Notifications ── */}
+      <div style={{ position: "fixed", top: 20, right: 20, zIndex: 9999, display: "flex", flexDirection: "column", gap: 10 }}>
+        {toasts.map(toast => (
+          <div
+            key={toast.id}
+            style={{
+              padding: "14px 18px",
+              borderRadius: 10,
+              fontSize: 13,
+              fontWeight: 600,
+              fontFamily: "'DM Sans',sans-serif",
+              boxShadow: "0 8px 24px rgba(0,0,0,0.15)",
+              display: "flex",
+              alignItems: "center",
+              gap: 10,
+              minWidth: 280,
+              animation: "slideIn 0.3s ease-out",
+              background: toast.type === "success" ? "#dcfce7" : "#fee2e2",
+              color: toast.type === "success" ? "#15803d" : "#991b1b",
+              border: `1.5px solid ${toast.type === "success" ? "#86efac" : "#fca5a5"}`
+            }}
+          >
+            <span style={{ fontSize: 16 }}>{toast.type === "success" ? "✓" : "✕"}</span>
+            {toast.message}
+          </div>
+        ))}
+      </div>
+
+      <style>{`
+        @keyframes slideIn {
+          from {
+            opacity: 0;
+            transform: translateX(400px);
+          }
+          to {
+            opacity: 1;
+            transform: translateX(0);
+          }
+        }
+      `}</style>
     </div>
   );
 }
