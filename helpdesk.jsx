@@ -3261,7 +3261,7 @@ export default function HelpDesk() {
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0 18px" }}>
           <FF label="Organisation" required><select style={sS} value={form.org} onChange={e => setForm({ ...form, org: e.target.value })}><option value="">Select…</option>{orgs.map(o => <option key={o.id}>{o.name}</option>)}</select></FF>
           <FF label="Department"><select style={sS} value={form.department} onChange={e => setForm({ ...form, department: e.target.value })}><option value="">Select…</option>{departments.map(d => <option key={d.id}>{d.name}</option>)}</select></FF>
-          <FF label="Contact Name"><input style={iS} placeholder="e.g. John Smith" value={form.contact} onChange={e => setForm({ ...form, contact: e.target.value })} /></FF>
+          <FF label="Contact Name"><input style={iS} placeholder="Ticket Requestor" value={form.contact} onChange={e => setForm({ ...form, contact: e.target.value })} /></FF>
           <FF label="Reported By"><input style={iS} placeholder="Who is raising this ticket?" value={form.reportedBy} onChange={e => setForm({ ...form, reportedBy: e.target.value })} /></FF>
           <FF label="Priority"><select style={sS} value={form.priority} onChange={e => setForm({ ...form, priority: e.target.value })}>{PRIORITIES.map(p => <option key={p}>{p}</option>)}</select></FF>
           <FF label="Category"><select style={sS} value={form.category} onChange={e => setForm({ ...form, category: e.target.value })}><option value="">Select…</option>{categories.map(c => <option key={c.id}>{c.name}</option>)}</select></FF>
