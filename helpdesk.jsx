@@ -20,7 +20,7 @@ const PROJECTS_API = `${BASE_URL}/projects`;
 const DEPARTMENTS = ["IT", "HR", "Finance", "Operations", "Sales", "Marketing", "Legal", "Support"];
 const PRIORITIES = ["Low", "Medium", "High", "Critical"];
 const STATUSES = ["Open", "In Progress", "Pending", "Resolved", "Closed"];
-const ROLES = ["Admin", "Manager", "Agent", "Viewer"];
+const ROLES = ["Super Admin", "Admin", "Manager", "Agent", "Viewer"];
 const LOCATIONS = ["Amphitheater", "Main Hall", "Outdoor Ground", "Conference Center", "Community Center", "Regional Center", "Online", "Other"];
 const SATSANG_TYPES = ["G Satsang", "Weekly Satsang", "Special Satsang", "Youth Satsang", "Children Satsang"];
 const PROJECT_STATUSES = ["Open", "In Progress", "Pending", "Resolved", "Closed"];
@@ -501,9 +501,8 @@ const SESSION_TTL = 12 * 60 * 60 * 1000;
 
 function saveSession(user) {
   try {
-    // ✅ Remove role from cached session — it will be fetched from DB
-    const { role, ...userWithoutRole } = user;
-    localStorage.setItem(SESSION_KEY, JSON.stringify({ user: userWithoutRole, expiresAt: Date.now() + SESSION_TTL }));
+    // ✅ KEEP role in cache - role is cached from login
+    localStorage.setItem(SESSION_KEY, JSON.stringify({ user, expiresAt: Date.now() + SESSION_TTL }));
   } catch (_) { }
 }
 
@@ -513,7 +512,7 @@ function loadSession() {
     if (!raw) return null;
     const { user, expiresAt } = JSON.parse(raw);
     if (Date.now() > expiresAt) { localStorage.removeItem(SESSION_KEY); return null; }
-    // ✅ Return user WITHOUT role — it will be fetched from DB
+    // ✅ Return user WITH role - role is cached from login
     return user;
   } catch (_) { return null; }
 }
@@ -530,8 +529,10 @@ export default function HelpDesk() {
   const [categories, setCategories] = useState([]);
   const [customAttrs, setCustomAttrs] = useState([]);
   const [tickets, setTickets] = useState([]);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
   const [targetTable, setTargetTable] = useState("tickets");
+  const [exportFilterType, setExportFilterType] = useState("all"); // all, assignee, category, type
+  const [exportFilterValue, setExportFilterValue] = useState(""); // assignee id, category name, type
   const [loginEmail, setLoginEmail] = useState("");
   const [loginPassword, setLoginPassword] = useState("");
   // Restore from localStorage session — survives page reload
@@ -541,11 +542,54 @@ export default function HelpDesk() {
   const [projects, setProjects] = useState([]);
 
   // ── Navigation ──
-  const [view, setView] = useState("dashboard");
+  const [view, setView] = useState(() => {
+    try {
+      return localStorage.getItem("deskflow_view") || "dashboard";
+    } catch {
+      return "dashboard";
+    }
+  });
   const [settingsTab, setSettingsTab] = useState("ticketviews");
-  const [tvFilter, setTvFilter] = useState("all");
-  const [pvFilter, setPvFilter] = useState("all");
+  const [tvFilter, setTvFilter] = useState(() => {
+    try {
+      return localStorage.getItem("deskflow_tvFilter") || "all";
+    } catch {
+      return "all";
+    }
+  });
+  const [pvFilter, setPvFilter] = useState(() => {
+    try {
+      return localStorage.getItem("deskflow_pvFilter") || "all";
+    } catch {
+      return "all";
+    }
+  });
   const [range, setRange] = useState("all");
+
+  // ✅ NEW: Save current view and filters to localStorage
+  useEffect(() => {
+    try {
+      localStorage.setItem("deskflow_view", view);
+    } catch (e) {
+      console.error("Failed to save view:", e);
+    }
+  }, [view]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem("deskflow_tvFilter", tvFilter);
+    } catch (e) {
+      console.error("Failed to save tvFilter:", e);
+    }
+  }, [tvFilter]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem("deskflow_pvFilter", pvFilter);
+    } catch (e) {
+      console.error("Failed to save pvFilter:", e);
+    }
+  }, [pvFilter]);
 
   // ── Ticket filters ──
   const [statusF, setStatusF] = useState("All");
@@ -707,36 +751,47 @@ export default function HelpDesk() {
       })).sort((a, b) => b.created - a.created);
 
       setProjects(parsedProjects);
+      setLoading(false); // ✅ MUST set to false on success
     } catch (e) {
       console.error("Error loading data:", e);
+      setLoading(false); // ✅ MUST set to false even on error
     }
-    setLoading(false);
   };
 
   // On mount: always load app data; if session existed it was restored above via useState init
-  useEffect(() => { loadData(); }, []);
+  useEffect(() => {
+    loadData();
+    // Safety timeout - if loading doesn't complete in 5 seconds, stop showing loading screen
+    const timeout = setTimeout(() => setLoading(false), 5000);
+    return () => clearTimeout(timeout);
+  }, []);
 
-  // ✅ Periodic refresh: Fetch user role from database every 15 seconds
-  // This ensures role changes by admin are immediately reflected
+  // ✅ REMOVED: No periodic role refresh
+  // Role is cached from login and only updated when admin changes it
+  // This reduces API calls and improves performance
+
+  // ✅ NEW: Listen for role change broadcasts from other tabs/admins
   useEffect(() => {
     if (!currentUser) return;
-    const interval = setInterval(async () => {
-      try {
-        const response = await axios.get(DB_API);
-        const data = response.data;
-        setUsers(data.users || []);
 
-        // ✅ CRITICAL: Fetch current user's role from database
-        const freshUser = data.users.find(u => u.id === currentUser.id);
-        if (freshUser && freshUser.role !== currentUser.role) {
-          // Role changed by admin — update currentUser immediately
-          setCurrentUser({ ...currentUser, role: freshUser.role });
+    const handleStorageChange = (e) => {
+      if (e.key === `role_change_${currentUser.id}`) {
+        // Role was changed by admin for current user
+        try {
+          const data = JSON.parse(e.newValue);
+          if (data && data.newRole) {
+            setCustomAlert({ show: true, message: `Your role has been changed to ${data.newRole}. Page will refresh automatically.`, type: "success" });
+            // Refresh after 2 seconds
+            setTimeout(() => window.location.reload(), 2000);
+          }
+        } catch (error) {
+          console.error("Error processing role change notification:", error);
         }
-      } catch (e) {
-        console.error("Error refreshing user data:", e);
       }
-    }, 15000); // Refresh every 15 seconds
-    return () => clearInterval(interval);
+    };
+
+    window.addEventListener("storage", handleStorageChange);
+    return () => window.removeEventListener("storage", handleStorageChange);
   }, [currentUser]);
 
   // Calculate project progress based on status
@@ -763,6 +818,29 @@ export default function HelpDesk() {
     if (currentUser?.role === "Admin" || currentUser?.role === "Manager") return inRange;
     return inRange.filter(t => t.reportedBy === currentUser?.name || t.assignees?.some(a => a.id === currentUser?.id));
   }, [tickets, rangeMs, now, currentUser]);
+
+  // ✅ NEW: Classified reports data based on filters
+  const classifiedReportsData = useMemo(() => {
+    let data = fbr;
+
+    if (exportFilterType === "assignee" && exportFilterValue) {
+      data = data.filter(t => t.assignees?.some(a => a.id === exportFilterValue));
+    } else if (exportFilterType === "category" && exportFilterValue) {
+      data = data.filter(t => t.category === exportFilterValue);
+    } else if (exportFilterType === "type" && exportFilterValue) {
+      if (exportFilterValue === "webcast") {
+        data = data.filter(t => t.isWebcast === true);
+      } else if (exportFilterValue === "ticket") {
+        data = data.filter(t => !t.isWebcast);
+      }
+    } else if (exportFilterType === "status" && exportFilterValue) {
+      data = data.filter(t => t.status === exportFilterValue);
+    } else if (exportFilterType === "priority" && exportFilterValue) {
+      data = data.filter(t => t.priority === exportFilterValue);
+    }
+
+    return data;
+  }, [fbr, exportFilterType, exportFilterValue]);
 
   const prbr = useMemo(() => range === "all" ? projects : projects.filter(p => now - p.created.getTime() <= rangeMs), [projects, rangeMs, range, now]);
 
@@ -901,10 +979,39 @@ export default function HelpDesk() {
       categories: categories
     };
 
-    const dataToExport = DATA_MAP[targetTable] || [];
+    let dataToExport = DATA_MAP[targetTable] || [];
+
+    // Apply filters based on export filter type
+    if (targetTable === "tickets") {
+      if (exportFilterType === "assignee" && exportFilterValue) {
+        // Filter by assigned user
+        dataToExport = dataToExport.filter(t =>
+          t.assignees?.some(a => a.id === exportFilterValue || a.name === exportFilterValue)
+        );
+      } else if (exportFilterType === "category" && exportFilterValue) {
+        // Filter by category
+        dataToExport = dataToExport.filter(t => t.category === exportFilterValue);
+      } else if (exportFilterType === "type" && exportFilterValue) {
+        // Filter by type (ticket, webcast, project)
+        if (exportFilterValue === "webcast") {
+          dataToExport = dataToExport.filter(t => t.isWebcast === true);
+        } else if (exportFilterValue === "ticket") {
+          dataToExport = dataToExport.filter(t => !t.isWebcast);
+        }
+      }
+    } else if (targetTable === "users" && exportFilterType === "role" && exportFilterValue) {
+      // Filter users by role
+      dataToExport = dataToExport.filter(u => u.role === exportFilterValue);
+    } else if (targetTable === "orgs" && exportFilterType === "domain" && exportFilterValue) {
+      // Filter orgs by domain
+      dataToExport = dataToExport.filter(o => o.domain === exportFilterValue);
+    } else if (targetTable === "categories" && exportFilterType === "color" && exportFilterValue) {
+      // Filter categories by color
+      dataToExport = dataToExport.filter(c => c.color === exportFilterValue);
+    }
 
     if (dataToExport.length === 0) {
-      alert(`No ${targetTable} data to export.`);
+      alert(`No ${targetTable} data found with selected filter.`);
       return;
     }
 
@@ -912,7 +1019,7 @@ export default function HelpDesk() {
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = `${targetTable}_export_${new Date().toISOString().split('T')[0]}.json`;
+    a.download = `${targetTable}_export_${exportFilterType !== "all" ? exportFilterValue + "_" : ""}${new Date().toISOString().split('T')[0]}.json`;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
@@ -1410,7 +1517,7 @@ export default function HelpDesk() {
         email: authForm.email,
         phone: `${authForm.countryCode} ${authForm.phone}`.trim(),
         password: authForm.password,
-        role: isFirstUser ? "Admin" : "Viewer",
+        role: isFirstUser ? "Super Admin" : "Viewer",
         active: true,
         status: "Logged-Out",
         confirmed: true,
@@ -1616,6 +1723,32 @@ export default function HelpDesk() {
   );
 
   // ─── MAIN APP ──────────────────────────────────────────────────────────────
+  // ✅ NEW: Show loading screen only while actually loading or no user
+  if (loading || !currentUser) {
+    return (
+      <div style={{ display: "flex", height: "100vh", alignItems: "center", justifyContent: "center", background: "#f8fafc", fontFamily: "'DM Sans',sans-serif" }}>
+        <div style={{ textAlign: "center" }}>
+          <div style={{ fontSize: 48, marginBottom: 20, animation: "spin 1s linear infinite" }}>⚡</div>
+          <div style={{ fontSize: 18, fontWeight: 600, color: "#0f172a", marginBottom: 8 }}>DeskFlow</div>
+          <div style={{ fontSize: 14, color: "#64748b", marginBottom: 20 }}>Loading your dashboard...</div>
+          <div style={{ width: 40, height: 4, background: "#e2e8f0", borderRadius: 2, margin: "0 auto", overflow: "hidden" }}>
+            <div style={{ height: "100%", background: "linear-gradient(90deg, #3b82f6, #6366f1)", animation: "loading 1.5s ease-in-out infinite", width: "30%" }}></div>
+          </div>
+        </div>
+        <style>{`
+          @keyframes spin {
+            from { transform: rotate(0deg); }
+            to { transform: rotate(360deg); }
+          }
+          @keyframes loading {
+            0%, 100% { transform: translateX(-100%); }
+            50% { transform: translateX(400%); }
+          }
+        `}</style>
+      </div>
+    );
+  }
+
   return (
     <div style={{ display: "flex", height: "100vh", fontFamily: "'DM Sans',sans-serif", background: "#f8fafc", color: "#1e293b", overflow: "hidden" }}>
       <style>{`@import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=DM+Mono:wght@400;500&display=swap');*{box-sizing:border-box}::-webkit-scrollbar{width:5px;height:5px}::-webkit-scrollbar-thumb{background:#cbd5e1;border-radius:3px}input:focus,select:focus,textarea:focus{border-color:#3b82f6!important;outline:none;background:#fff!important}.rh:hover td{background:#f8fafc!important}@keyframes pulse{0%,100%{opacity:1}50%{opacity:0.5}}`}</style>
@@ -2282,15 +2415,67 @@ export default function HelpDesk() {
 
           {/* ── REPORTS (v1 charts) ── */}
           {view === "reports" && <>
-            <div style={{ display: "flex", gap: 9, marginBottom: 14, alignItems: "center" }}>
+            <div style={{ display: "flex", gap: 9, marginBottom: 14, alignItems: "center", flexWrap: "wrap" }}>
               <span style={{ fontSize: 13, fontWeight: 600, color: "#374151" }}>Export Report:</span>
-              {[{ l: "📄 CSV", a: () => exportCSV(fbr) }, { l: "📋 JSON", a: () => exportJSON(fbr) }, { l: "🖨 Print", a: () => exportPrint(fbr) }].map(b => <button key={b.l} onClick={b.a} style={bG}>{b.l}</button>)}
+              {[{ l: "📄 CSV", a: () => exportCSV(classifiedReportsData) }, { l: "📋 JSON", a: () => exportJSON(classifiedReportsData) }, { l: "🖨 Print", a: () => exportPrint(classifiedReportsData) }].map(b => <button key={b.l} onClick={b.a} style={bG}>{b.l}</button>)}
+            </div>
+
+            {/* Classification Filters */}
+            <div style={{ display: "flex", gap: 12, marginBottom: 18, padding: 14, background: "#f8fafc", borderRadius: 9, alignItems: "center", flexWrap: "wrap" }}>
+              <div style={{ fontSize: 12, fontWeight: 600, color: "#374151" }}>Classify Reports By:</div>
+
+              <select
+                value={exportFilterType}
+                onChange={(e) => { setExportFilterType(e.target.value); setExportFilterValue(""); }}
+                style={{ ...sS, fontSize: 13, padding: "7px 10px", minWidth: 160 }}
+              >
+                <option value="all">All Tickets</option>
+                <option value="assignee">By Assignee</option>
+                <option value="category">By Category</option>
+                <option value="type">By Type (Ticket/Webcast)</option>
+                <option value="status">By Status</option>
+                <option value="priority">By Priority</option>
+              </select>
+
+              {exportFilterType !== "all" && (
+                <select
+                  value={exportFilterValue}
+                  onChange={(e) => setExportFilterValue(e.target.value)}
+                  style={{ ...sS, fontSize: 13, padding: "7px 10px", minWidth: 160 }}
+                >
+                  <option value="">Select {exportFilterType}</option>
+                  {exportFilterType === "assignee" && tickets.flatMap(t => t.assignees || []).filter((a, i, arr) => arr.findIndex(x => x.id === a.id) === i).map(a => (
+                    <option key={a.id} value={a.id}>{a.name}</option>
+                  ))}
+                  {exportFilterType === "category" && categories.map(c => (
+                    <option key={c.id} value={c.name}>{c.name}</option>
+                  ))}
+                  {exportFilterType === "type" && (
+                    <>
+                      <option value="ticket">Regular Tickets</option>
+                      <option value="webcast">Webcasts</option>
+                    </>
+                  )}
+                  {exportFilterType === "status" && STATUSES.map(s => (
+                    <option key={s} value={s}>{s}</option>
+                  ))}
+                  {exportFilterType === "priority" && PRIORITIES.map(p => (
+                    <option key={p} value={p}>{p}</option>
+                  ))}
+                </select>
+              )}
+
+              {exportFilterType !== "all" && exportFilterValue && (
+                <span style={{ fontSize: 12, color: "#64748b", background: "#fff", padding: "4px 10px", borderRadius: 6, fontWeight: 500 }}>
+                  📊 Showing {exportFilterType}: {exportFilterValue}
+                </span>
+              )}
             </div>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 12 }}>
               <div style={{ background: "#fff", borderRadius: 12, padding: 18, boxShadow: "0 1px 4px rgba(0,0,0,0.06)" }}>
                 <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 4 }}>Ticket Status Distribution</div>
                 <div style={{ fontSize: 11, color: "#94a3b8", marginBottom: 12 }}>Open / Closed / In Progress</div>
-                <DonutChart data={["Open", "Closed", "In Progress"].map(s => ({ label: s, color: STATUS_COLOR[s]?.text || "#94a3b8", value: fbr.filter(t => t.status === s).length }))} />
+                <DonutChart data={["Open", "Closed", "In Progress"].map(s => ({ label: s, color: STATUS_COLOR[s]?.text || "#94a3b8", value: classifiedReportsData.filter(t => t.status === s).length }))} />
               </div>
               <div style={{ background: "#fff", borderRadius: 12, padding: 18, boxShadow: "0 1px 4px rgba(0,0,0,0.06)" }}>
                 <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 4 }}>Project Status Distribution</div>
@@ -2298,7 +2483,7 @@ export default function HelpDesk() {
                 <DonutChart data={["Open", "Closed", "In Progress"].map(s => ({ label: s, color: STATUS_COLOR[s]?.text || "#94a3b8", value: dashboardProjects.filter(p => p.status === s).length }))} />
               </div>
               <div style={{ background: "#fff", borderRadius: 12, padding: 18, boxShadow: "0 1px 4px rgba(0,0,0,0.06)" }}><div style={{ fontSize: 12, fontWeight: 600, marginBottom: 12 }}>Ticket Volume</div><BarChart data={dailyData} /></div>
-              <div style={{ background: "#fff", borderRadius: 12, padding: 18, boxShadow: "0 1px 4px rgba(0,0,0,0.06)" }}><div style={{ fontSize: 12, fontWeight: 600, marginBottom: 12 }}>By Category</div><BarChart data={categoryDist} color="#8b5cf6" /></div>
+              <div style={{ background: "#fff", borderRadius: 12, padding: 18, boxShadow: "0 1px 4px rgba(0,0,0,0.06)" }}><div style={{ fontSize: 12, fontWeight: 600, marginBottom: 12 }}>By Category</div><BarChart data={categoryDist.map(c => ({ ...c, value: classifiedReportsData.filter(t => t.category === c.label).length }))} color="#8b5cf6" /></div>
             </div>
             <div style={{ background: "#fff", borderRadius: 12, padding: 18, boxShadow: "0 1px 4px rgba(0,0,0,0.06)" }}>
               <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 12 }}>Agent Performance</div>
@@ -2479,33 +2664,33 @@ export default function HelpDesk() {
               </div>}
               {settingsTab === "usermgmt" && <div style={{ background: "#fff", borderRadius: 12, padding: 22, boxShadow: "0 1px 4px rgba(0,0,0,0.06)" }}>
                 <h3 style={{ margin: "0 0 14px", fontSize: 15, fontWeight: 700 }}>User Management ({users.length} users)</h3>
-                {currentUser?.role === "Admin" ? (
+                {currentUser?.role === "Super Admin" || currentUser?.role === "Admin" ? (
                   <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr auto auto", gap: 9, marginBottom: 18, padding: 14, background: "#f8fafc", borderRadius: 9 }}>
                     <input style={iS} placeholder="Full name *" value={newUser.name} onChange={e => setNewUser({ ...newUser, name: e.target.value })} />
                     <input style={iS} placeholder="Email *" value={newUser.email} onChange={e => setNewUser({ ...newUser, email: e.target.value })} />
                     <input style={iS} type="password" placeholder="Password *" value={newUser.password} onChange={e => setNewUser({ ...newUser, password: e.target.value })} />
-                    <select style={{ ...sS, width: 110 }} value={newUser.role} onChange={e => setNewUser({ ...newUser, role: e.target.value })}>{ROLES.map(r => <option key={r}>{r}</option>)}</select>
+                    <select style={{ ...sS, width: 110 }} value={newUser.role} onChange={e => setNewUser({ ...newUser, role: e.target.value })}>{ROLES.filter(r => r !== "Super Admin").map(r => <option key={r}>{r}</option>)}</select>
                     <button onClick={addUser} style={bP}>Add</button>
                   </div>
                 ) : currentUser?.role === "Manager" ? (
                   <div style={{ marginBottom: 18, padding: "10px 14px", background: "#fef3c7", color: "#92400e", borderRadius: 8, fontSize: 13, fontWeight: 500 }}>View Only: Managers can view users but cannot add, delete, or change roles.</div>
                 ) : (
-                  <div style={{ marginBottom: 18, padding: "10px 14px", background: "#fef3c7", color: "#92400e", borderRadius: 8, fontSize: 13, fontWeight: 500 }}>Read Only: User management is restricted to Admins and Managers.</div>
+                  <div style={{ marginBottom: 18, padding: "10px 14px", background: "#fef3c7", color: "#92400e", borderRadius: 8, fontSize: 13, fontWeight: 500 }}>Read Only: User management is restricted to Admins.</div>
                 )}
                 <table style={{ width: "100%", borderCollapse: "collapse" }}>
-                  <thead><tr>{["User", "Email", "Role", "Status", "Account Status", currentUser?.role === "Admin" ? "Actions" : null].filter(Boolean).map(h => <th key={h} style={thStyle}>{h}</th>)}</tr></thead>
+                  <thead><tr>{["User", "Email", "Role", "Status", "Account Status", (currentUser?.role === "Super Admin" || currentUser?.role === "Admin") ? "Actions" : null].filter(Boolean).map(h => <th key={h} style={thStyle}>{h}</th>)}</tr></thead>
                   <tbody>{users.map(u => (
                     <tr key={u.id} className="rh">
                       <td style={tdStyle}><div style={{ display: "flex", alignItems: "center", gap: 8 }}><Avatar name={u.name} size={28} /><span style={{ fontSize: 13, fontWeight: 600 }}>{u.name}</span></div></td>
                       <td style={{ ...tdStyle, color: "#64748b", fontSize: 12 }}>{u.email}</td>
-                      <td style={tdStyle}><Badge label={u.role} style={{ background: "#ede9fe", color: "#6d28d9" }} /></td>
+                      <td style={tdStyle}><Badge label={u.role} style={{ background: u.role === "Super Admin" ? "#fca5a5" : "#ede9fe", color: u.role === "Super Admin" ? "#991b1b" : "#6d28d9" }} /></td>
                       <td style={tdStyle}>{(() => {
                         const statusValue = u.status === "Active" ? "Logged-In" : (u.status === "Not Active" || u.status?.toLowerCase() === "logged-out") ? "Logged-Out" : u.status;
                         const sStyle = statusOpts.find(s => s.l === statusValue);
                         return sStyle ? <Badge label={sStyle.l} style={{ background: sStyle.bg, color: sStyle.c }} /> : <Badge label={u.status || "—"} />;
                       })()}</td>
                       <td style={tdStyle}><Badge label={u.active ? "Activated" : "Deactivated"} style={{ background: u.active ? "#dcfce7" : "#fee2e2", color: u.active ? "#15803d" : "#ef4444" }} /></td>
-                      {currentUser?.role === "Admin" && <td style={tdStyle}><div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                      {(currentUser?.role === "Super Admin" || currentUser?.role === "Admin") && u.role !== "Super Admin" && <td style={tdStyle}><div style={{ display: "flex", gap: 6, alignItems: "center" }}>
                         <select value={u.role} onChange={async (e) => {
                           const newRole = e.target.value;
 
@@ -2521,9 +2706,14 @@ export default function HelpDesk() {
                                 setUsers(users.map(x => x.id === u.id ? updated : x));
 
                                 if (u.id === currentUser.id) {
+                                  // Current user's role changed
                                   setCurrentUser({ ...currentUser, role: newRole });
-                                  setCustomAlert({ show: true, message: `Your role has been changed to ${newRole}. Please refresh the page to see all updated features.`, type: "success" });
+                                  setCustomAlert({ show: true, message: `Your role has been changed to ${newRole}. Page will refresh automatically.`, type: "success" });
+                                  // Auto-refresh after 2 seconds
+                                  setTimeout(() => window.location.reload(), 2000);
                                 } else {
+                                  // Other user's role changed - notify them via localStorage broadcast
+                                  localStorage.setItem(`role_change_${u.id}`, JSON.stringify({ newRole, timestamp: Date.now() }));
                                   setCustomAlert({ show: true, message: `${u.name}'s role has been changed to ${newRole}.`, type: "success" });
                                 }
                                 setConfirmModal({ show: false, title: "", message: "", onConfirm: null, onCancel: null });
@@ -2539,7 +2729,7 @@ export default function HelpDesk() {
                               e.target.value = u.role;
                             }
                           });
-                        }} style={{ ...sS, fontSize: 11, padding: "4px 8px" }}>{ROLES.map(r => <option key={r}>{r}</option>)}</select>
+                        }} style={{ ...sS, fontSize: 11, padding: "4px 8px" }}>{ROLES.filter(r => r !== "Super Admin").map(r => <option key={r}>{r}</option>)}</select>
                         <button onClick={async () => { try { const updated = { ...u, active: !u.active }; await axios.put(`${USERS_API}/${u.id}`, updated); setUsers(users.map(x => x.id === u.id ? updated : x)); } catch (err) { alert("Failed to update user"); } }} style={{ border: "none", background: u.active ? "#fef9c3" : "#dcfce7", color: u.active ? "#854d0e" : "#15803d", borderRadius: 6, padding: "4px 9px", cursor: "pointer", fontSize: 12, fontWeight: 600 }}>{u.active ? "Deactivate" : "Activate"}</button>
                         {u.id !== currentUser.id && <button onClick={async () => { if (window.confirm(`Delete ${u.name}?`)) { try { await axios.delete(`${USERS_API}/${u.id}`); setUsers(users.filter(x => x.id !== u.id)); } catch (err) { console.error("Delete failed:", err); } } }} style={{ border: "none", background: "#fee2e2", color: "#ef4444", borderRadius: 6, padding: "4px 9px", cursor: "pointer", fontSize: 12, fontWeight: 600 }}>Delete</button>}
                         {/* ✅ NEW: Admin can edit name and password */}
@@ -2570,31 +2760,96 @@ export default function HelpDesk() {
                 ))}
                 {customAttrs.length === 0 && <div style={{ textAlign: "center", color: "#94a3b8", padding: 28 }}>No custom attributes yet.</div>}
               </div>}
-              {settingsTab === "dbmgmt" && <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '20px' }}>
-                <select
-                  value={targetTable}
-                  onChange={(e) => setTargetTable(e.target.value)}
-                  style={{ padding: '8px', borderRadius: '5px', border: '1px solid #ccc' }}
-                >
-                  <option value="tickets">Tickets</option>
-                  <option value="users">Users</option>
-                  <option value="orgs">Organizations</option>
-                  <option value="categories">Categories</option>
-                </select>
+              {settingsTab === "dbmgmt" && <div style={{ background: "#fff", borderRadius: 12, padding: 22, boxShadow: "0 1px 4px rgba(0,0,0,0.06)" }}>
+                <h3 style={{ margin: "0 0 4px", fontSize: 15, fontWeight: 700 }}>Database Management</h3>
+                <p style={{ margin: "0 0 18px", fontSize: 12, color: "#64748b" }}>Export and import data from the database.</p>
 
-                {/* Export Button */}
-                <button
-                  onClick={handleExport}
-                  style={{ padding: '8px 15px', backgroundColor: '#22c55e', color: 'white', border: 'none', borderRadius: '5px', cursor: 'pointer' }}
-                >
-                  Export {targetTable}
-                </button>
+                {/* Data Type Selection */}
+                <div style={{ marginBottom: 18, padding: 14, background: "#f8fafc", borderRadius: 9 }}>
+                  <div style={{ fontSize: 12, fontWeight: 600, color: "#374151", marginBottom: 10 }}>Select Data Type</div>
+                  <select
+                    value={targetTable}
+                    onChange={(e) => { setTargetTable(e.target.value); setExportFilterType("all"); setExportFilterValue(""); }}
+                    style={{ ...sS, minWidth: 160, fontSize: 13, padding: "7px 10px" }}
+                  >
+                    <option value="tickets">Tickets</option>
+                    <option value="users">Users</option>
+                    <option value="orgs">Organizations</option>
+                    <option value="categories">Categories</option>
+                  </select>
+                </div>
 
-                {/* Import Button */}
-                <label style={{ padding: '8px 15px', backgroundColor: '#3b82f6', color: 'white', borderRadius: '5px', cursor: 'pointer' }}>
-                  Import {targetTable}
-                  <input type="file" accept=".csv,.json" onChange={handleSelectiveImport} style={{ display: 'none' }} />
-                </label>
+                {/* Classification/Filter Selection */}
+                <div style={{ marginBottom: 18, padding: 14, background: "#f8fafc", borderRadius: 9 }}>
+                  <div style={{ fontSize: 12, fontWeight: 600, color: "#374151", marginBottom: 10 }}>Classify/Filter for Export</div>
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+                    <select
+                      value={exportFilterType}
+                      onChange={(e) => { setExportFilterType(e.target.value); setExportFilterValue(""); }}
+                      style={{ ...sS, fontSize: 13, padding: "7px 10px" }}
+                    >
+                      <option value="all">All Data</option>
+                      {targetTable === "tickets" && (
+                        <>
+                          <option value="assignee">By Assignee</option>
+                          <option value="category">By Category</option>
+                          <option value="type">By Type (Ticket/Webcast)</option>
+                        </>
+                      )}
+                      {targetTable === "users" && <option value="role">By Role</option>}
+                      {targetTable === "orgs" && <option value="domain">By Domain</option>}
+                      {targetTable === "categories" && <option value="color">By Color</option>}
+                    </select>
+
+                    {exportFilterType !== "all" && (
+                      <select
+                        value={exportFilterValue}
+                        onChange={(e) => setExportFilterValue(e.target.value)}
+                        style={{ ...sS, fontSize: 13, padding: "7px 10px" }}
+                      >
+                        <option value="">Select {exportFilterType}</option>
+                        {exportFilterType === "assignee" && tickets.flatMap(t => t.assignees || []).map(a => (
+                          <option key={a.id} value={a.id}>{a.name}</option>
+                        ))}
+                        {exportFilterType === "category" && categories.map(c => (
+                          <option key={c.id} value={c.name}>{c.name}</option>
+                        ))}
+                        {exportFilterType === "type" && (
+                          <>
+                            <option value="ticket">Tickets Only</option>
+                            <option value="webcast">Webcasts Only</option>
+                          </>
+                        )}
+                        {exportFilterType === "role" && ["Admin", "Manager", "Agent", "Viewer"].map(r => (
+                          <option key={r} value={r}>{r}</option>
+                        ))}
+                        {exportFilterType === "domain" && orgs.map(o => (
+                          <option key={o.id} value={o.domain}>{o.domain || "No Domain"}</option>
+                        ))}
+                        {exportFilterType === "color" && categories.map(c => (
+                          <option key={c.id} value={c.color} style={{ background: c.color }}>{c.color}</option>
+                        ))}
+                      </select>
+                    )}
+                  </div>
+                </div>
+
+                {/* Export/Import Buttons */}
+                <div style={{ display: "flex", alignItems: "center", gap: 12, padding: 14, background: "#f8fafc", borderRadius: 9 }}>
+                  {/* Export Button */}
+                  <button
+                    onClick={handleExport}
+                    style={{ ...bP, padding: "8px 16px", fontSize: 13, background: "#22c55e", color: "#fff", fontWeight: 600 }}
+                  >
+                    📥 Export {targetTable}{exportFilterType !== "all" ? ` (${exportFilterType})` : ""}
+                  </button>
+
+                  {/* Import Button */}
+                  <label style={{ ...bP, padding: "8px 16px", fontSize: 13, background: "#3b82f6", color: "#fff", cursor: "pointer", display: "inline-flex", alignItems: "center", fontWeight: 600 }}>
+                    📤 Import {targetTable}
+                    <input type="file" accept=".csv,.json" onChange={handleSelectiveImport} style={{ display: "none" }} />
+                  </label>
+                </div>
               </div>}
             </div>
           </div>}
