@@ -18,7 +18,6 @@ const PROJECTS_API = `${BASE_URL}/projects`;
 const VALIDATE_SESSIONS_API = `${BASE_URL}/validate-sessions`;
 
 // ─── CONSTANTS ────────────────────────────────────────────────────────────────
-const DEPARTMENTS_DEFAULT = ["IT", "HR", "Finance", "Operations", "Sales", "Marketing", "Legal", "Support"];
 const PRIORITIES = ["Low", "Medium", "High", "Critical"];
 const STATUSES = ["Open", "In Progress", "Resolved", "Closed"];
 const ROLES = ["Super Admin", "Admin", "Manager", "Agent", "Viewer"];
@@ -803,13 +802,14 @@ export default function HelpDesk() {
       setTicketCustomAttrs(data.customAttrs || []);
       setProjectCustomAttrs(data.customAttrs || []);
 
-      // ✅ NEW: Load departments
+      // ✅ NEW: Load departments from database only (NO hardcoded fallback!)
       try {
         const deptResponse = await axios.get(`${BASE_URL}/departments`);
         setDepartments(deptResponse.data || []);
       } catch (e) {
-        console.log("Departments not available, using defaults");
-        setDepartments(DEPARTMENTS_DEFAULT.map((name, i) => ({ id: i, name })));
+        console.log("Departments loading from API:", e.message);
+        // If API fails, set empty array - no hardcoded defaults!
+        setDepartments([]);
       }
 
       const parsedTickets = [
@@ -1605,6 +1605,20 @@ export default function HelpDesk() {
       alert("Failed to add attribute.");
     }
   };
+
+  // ✅ NEW: Delete Custom Attribute
+  const deleteAttr = async (id) => {
+    if (!window.confirm("Delete this custom attribute?")) return;
+    try {
+      await axios.delete(`${CUSTOM_ATTRS_API}/${id}`);
+      setCustomAttrs(customAttrs.filter(a => a.id !== id));
+      setCustomAlert({ show: true, message: "✅ Attribute deleted!", type: "success" });
+    } catch (err) {
+      console.error("Error deleting attribute:", err);
+      setCustomAlert({ show: true, message: "Failed to delete attribute", type: "error" });
+    }
+  };
+
   // ─── PROJECT HANDLERS (v1 API) ────────────────────────────────────────────
   const handleProjectSubmit = async () => {
     if (!projForm.title || !projForm.org) return alert("Organisation and Title are required");
@@ -3146,7 +3160,7 @@ export default function HelpDesk() {
                   <div key={a.id} style={{ display: "flex", alignItems: "center", gap: 11, padding: "12px 15px", borderRadius: 9, border: "1.5px solid #f1f5f9", marginBottom: 7, background: "#fafafa" }}>
                     <div style={{ width: 34, height: 34, background: "#eff6ff", borderRadius: 8, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 15 }}>{a.type === "text" ? "Aa" : a.type === "number" ? "#" : a.type === "select" ? "≡" : a.type === "date" ? "📅" : "☑"}</div>
                     <div style={{ flex: 1 }}><div style={{ fontSize: 13, fontWeight: 600 }}>{a.name}{a.required && <span style={{ color: "#ef4444", marginLeft: 3 }}>*</span>}</div><div style={{ fontSize: 11, color: "#94a3b8" }}>Type: {a.type}{a.options?.length ? ` · ${a.options.join(", ")}` : ""}</div></div>
-                    {currentUser?.role === "Admin" && <button onClick={() => setCustomAttrs(customAttrs.filter(x => x.id !== a.id))} style={{ border: "none", background: "#fee2e2", color: "#ef4444", borderRadius: 6, padding: "5px 11px", cursor: "pointer", fontSize: 12, fontWeight: 600 }}>Delete</button>}
+                    {currentUser?.role === "Admin" && <button onClick={() => deleteAttr(a.id)} style={{ border: "none", background: "#fee2e2", color: "#ef4444", borderRadius: 6, padding: "5px 11px", cursor: "pointer", fontSize: 12, fontWeight: 600 }}>Delete</button>}
                   </div>
                 ))}
                 {customAttrs.length === 0 && <div style={{ textAlign: "center", color: "#94a3b8", padding: 28 }}>No custom attributes yet.</div>}
