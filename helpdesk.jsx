@@ -715,14 +715,14 @@ export default function HelpDesk() {
   const [newProjComment, setNewProjComment] = useState("");
 
   // ── Ticket form ──
-  const emptyForm = { org: "", department: "", contact: "", reportedBy: "", summary: "", description: "", assignees: [], cc: [], priority: "Medium", category: "", customAttrs: {}, dueDate: "", isWebcast: false, satsangType: "", location: "", satsangId: null };
+  const emptyForm = { org: "", department: "", contact: "", reportedBy: "", summary: "", description: "", assignees: [], priority: "Medium", category: "", customAttrs: {}, dueDate: "", isWebcast: false, satsangType: "", location: "", satsangId: null };
   const [form, setForm] = useState(emptyForm);
   const [ccInput, setCcInput] = useState("");
   const [assigneeSearch, setAssigneeSearch] = useState("");
   const [showAssigneeDD, setShowAssigneeDD] = useState(false);
 
   // ── Project form ──
-  const emptyProjectForm = { org: "", department: "", reportedBy: "", title: "", description: "", assignees: [], cc: [], priority: "Medium", category: "", status: "Open", location: "", dueDate: "", isWebcast: false, satsangType: "", progress: 0, customAttrs: {}, satsangId: null };
+  const emptyProjectForm = { org: "", department: "", reportedBy: "", title: "", description: "", assignees: [], priority: "Medium", category: "", status: "Open", location: "", dueDate: "", isWebcast: false, satsangType: "", progress: 0, customAttrs: {}, satsangId: null };
   const [projForm, setProjForm] = useState(emptyProjectForm);
   const [projCcInput, setProjCcInput] = useState("");
 
@@ -2246,12 +2246,13 @@ export default function HelpDesk() {
               <div style={{ marginBottom: 4 }}>
                 <span style={{ fontSize: 10, fontWeight: 700, color: "#94a3b8", textTransform: "uppercase", letterSpacing: "0.07em", marginLeft: 2 }}>🎫 Tickets</span>
               </div>
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(5,1fr)", gap: 9, marginBottom: 14 }}>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(6,1fr)", gap: 9, marginBottom: 14 }}>
                 {[
                   { label: "Open", value: stats.open, bg: "#fef3c7", accent: "#f59e0b", icon: "📬", action: () => { setView("tickets"); setTvFilter("open"); setStatusF("All"); setPriorityF("All"); } },
                   { label: "In Progress", value: stats.inProgress, bg: "#ede9fe", accent: "#6366f1", icon: "⚙️", action: () => { setView("tickets"); setTvFilter("all"); setStatusF("In Progress"); setPriorityF("All"); } },
                   { label: "Critical", value: stats.critical, bg: "#fee2e2", accent: "#ef4444", icon: "🔥", action: () => { setView("tickets"); setTvFilter("alerts"); setStatusF("All"); setPriorityF("Critical"); } },
                   { label: "Resolved", value: stats.resolved, bg: "#dcfce7", accent: "#22c55e", icon: "✅", action: () => { setView("tickets"); setTvFilter("closed"); setStatusF("All"); setPriorityF("All"); } },
+                  { label: "Unassigned", value: fbr.filter(t => !t.assignees || t.assignees.length === 0).length, bg: "#f3e8ff", accent: "#a855f7", icon: "🔸", action: () => { setView("tickets"); setTvFilter("unassigned"); } },
                   { label: "Total", value: stats.total, bg: "#dbeafe", accent: "#3b82f6", icon: "🎫", action: () => { setView("tickets"); setTvFilter("all"); setStatusF("All"); setPriorityF("All"); } },
                 ].map(s => (
                   <div key={s.label} onClick={s.action} style={{ background: s.bg, borderRadius: 12, padding: "14px 16px", boxShadow: "0 1px 4px rgba(0,0,0,0.06)", borderLeft: `4px solid ${s.accent}`, cursor: "pointer", transition: "box-shadow 0.15s" }}
@@ -2264,26 +2265,19 @@ export default function HelpDesk() {
                 ))}
               </div>
 
-              {/* ✅ NEW: Unassigned Tickets Card */}
-              <div style={{ marginBottom: 14, padding: "14px 16px", background: "#f3e8ff", borderRadius: 12, borderLeft: "4px solid #a855f7", boxShadow: "0 1px 4px rgba(0,0,0,0.06)", cursor: "pointer" }}
-                onClick={() => { setView("tickets"); setTvFilter("unassigned"); }}
-                onMouseEnter={e => e.currentTarget.style.boxShadow = "0 4px 16px rgba(0,0,0,0.12)"}
-                onMouseLeave={e => e.currentTarget.style.boxShadow = "0 1px 4px rgba(0,0,0,0.06)"}>
-                <div style={{ fontSize: 18, marginBottom: 4 }}>🔸</div>
-                <div style={{ fontSize: 26, fontWeight: 800, color: "#a855f7" }}>{fbr.filter(t => !t.assignees || t.assignees.length === 0).length}</div>
-                <div style={{ fontSize: 11, fontWeight: 600, color: "#374151", marginTop: 2 }}>Unassigned</div>
-              </div>
+              {/* ✅ REMOVED: Separate Unassigned Card - Now integrated above */}
 
               {/* ── ROW 2: PROJECTS ── */}
               <div style={{ marginBottom: 4 }}>
                 <span style={{ fontSize: 10, fontWeight: 700, color: "#94a3b8", textTransform: "uppercase", letterSpacing: "0.07em", marginLeft: 2 }}>📁 Projects</span>
               </div>
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(5,1fr)", gap: 9, marginBottom: 14 }}>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(6,1fr)", gap: 9, marginBottom: 14 }}>
                 {[
                   { label: "Open", value: projStats.open, bg: "#fef3c7", accent: "#f59e0b", icon: "📂", action: () => { setView("projects"); setPvFilter("open"); setProjStatusF("All"); setProjPriorityF("All"); } },
                   { label: "In Progress", value: projStats.inProgress, bg: "#ede9fe", accent: "#6366f1", icon: "⚙️", action: () => { setView("projects"); setPvFilter("inprogress"); setProjStatusF("All"); setProjPriorityF("All"); } },
                   { label: "Critical", value: projStats.critical, bg: "#fee2e2", accent: "#ef4444", icon: "🔥", action: () => { setView("projects"); setPvFilter("critical"); setProjStatusF("All"); setProjPriorityF("All"); } },
                   { label: "Resolved", value: projStats.resolved, bg: "#dcfce7", accent: "#22c55e", icon: "✅", action: () => { setView("projects"); setPvFilter("closed"); setProjStatusF("All"); setProjPriorityF("All"); } },
+                  { label: "Unassigned", value: dashboardProjects.filter(p => !p.assignees || p.assignees.length === 0).length, bg: "#f3e8ff", accent: "#a855f7", icon: "👤", action: () => { setView("projects"); setPvFilter("unassigned"); } },
                   { label: "Total", value: projStats.total, bg: "#ede9fe", accent: "#8b5cf6", icon: "📁", action: () => { setView("projects"); setPvFilter("all"); setProjStatusF("All"); setProjPriorityF("All"); } },
                 ].map(s => (
                   <div key={s.label} onClick={s.action} style={{ background: s.bg, borderRadius: 12, padding: "14px 16px", boxShadow: "0 1px 4px rgba(0,0,0,0.06)", borderLeft: `4px solid ${s.accent}`, cursor: "pointer", transition: "box-shadow 0.15s" }}
@@ -3313,10 +3307,6 @@ export default function HelpDesk() {
             </FF>)}
           </div>
         </>}
-        <FF label="CC Users">
-          <div style={{ display: "flex", gap: 8 }}><input style={{ ...iS, flex: 1 }} placeholder="Add email address" value={ccInput} onChange={e => setCcInput(e.target.value)} onKeyDown={e => e.key === "Enter" && addCC()} /><button onClick={addCC} style={bG}>Add</button></div>
-          {form.cc.length > 0 && <div style={{ display: "flex", flexWrap: "wrap", gap: 5, marginTop: 7 }}>{form.cc.map(email => <span key={email} style={{ padding: "3px 9px", background: "#dbeafe", color: "#1d4ed8", borderRadius: 99, fontSize: 12, display: "flex", alignItems: "center", gap: 5 }}>{email}<span onClick={() => setForm({ ...form, cc: form.cc.filter(e => e !== email) })} style={{ cursor: "pointer", fontWeight: 700 }}>×</span></span>)}</div>}
-        </FF>
         <div style={{ display: "flex", justifyContent: "flex-end", gap: 9, marginTop: 6 }}>
           <button onClick={() => { setShowNewTicket(false); setShowAssigneeDD(false); }} style={bG}>Cancel</button>
           <button onClick={handleSubmit} style={bP}>Create Ticket</button>
@@ -3359,10 +3349,6 @@ export default function HelpDesk() {
         <FF label="Project Title" required><input style={iS} placeholder="Brief project name" value={projForm.title} onChange={e => setProjForm({ ...projForm, title: e.target.value })} /></FF>
         <FF label="Description"><textarea style={{ ...iS, height: 88, resize: "vertical" }} placeholder="Detailed description…" value={projForm.description} onChange={e => setProjForm({ ...projForm, description: e.target.value })} /></FF>
         {projForm.category === "Webcast" && <WebcastFields f={projForm} setF={setProjForm} />}
-        <FF label="CC Users">
-          <div style={{ display: "flex", gap: 8 }}><input style={{ ...iS, flex: 1 }} placeholder="Add email address" value={projCcInput} onChange={e => setProjCcInput(e.target.value)} onKeyDown={e => e.key === "Enter" && addProjCC()} /><button onClick={addProjCC} style={bG}>Add</button></div>
-          {projForm.cc.length > 0 && <div style={{ display: "flex", flexWrap: "wrap", gap: 5, marginTop: 7 }}>{projForm.cc.map(email => <span key={email} style={{ padding: "3px 9px", background: "#f5f3ff", color: "#6d28d9", borderRadius: 99, fontSize: 12, display: "flex", alignItems: "center", gap: 5 }}>{email}<span onClick={() => setProjForm({ ...projForm, cc: projForm.cc.filter(e => e !== email) })} style={{ cursor: "pointer", fontWeight: 700 }}>×</span></span>)}</div>}
-        </FF>
         <div style={{ display: "flex", justifyContent: "flex-end", gap: 9, marginTop: 6 }}>
           <button onClick={() => setShowNewProject(false)} style={bG}>Cancel</button>
           <button onClick={handleProjectSubmit} style={{ ...bP, background: "linear-gradient(135deg,#8b5cf6,#6366f1)" }}>Create Project</button>
