@@ -202,6 +202,26 @@ app.delete("/api/users/:id", async (req, res) => {
     catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+// ✅ NEW: Endpoint to validate sessions and mark inactive users as logged out
+// This checks which users are still active in sessions and updates their status
+app.post("/api/validate-sessions", async (req, res) => {
+    try {
+        const { activeUsers } = req.body; // Array of user IDs who are currently logged in
+
+        // Mark all users as Logged-Out by default
+        await User.update({ status: "Logged-Out" }, { where: {} });
+
+        // Mark only the active users as Logged-In
+        if (activeUsers && activeUsers.length > 0) {
+            await User.update({ status: "Logged-In" }, { where: { id: { [Op.in]: activeUsers } } });
+        }
+
+        // Return updated users
+        const users = await User.findAll({ order: [['createdAt', 'ASC']] });
+        res.json(users.map(fmt));
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 // Orgs
 app.get("/api/orgs", async (req, res) => {
     try { res.json((await Org.findAll()).map(fmt)); } catch (err) { res.status(500).json({ error: err.message }); }
@@ -553,7 +573,7 @@ app.post("/api/all-data/import", async (req, res) => {
 const PORT = process.env.PORT || 5000;
 sequelize.sync({ alter: true }).then(async () => {
     console.log("✅ MySQL Synced & Connected");
-    
+
     // Data Migration: Normalize user statuses
     try {
         await User.update({ status: "Logged-In" }, { where: { status: "Active" } });

@@ -15,6 +15,7 @@ const DB_API = `${BASE_URL}/all-data`;
 const AUTH_API = `${BASE_URL}/auth/login`;
 const IMPORT_API = `${BASE_URL}/import`;
 const PROJECTS_API = `${BASE_URL}/projects`;
+const VALIDATE_SESSIONS_API = `${BASE_URL}/validate-sessions`;
 
 // ─── CONSTANTS ────────────────────────────────────────────────────────────────
 const DEPARTMENTS = ["IT", "HR", "Finance", "Operations", "Sales", "Marketing", "Legal", "Support"];
@@ -766,9 +767,30 @@ export default function HelpDesk() {
     return () => clearTimeout(timeout);
   }, []);
 
-  // ✅ REMOVED: No periodic role refresh
-  // Role is cached from login and only updated when admin changes it
-  // This reduces API calls and improves performance
+  // ✅ NEW: Validate sessions periodically and update user statuses
+  const validateSessions = async () => {
+    try {
+      // Send the current user ID to mark as active
+      const activeUserIds = currentUser ? [currentUser.id] : [];
+      const response = await axios.post(VALIDATE_SESSIONS_API, { activeUsers: activeUserIds });
+      const updatedUsers = response.data || [];
+      setUsers(updatedUsers);
+    } catch (e) {
+      console.error("Error validating sessions:", e);
+    }
+  };
+
+  // Call validate sessions every 45 seconds
+  useEffect(() => {
+    if (!currentUser) return;
+
+    // Validate immediately on login
+    validateSessions();
+
+    // Then validate periodically
+    const interval = setInterval(validateSessions, 45000);
+    return () => clearInterval(interval);
+  }, [currentUser]);
 
   // ✅ NEW: Listen for role change broadcasts from other tabs/admins
   useEffect(() => {
@@ -788,6 +810,12 @@ export default function HelpDesk() {
           console.error("Error processing role change notification:", error);
         }
       }
+
+      // ✅ NEW: Listen for logout events from other tabs
+      if (e.key === SESSION_KEY && e.newValue === null) {
+        // Another tab/window logged out - refresh users list to update status display
+        loadData();
+      }
     };
 
     window.addEventListener("storage", handleStorageChange);
@@ -804,6 +832,16 @@ export default function HelpDesk() {
       case "Closed": return 100;
       default: return 0;
     }
+  };
+
+  // ✅ NEW: Helper to get display status based on session
+  const getDisplayStatus = (user) => {
+    // Check if this user is the currently logged-in user
+    if (currentUser && currentUser.id === user.id) {
+      return "Logged-In";
+    }
+    // Otherwise, assume logged out
+    return "Logged-Out";
   };
 
   // You can also add this for your dropdowns
@@ -1472,18 +1510,15 @@ export default function HelpDesk() {
         return;
       }
 
-      // 3. Prepare the updated user object with Active status
+      // 3. ✅ FIXED: Update status to Logged-In in DB so other users see it
       const updatedUser = { ...u, status: "Logged-In" };
-
-      // 4. Update the user in the database via the USERS_API URL
-      // We use axios.put to the specific user's ID endpoint
       await axios.put(`${USERS_API}/${u.id}`, updatedUser);
 
-      // 5. Update local state and session
-      saveSession(updatedUser); // persists 12-hour session
+      // 4. Cache in session and local state
+      saveSession(updatedUser);
       setCurrentUser(updatedUser);
 
-      // 6. Reload all data to get updated user statuses
+      // 5. Reload all data
       await loadData();
 
     } catch (err) {
@@ -1494,7 +1529,10 @@ export default function HelpDesk() {
 
   const handleLogout = async () => {
     if (currentUser) {
-      try { await axios.put(`${USERS_API}/${currentUser.id}`, { ...currentUser, status: "Logged-Out" }); }
+      // ✅ FIXED: Update status in DB so other tabs/users see the logout
+      try {
+        await axios.put(`${USERS_API}/${currentUser.id}`, { ...currentUser, status: "Logged-Out" });
+      }
       catch (e) { console.error("Logout status update failed"); }
     }
     clearSession();
@@ -2685,9 +2723,10 @@ export default function HelpDesk() {
                       <td style={{ ...tdStyle, color: "#64748b", fontSize: 12 }}>{u.email}</td>
                       <td style={tdStyle}><Badge label={u.role} style={{ background: u.role === "Super Admin" ? "#fca5a5" : "#ede9fe", color: u.role === "Super Admin" ? "#991b1b" : "#6d28d9" }} /></td>
                       <td style={tdStyle}>{(() => {
-                        const statusValue = u.status === "Active" ? "Logged-In" : (u.status === "Not Active" || u.status?.toLowerCase() === "logged-out") ? "Logged-Out" : u.status;
+                        // Check DB status field which is updated on login/logout
+                        const statusValue = u.status === "Logged-In" ? "Logged-In" : "Logged-Out";
                         const sStyle = statusOpts.find(s => s.l === statusValue);
-                        return sStyle ? <Badge label={sStyle.l} style={{ background: sStyle.bg, color: sStyle.c }} /> : <Badge label={u.status || "—"} />;
+                        return sStyle ? <Badge label={sStyle.l} style={{ background: sStyle.bg, color: sStyle.c }} /> : <Badge label={statusValue} />;
                       })()}</td>
                       <td style={tdStyle}><Badge label={u.active ? "Activated" : "Deactivated"} style={{ background: u.active ? "#dcfce7" : "#fee2e2", color: u.active ? "#15803d" : "#ef4444" }} /></td>
                       {(currentUser?.role === "Super Admin" || currentUser?.role === "Admin") && u.role !== "Super Admin" && <td style={tdStyle}><div style={{ display: "flex", gap: 6, alignItems: "center" }}>
