@@ -109,6 +109,152 @@ const Modal = ({ open, onClose, title, width = 640, children }) => {
   </div>;
 };
 
+// ✅ NEW: Custom Alert Component with beautiful CSS
+const CustomAlert = ({ show, message, type }) => {
+  if (!show) return null;
+
+  const bgColor = type === "success" ? "#dcfce7" : "#fee2e2";
+  const borderColor = type === "success" ? "#86efac" : "#fca5a5";
+  const textColor = type === "success" ? "#166534" : "#b91c1c";
+  const icon = type === "success" ? "✓" : "✕";
+
+  return (
+    <div style={{
+      position: "fixed",
+      top: 20,
+      right: 20,
+      background: bgColor,
+      border: `2px solid ${borderColor}`,
+      color: textColor,
+      padding: "14px 18px",
+      borderRadius: 8,
+      fontSize: 13,
+      fontWeight: 600,
+      display: "flex",
+      alignItems: "center",
+      gap: 10,
+      boxShadow: "0 4px 12px rgba(0,0,0,0.15)",
+      zIndex: 10002,
+      maxWidth: "400px",
+      wordBreak: "break-word"
+    }}>
+      <span style={{ fontSize: 16, fontWeight: 700 }}>{icon}</span>
+      <span>{message}</span>
+    </div>
+  );
+};
+
+// ✅ NEW: Full-Screen Confirmation Modal
+const ConfirmationModal = ({ show, title, message, onConfirm, onCancel }) => {
+  if (!show) return null;
+
+  return (
+    <div style={{
+      position: "fixed",
+      inset: 0,
+      background: "rgba(0, 0, 0, 0.7)",
+      display: "flex",
+      alignItems: "center",
+      justifyContent: "center",
+      zIndex: 11000,
+      backdropFilter: "blur(4px)"
+    }}>
+      <div style={{
+        background: "#fff",
+        borderRadius: 16,
+        padding: 32,
+        maxWidth: 500,
+        width: "90%",
+        boxShadow: "0 25px 80px rgba(0,0,0,0.3)",
+        animation: "slideDown 0.3s ease-out"
+      }}>
+        {/* Title */}
+        <h2 style={{
+          margin: "0 0 12px 0",
+          fontSize: 20,
+          fontWeight: 700,
+          color: "#0f172a"
+        }}>
+          {title}
+        </h2>
+
+        {/* Message */}
+        <p style={{
+          margin: "0 0 28px 0",
+          fontSize: 14,
+          color: "#475569",
+          lineHeight: 1.6
+        }}>
+          {message}
+        </p>
+
+        {/* Buttons */}
+        <div style={{
+          display: "flex",
+          gap: 12,
+          justifyContent: "flex-end"
+        }}>
+          <button onClick={onCancel} style={{
+            padding: "10px 24px",
+            borderRadius: 8,
+            border: "1.5px solid #e2e8f0",
+            background: "#fff",
+            color: "#475569",
+            cursor: "pointer",
+            fontSize: 13,
+            fontWeight: 600,
+            transition: "all 0.2s",
+            fontFamily: "'DM Sans', sans-serif"
+          }} onMouseOver={e => {
+            e.target.style.background = "#f1f5f9";
+            e.target.style.borderColor = "#cbd5e1";
+          }} onMouseOut={e => {
+            e.target.style.background = "#fff";
+            e.target.style.borderColor = "#e2e8f0";
+          }}>
+            Cancel
+          </button>
+
+          <button onClick={onConfirm} style={{
+            padding: "10px 24px",
+            borderRadius: 8,
+            border: "none",
+            background: "linear-gradient(135deg, #3b82f6, #6366f1)",
+            color: "#fff",
+            cursor: "pointer",
+            fontSize: 13,
+            fontWeight: 600,
+            transition: "all 0.2s",
+            fontFamily: "'DM Sans', sans-serif",
+            boxShadow: "0 4px 12px rgba(59, 130, 246, 0.3)"
+          }} onMouseOver={e => {
+            e.target.style.boxShadow = "0 6px 16px rgba(59, 130, 246, 0.4)";
+            e.target.style.transform = "translateY(-2px)";
+          }} onMouseOut={e => {
+            e.target.style.boxShadow = "0 4px 12px rgba(59, 130, 246, 0.3)";
+            e.target.style.transform = "translateY(0)";
+          }}>
+            Confirm
+          </button>
+        </div>
+      </div>
+
+      <style>{`
+        @keyframes slideDown {
+          from {
+            opacity: 0;
+            transform: translateY(-20px);
+          }
+          to {
+            opacity: 1;
+            transform: translateY(0);
+          }
+        }
+      `}</style>
+    </div>
+  );
+};
+
 const FF = ({ label, required, children }) => <div style={{ marginBottom: 14 }}>
   <label style={{ display: "block", fontSize: 11, fontWeight: 600, color: "#475569", marginBottom: 5, textTransform: "uppercase", letterSpacing: "0.05em" }}>{label}{required && <span style={{ color: "#ef4444", marginLeft: 2 }}>*</span>}</label>
   {children}
@@ -451,7 +597,7 @@ export default function HelpDesk() {
   // ── Settings forms ──
   const [newOrg, setNewOrg] = useState({ name: "", domain: "", phone: "" });
   const [newCat, setNewCat] = useState({ name: "", color: "#3b82f6" });
-  const [newUser, setNewUser] = useState({ name: "", email: "", role: "Viewer" });
+  const [newUser, setNewUser] = useState({ name: "", email: "", password: "", role: "Viewer" });
   const [newAttr, setNewAttr] = useState({ name: "", type: "text", options: "", required: false });
 
   // ── Inline ticket/project category+attr managers ──
@@ -485,6 +631,12 @@ export default function HelpDesk() {
   const [profileOpen, setProfileOpen] = useState(false);
   const [editProfileOpen, setEditProfileOpen] = useState(false);
   const [profileForm, setProfileForm] = useState({ phone: "", name: "" });
+  const [showChangePassword, setShowChangePassword] = useState(false);
+  const [passwordForm, setPasswordForm] = useState({ oldPassword: "", newPassword: "", confirmPassword: "" });
+  const [customAlert, setCustomAlert] = useState({ show: false, message: "", type: "success" });
+
+  // ✅ NEW: Confirmation Modal State
+  const [confirmModal, setConfirmModal] = useState({ show: false, title: "", message: "", onConfirm: null, onCancel: null });
   const [selectedTickets, setSelectedTickets] = useState(new Set());
   const [ticketsPerPage, setTicketsPerPage] = useState(10);
   const [showOtherActions, setShowOtherActions] = useState(false);
@@ -792,14 +944,27 @@ export default function HelpDesk() {
   };
 
   const deleteTicket = async (id) => {
-    if (!window.confirm("Delete this ticket? This cannot be undone.")) return;
-    try {
-      await axios.delete(`${TICKETS_API}/${id}`);
-      setTickets(prev => prev.filter(t => t.id !== id));
-      setSelTicket(null);
-    } catch (e) {
-      alert("Failed to delete ticket: " + (e.response?.data?.error || e.message));
-    }
+    setConfirmModal({
+      show: true,
+      title: "Delete Ticket?",
+      message: "Are you sure you want to delete this ticket? This action cannot be undone and all associated data will be lost.",
+      onConfirm: async () => {
+        try {
+          await axios.delete(`${TICKETS_API}/${id}`);
+          setTickets(prev => prev.filter(t => t.id !== id));
+          setSelTicket(null);
+          setCustomAlert({ show: true, message: "Ticket deleted successfully", type: "success" });
+          setConfirmModal({ show: false, title: "", message: "", onConfirm: null, onCancel: null });
+          setTimeout(() => setCustomAlert({ show: false, message: "", type: "success" }), 3000);
+        } catch (e) {
+          setCustomAlert({ show: true, message: "Failed to delete ticket: " + (e.response?.data?.error || e.message), type: "error" });
+          setConfirmModal({ show: false, title: "", message: "", onConfirm: null, onCancel: null });
+        }
+      },
+      onCancel: () => {
+        setConfirmModal({ show: false, title: "", message: "", onConfirm: null, onCancel: null });
+      }
+    });
   };
 
   const toggleAssignee = u => { const e = form.assignees.find(a => a.id === u.id); setForm({ ...form, assignees: e ? form.assignees.filter(a => a.id !== u.id) : [...form.assignees, u] }); };
@@ -875,70 +1040,167 @@ export default function HelpDesk() {
     } catch (err) { console.error(err); }
   };
   const addUser = async () => {
-    if (!newUser.name || !newUser.email) return;
+    if (!newUser.name || !newUser.email || !newUser.password) {
+      setCustomAlert({ show: true, message: "Name, email, and password are required", type: "error" });
+      return;
+    }
+    if (newUser.password.length < 6) {
+      setCustomAlert({ show: true, message: "Password must be at least 6 characters", type: "error" });
+      return;
+    }
     try {
-      // We send a POST request to the USERS_API URL
+      // Admin is setting the password for the user
       const response = await axios.post(USERS_API, {
         ...newUser,
         active: true,
-        status: "Logged-Out" // Default status for newly added users
+        status: "Logged-Out"
       });
 
       const created = response.data;
       setUsers([...users, created]);
 
-      // Reset form - default new users to Viewer so they stay in management 
-      // until they sign up/upgrade to Agent
-      setNewUser({ name: "", email: "", role: "Viewer" });
+      // ✅ Custom success alert instead of system alert
+      setCustomAlert({ show: true, message: `User "${created.name}" created successfully with temporary password`, type: "success" });
+
+      // Reset form
+      setNewUser({ name: "", email: "", password: "", role: "Viewer" });
+
+      // Auto-hide success alert after 3 seconds
+      setTimeout(() => setCustomAlert({ show: false, message: "", type: "success" }), 3000);
     } catch (err) {
       console.error("Error adding user:", err);
-      alert("Failed to add user. Check console for details.");
+      setCustomAlert({ show: true, message: err.message || "Failed to add user", type: "error" });
     }
+  };
+
+  // ✅ NEW: Change Password Function
+  const changePassword = async () => {
+    if (!passwordForm.oldPassword || !passwordForm.newPassword || !passwordForm.confirmPassword) {
+      setCustomAlert({ show: true, message: "All password fields are required", type: "error" });
+      return;
+    }
+
+    if (passwordForm.newPassword !== passwordForm.confirmPassword) {
+      setCustomAlert({ show: true, message: "New passwords do not match", type: "error" });
+      return;
+    }
+
+    if (passwordForm.newPassword.length < 6) {
+      setCustomAlert({ show: true, message: "Password must be at least 6 characters", type: "error" });
+      return;
+    }
+
+    // ✅ Show custom confirmation modal instead of window.confirm
+    setConfirmModal({
+      show: true,
+      title: "Change Password?",
+      message: "Are you sure you want to change your password? This action cannot be undone.",
+      onConfirm: async () => {
+        try {
+          await axios.put(`${USERS_API}/${currentUser.id}`, {
+            ...currentUser,
+            password: passwordForm.newPassword,
+            oldPassword: passwordForm.oldPassword
+          });
+
+          setCustomAlert({ show: true, message: "Password changed successfully!", type: "success" });
+          setShowChangePassword(false);
+          setPasswordForm({ oldPassword: "", newPassword: "", confirmPassword: "" });
+          setConfirmModal({ show: false, title: "", message: "", onConfirm: null, onCancel: null });
+
+          // Auto-hide success alert after 3 seconds
+          setTimeout(() => setCustomAlert({ show: false, message: "", type: "success" }), 3000);
+        } catch (err) {
+          console.error("Error changing password:", err);
+          setCustomAlert({ show: true, message: err.message || "Failed to change password", type: "error" });
+          setConfirmModal({ show: false, title: "", message: "", onConfirm: null, onCancel: null });
+        }
+      },
+      onCancel: () => {
+        setConfirmModal({ show: false, title: "", message: "", onConfirm: null, onCancel: null });
+      }
+    });
   };
   // --- ORGANIZATIONS ---
   const deleteOrg = async (id) => {
-    if (!window.confirm("Delete this organization?")) return;
-    try {
-      // 1. Call the API to delete from database
-      await axios.delete(`${ORGS_API}/${id}`);
-
-      // 2. Update local state immediately to remove it from UI
-      setOrgs(prev => prev.filter(o => o.id !== id));
-    } catch (err) {
-      console.error("Error deleting organization:", err);
-    }
+    setConfirmModal({
+      show: true,
+      title: "Delete Organization?",
+      message: "Are you sure you want to delete this organization? All associated data will be permanently removed. This action cannot be undone.",
+      onConfirm: async () => {
+        try {
+          await axios.delete(`${ORGS_API}/${id}`);
+          setOrgs(prev => prev.filter(o => o.id !== id));
+          setCustomAlert({ show: true, message: "Organization deleted successfully", type: "success" });
+          setConfirmModal({ show: false, title: "", message: "", onConfirm: null, onCancel: null });
+          setTimeout(() => setCustomAlert({ show: false, message: "", type: "success" }), 3000);
+        } catch (err) {
+          console.error("Error deleting organization:", err);
+          setCustomAlert({ show: true, message: "Failed to delete organization", type: "error" });
+          setConfirmModal({ show: false, title: "", message: "", onConfirm: null, onCancel: null });
+        }
+      },
+      onCancel: () => {
+        setConfirmModal({ show: false, title: "", message: "", onConfirm: null, onCancel: null });
+      }
+    });
   };
 
   // --- CATEGORIES ---
   const deleteCat = async (id) => {
     if (!id || typeof id === 'object') {
-      alert("Cannot delete: This category has no valid ID. It is likely corrupted data.");
+      setCustomAlert({ show: true, message: "Cannot delete: This category has no valid ID. It is likely corrupted data.", type: "error" });
       return;
     }
 
-    if (!window.confirm("Delete this category?")) return;
-
-    try {
-      await axios.delete(`${CATEGORIES_API}/${id}`);
-
-      // Update both states to remove it from the UI immediately
-      setCategories(prev => prev.filter(c => c.id !== id && c._id !== id));
-      setTicketCategories(prev => prev.filter(c => c.id !== id && c._id !== id));
-    } catch (err) {
-      console.error("Error deleting category:", err);
-    }
+    setConfirmModal({
+      show: true,
+      title: "Delete Category?",
+      message: "Are you sure you want to delete this category? All tickets associated with this category will be affected. This action cannot be undone.",
+      onConfirm: async () => {
+        try {
+          await axios.delete(`${CATEGORIES_API}/${id}`);
+          setCategories(prev => prev.filter(c => c.id !== id && c._id !== id));
+          setTicketCategories(prev => prev.filter(c => c.id !== id && c._id !== id));
+          setCustomAlert({ show: true, message: "Category deleted successfully", type: "success" });
+          setConfirmModal({ show: false, title: "", message: "", onConfirm: null, onCancel: null });
+          setTimeout(() => setCustomAlert({ show: false, message: "", type: "success" }), 3000);
+        } catch (err) {
+          console.error("Error deleting category:", err);
+          setCustomAlert({ show: true, message: "Failed to delete category", type: "error" });
+          setConfirmModal({ show: false, title: "", message: "", onConfirm: null, onCancel: null });
+        }
+      },
+      onCancel: () => {
+        setConfirmModal({ show: false, title: "", message: "", onConfirm: null, onCancel: null });
+      }
+    });
   };
 
   // --- USERS ---
   const deleteUser = async (id) => {
-    if (!window.confirm("Delete this user?")) return;
-    try {
-      await axios.delete(`${USERS_API}/${id}`);
-      setUsers(prev => prev.filter(u => u.id !== id));
-    } catch (err) {
-      console.error("Error deleting user:", err);
-      alert("Failed to delete user.");
-    }
+    const user = users.find(u => u.id === id);
+    setConfirmModal({
+      show: true,
+      title: `Delete ${user?.name}?`,
+      message: `Are you sure you want to delete ${user?.name}? This user account and all associated data will be permanently removed. This action cannot be undone.`,
+      onConfirm: async () => {
+        try {
+          await axios.delete(`${USERS_API}/${id}`);
+          setUsers(prev => prev.filter(u => u.id !== id));
+          setCustomAlert({ show: true, message: `${user?.name} deleted successfully`, type: "success" });
+          setConfirmModal({ show: false, title: "", message: "", onConfirm: null, onCancel: null });
+          setTimeout(() => setCustomAlert({ show: false, message: "", type: "success" }), 3000);
+        } catch (err) {
+          console.error("Error deleting user:", err);
+          setCustomAlert({ show: true, message: "Failed to delete user", type: "error" });
+          setConfirmModal({ show: false, title: "", message: "", onConfirm: null, onCancel: null });
+        }
+      },
+      onCancel: () => {
+        setConfirmModal({ show: false, title: "", message: "", onConfirm: null, onCancel: null });
+      }
+    });
   };
 
   // ✅ NEW: Admin can edit user name and password
@@ -1358,6 +1620,18 @@ export default function HelpDesk() {
     <div style={{ display: "flex", height: "100vh", fontFamily: "'DM Sans',sans-serif", background: "#f8fafc", color: "#1e293b", overflow: "hidden" }}>
       <style>{`@import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=DM+Mono:wght@400;500&display=swap');*{box-sizing:border-box}::-webkit-scrollbar{width:5px;height:5px}::-webkit-scrollbar-thumb{background:#cbd5e1;border-radius:3px}input:focus,select:focus,textarea:focus{border-color:#3b82f6!important;outline:none;background:#fff!important}.rh:hover td{background:#f8fafc!important}@keyframes pulse{0%,100%{opacity:1}50%{opacity:0.5}}`}</style>
 
+      {/* ✅ NEW: Custom Alert */}
+      <CustomAlert show={customAlert.show} message={customAlert.message} type={customAlert.type} />
+
+      {/* ✅ NEW: Confirmation Modal */}
+      <ConfirmationModal
+        show={confirmModal.show}
+        title={confirmModal.title}
+        message={confirmModal.message}
+        onConfirm={confirmModal.onConfirm}
+        onCancel={confirmModal.onCancel}
+      />
+
       {/* ── SIDEBAR ─────────────────────────────────────────────────────── */}
       <div style={{ width: 220, background: "#0f172a", display: "flex", flexDirection: "column", flexShrink: 0 }}>
         <div style={{ padding: "18px 18px 14px", borderBottom: "1px solid #1e293b" }}>
@@ -1441,6 +1715,23 @@ export default function HelpDesk() {
         </div>
         <FF label="Full Name"><input style={iS} value={profileForm.name} onChange={e => setProfileForm({ ...profileForm, name: e.target.value })} /></FF>
         <FF label="Phone Number"><input style={iS} value={profileForm.phone} onChange={e => setProfileForm({ ...profileForm, phone: e.target.value })} /></FF>
+
+        {/* ✅ NEW: Change Password Section */}
+        <div style={{ marginTop: 20, paddingTop: 20, borderTop: "1px solid #e2e8f0" }}>
+          <button onClick={() => setShowChangePassword(!showChangePassword)} style={{ width: "100%", padding: "10px 14px", background: "#f0f9ff", border: "1px solid #bfdbfe", borderRadius: 8, color: "#0c4a6e", fontWeight: 600, cursor: "pointer", fontSize: 13, marginBottom: 12 }}>
+            {showChangePassword ? "Hide Change Password" : "Change Password"}
+          </button>
+
+          {showChangePassword && (
+            <div style={{ background: "#fef9c3", padding: 14, borderRadius: 8, marginBottom: 12, border: "1px solid #fcd34d" }}>
+              <FF label="Current Password"><input style={iS} type="password" value={passwordForm.oldPassword} onChange={e => setPasswordForm({ ...passwordForm, oldPassword: e.target.value })} placeholder="Enter your current password" /></FF>
+              <FF label="New Password"><input style={iS} type="password" value={passwordForm.newPassword} onChange={e => setPasswordForm({ ...passwordForm, newPassword: e.target.value })} placeholder="Enter new password (min 6 characters)" /></FF>
+              <FF label="Confirm New Password"><input style={iS} type="password" value={passwordForm.confirmPassword} onChange={e => setPasswordForm({ ...passwordForm, confirmPassword: e.target.value })} placeholder="Re-enter new password" /></FF>
+              <button onClick={changePassword} style={{ ...bP, width: "100%" }}>Change Password</button>
+            </div>
+          )}
+        </div>
+
         <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 12 }}>
           <button onClick={() => setEditProfileOpen(false)} style={bG}>Cancel</button>
           <button onClick={saveProfile} style={bP}>Save Changes</button>
@@ -2189,9 +2480,10 @@ export default function HelpDesk() {
               {settingsTab === "usermgmt" && <div style={{ background: "#fff", borderRadius: 12, padding: 22, boxShadow: "0 1px 4px rgba(0,0,0,0.06)" }}>
                 <h3 style={{ margin: "0 0 14px", fontSize: 15, fontWeight: 700 }}>User Management ({users.length} users)</h3>
                 {currentUser?.role === "Admin" ? (
-                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr auto auto", gap: 9, marginBottom: 18, padding: 14, background: "#f8fafc", borderRadius: 9 }}>
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr auto auto", gap: 9, marginBottom: 18, padding: 14, background: "#f8fafc", borderRadius: 9 }}>
                     <input style={iS} placeholder="Full name *" value={newUser.name} onChange={e => setNewUser({ ...newUser, name: e.target.value })} />
                     <input style={iS} placeholder="Email *" value={newUser.email} onChange={e => setNewUser({ ...newUser, email: e.target.value })} />
+                    <input style={iS} type="password" placeholder="Password *" value={newUser.password} onChange={e => setNewUser({ ...newUser, password: e.target.value })} />
                     <select style={{ ...sS, width: 110 }} value={newUser.role} onChange={e => setNewUser({ ...newUser, role: e.target.value })}>{ROLES.map(r => <option key={r}>{r}</option>)}</select>
                     <button onClick={addUser} style={bP}>Add</button>
                   </div>
@@ -2217,26 +2509,36 @@ export default function HelpDesk() {
                         <select value={u.role} onChange={async (e) => {
                           const newRole = e.target.value;
 
-                          // ✅ Ask for confirmation before changing role
-                          if (!window.confirm(`Are you sure you want to change ${u.name}'s role to ${newRole}? This will take effect immediately.`)) {
-                            return;
-                          }
+                          // ✅ Show custom confirmation modal for role change
+                          setConfirmModal({
+                            show: true,
+                            title: `Change ${u.name}'s Role?`,
+                            message: `Are you sure you want to change ${u.name}'s role to ${newRole}? This will take effect immediately and cannot be undone.`,
+                            onConfirm: async () => {
+                              try {
+                                const updated = { ...u, role: newRole };
+                                await axios.put(`${USERS_API}/${u.id}`, updated);
+                                setUsers(users.map(x => x.id === u.id ? updated : x));
 
-                          try {
-                            const updated = { ...u, role: newRole };
-                            await axios.put(`${USERS_API}/${u.id}`, updated);
-                            setUsers(users.map(x => x.id === u.id ? updated : x));
-
-                            // ✅ If we changed current user's own role, update it immediately
-                            if (u.id === currentUser.id) {
-                              setCurrentUser({ ...currentUser, role: newRole });
-                              alert(`Your role has been changed to ${newRole}. Please refresh the page to see all updated features.`);
-                            } else {
-                              alert(`${u.name}'s role has been changed to ${newRole}.`);
+                                if (u.id === currentUser.id) {
+                                  setCurrentUser({ ...currentUser, role: newRole });
+                                  setCustomAlert({ show: true, message: `Your role has been changed to ${newRole}. Please refresh the page to see all updated features.`, type: "success" });
+                                } else {
+                                  setCustomAlert({ show: true, message: `${u.name}'s role has been changed to ${newRole}.`, type: "success" });
+                                }
+                                setConfirmModal({ show: false, title: "", message: "", onConfirm: null, onCancel: null });
+                                setTimeout(() => setCustomAlert({ show: false, message: "", type: "success" }), 3000);
+                              } catch (err) {
+                                setCustomAlert({ show: true, message: "Failed to update role", type: "error" });
+                                setConfirmModal({ show: false, title: "", message: "", onConfirm: null, onCancel: null });
+                              }
+                            },
+                            onCancel: () => {
+                              setConfirmModal({ show: false, title: "", message: "", onConfirm: null, onCancel: null });
+                              // Reset dropdown to previous value
+                              e.target.value = u.role;
                             }
-                          } catch (err) {
-                            alert("Failed to update role");
-                          }
+                          });
                         }} style={{ ...sS, fontSize: 11, padding: "4px 8px" }}>{ROLES.map(r => <option key={r}>{r}</option>)}</select>
                         <button onClick={async () => { try { const updated = { ...u, active: !u.active }; await axios.put(`${USERS_API}/${u.id}`, updated); setUsers(users.map(x => x.id === u.id ? updated : x)); } catch (err) { alert("Failed to update user"); } }} style={{ border: "none", background: u.active ? "#fef9c3" : "#dcfce7", color: u.active ? "#854d0e" : "#15803d", borderRadius: 6, padding: "4px 9px", cursor: "pointer", fontSize: 12, fontWeight: 600 }}>{u.active ? "Deactivate" : "Activate"}</button>
                         {u.id !== currentUser.id && <button onClick={async () => { if (window.confirm(`Delete ${u.name}?`)) { try { await axios.delete(`${USERS_API}/${u.id}`); setUsers(users.filter(x => x.id !== u.id)); } catch (err) { console.error("Delete failed:", err); } } }} style={{ border: "none", background: "#fee2e2", color: "#ef4444", borderRadius: 6, padding: "4px 9px", cursor: "pointer", fontSize: 12, fontWeight: 600 }}>Delete</button>}
