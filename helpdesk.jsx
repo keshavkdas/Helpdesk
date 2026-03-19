@@ -976,7 +976,7 @@ export default function HelpDesk() {
 
               // Ensure Role matches your DB ENUM (Capitalized)
               if (row.role) {
-                const validRoles = ["Admin", "Manager", "Agent", "Viewer"];
+                const validRoles = ["Admin", "Manager", "Agent", "Viewer", "Super Admin"];
                 const cleaned = row.role.charAt(0).toUpperCase() + row.role.slice(1).toLowerCase();
                 row.role = validRoles.includes(cleaned) ? cleaned : "Viewer";
               } else {
@@ -987,22 +987,52 @@ export default function HelpDesk() {
           });
         } else {
           payload = JSON.parse(content);
+          // Ensure payload is always an array
+          if (!Array.isArray(payload)) {
+            payload = [payload];
+          }
         }
 
+        // ✅ CHANGED: Map to direct API endpoints instead of /api/import/:table
         const API_MAP = {
           tickets: TICKETS_API,
           users: USERS_API,
           orgs: ORGS_API,
-          categories: CATEGORIES_API
+          categories: CATEGORIES_API,
+          projects: PROJECTS_API
         };
 
-        await axios.post(`${IMPORT_API}/${targetTable}`, payload);
-        alert(`${targetTable} imported successfully!`);
+        const apiEndpoint = API_MAP[targetTable];
+        if (!apiEndpoint) {
+          alert(`Unknown table: ${targetTable}`);
+          return;
+        }
+
+        // Import each item individually to the database
+        let successCount = 0;
+        for (const item of payload) {
+          try {
+            await axios.post(apiEndpoint, item);
+            successCount++;
+          } catch (itemErr) {
+            console.error(`Failed to import item:`, item, itemErr);
+          }
+        }
+
+        setCustomAlert({
+          show: true,
+          message: `${successCount}/${payload.length} ${targetTable} imported successfully!`,
+          type: "success"
+        });
         loadData();
         e.target.value = null;
       } catch (err) {
         console.error(err);
-        alert("Import failed: " + (err.response?.data?.error || err.message));
+        setCustomAlert({
+          show: true,
+          message: "Import failed: " + (err.response?.data?.error || err.message),
+          type: "error"
+        });
       }
     };
     reader.readAsText(file);
