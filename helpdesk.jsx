@@ -18,13 +18,13 @@ const PROJECTS_API = `${BASE_URL}/projects`;
 const VALIDATE_SESSIONS_API = `${BASE_URL}/validate-sessions`;
 
 // ─── CONSTANTS ────────────────────────────────────────────────────────────────
-const DEPARTMENTS = ["IT", "HR", "Finance", "Operations", "Sales", "Marketing", "Legal", "Support"];
+const DEPARTMENTS_DEFAULT = ["IT", "HR", "Finance", "Operations", "Sales", "Marketing", "Legal", "Support"];
 const PRIORITIES = ["Low", "Medium", "High", "Critical"];
-const STATUSES = ["Open", "In Progress", "Pending", "Resolved", "Closed"];
+const STATUSES = ["Open", "In Progress", "Resolved", "Closed"];
 const ROLES = ["Super Admin", "Admin", "Manager", "Agent", "Viewer"];
 const LOCATIONS = ["Amphitheater", "Main Hall", "Outdoor Ground", "Conference Center", "Community Center", "Regional Center", "Online", "Other"];
 const SATSANG_TYPES = ["G Satsang", "Weekly Satsang", "Special Satsang", "Youth Satsang", "Children Satsang"];
-const PROJECT_STATUSES = ["Open", "In Progress", "Pending", "Resolved", "Closed"];
+const PROJECT_STATUSES = ["Open", "In Progress", "Resolved", "Closed"];
 const PROJECT_PRIORITIES = ["Low", "Medium", "High", "Critical"];
 
 
@@ -39,10 +39,10 @@ const STATUS_COLOR = {
 
 const TICKET_VIEWS = [
   { id: "open", label: "Open Tickets", icon: "📬", desc: "All open tickets", filter: t => t.status === "Open" },
-  { id: "waiting", label: "Waiting Tickets", icon: "⏳", desc: "Tickets in Pending state", filter: t => t.status === "Pending" },
+  { id: "inprogress", label: "In Progress", icon: "⚙️", desc: "Tickets being worked on", filter: t => t.status === "In Progress" },
   { id: "closed", label: "Closed Tickets", icon: "✅", desc: "Closed & resolved tickets", filter: t => t.status === "Closed" || t.status === "Resolved" },
-  { id: "unassigned", label: "Unassigned", icon: "👤", desc: "Open/waiting with no assignee", filter: t => (t.status === "Open" || t.status === "Pending") && (!t.assignees || t.assignees.length === 0) },
-  { id: "mine", label: "My Tickets", icon: "🙋", desc: "Open/waiting assigned to me", filter: (t, me) => (t.status === "Open" || t.status === "Pending") && t.assignees?.some(a => a.id === me?.id) },
+  { id: "unassigned", label: "Unassigned", icon: "🔸", desc: "Tickets with no assignees", filter: t => !t.assignees || t.assignees.length === 0 },
+  { id: "mine", label: "My Tickets", icon: "🙋", desc: "Open/in progress assigned to me", filter: (t, me) => (t.status === "Open" || t.status === "In Progress") && t.assignees?.some(a => a.id === me?.id) },
   { id: "all", label: "All Tickets", icon: "◈", desc: "Every ticket in the system", filter: () => true },
   { id: "alerts", label: "Active Alerts", icon: "🔔", desc: "Critical tickets with active alerts", filter: t => t.priority === "Critical" && t.status !== "Closed" && t.status !== "Resolved" },
   { id: "pastdue", label: "Past Due", icon: "🔴", desc: "Open tickets older than 5 days", filter: t => t.status === "Open" && (Date.now() - new Date(t.created).getTime()) > 5 * 86400000 },
@@ -60,22 +60,101 @@ const PROJECT_VIEWS = [
 
 // ─── EXPORT HELPERS ────────────────────────────────────────────────────────────
 function exportCSV(items, type = "tickets") {
-  const isProject = type === "projects";
-  const h = isProject
-    ? ["ID", "Title", "Organisation", "Department", "Reported By", "Assignees", "Priority", "Category", "Status", "Progress", "Due Date", "Created"]
-    : ["ID", "Summary", "Organisation", "Department", "Contact", "Reported By", "Assignees", "Priority", "Category", "Status", "Created", "Updated"];
-  const rows = items.map(t => isProject
-    ? [t.id, `"${t.title}"`, t.org, t.department || "", t.reportedBy || "", `"${(t.assignees || []).map(a => a.name).join("; ")}"`, t.priority, t.category, t.status, `${t.progress}%`, t.dueDate?.toLocaleDateString() || "", new Date(t.created).toLocaleString()]
-    : [t.id, `"${t.summary}"`, t.org, t.department || "", t.contact || "", t.reportedBy || "", `"${(t.assignees || []).map(a => a.name).join("; ")}"`, t.priority, t.category, t.status, new Date(t.created).toLocaleString(), new Date(t.updated).toLocaleString()]
-  );
-  const csv = [h, ...rows].map(r => r.join(",")).join("\n");
-  const a = document.createElement("a"); a.href = URL.createObjectURL(new Blob([csv], { type: "text/csv" })); a.download = `${type}.csv`; a.click();
+  if (!items || items.length === 0) {
+    alert(`No ${type} to export`);
+    return;
+  }
+
+  let headers = [];
+  let rows = [];
+
+  // Determine headers and format based on type
+  if (type === "users") {
+    headers = ["ID", "Name", "Email", "Phone", "Role", "Active", "Status"];
+    rows = items.map(u => [
+      u.id,
+      `"${u.name || ""}"`,
+      u.email || "",
+      u.phone || "",
+      u.role || "Viewer",
+      u.active ? "Yes" : "No",
+      u.status || "Logged-Out"
+    ]);
+  } else if (type === "orgs" || type === "organizations") {
+    headers = ["ID", "Name", "Domain", "Phone"];
+    rows = items.map(o => [
+      o.id,
+      `"${o.name || ""}"`,
+      o.domain || "",
+      o.phone || ""
+    ]);
+  } else if (type === "categories") {
+    headers = ["ID", "Name", "Color"];
+    rows = items.map(c => [
+      c.id,
+      `"${c.name || ""}"`,
+      c.color || ""
+    ]);
+  } else if (type === "projects") {
+    headers = ["ID", "Title", "Organisation", "Department", "Reported By", "Assignees", "Priority", "Category", "Status", "Progress", "Due Date", "Created"];
+    rows = items.map(t => [
+      t.id,
+      `"${t.title || ""}"`,
+      t.org || "",
+      t.department || "",
+      t.reportedBy || "",
+      `"${(t.assignees || []).map(a => a.name).join("; ")}"`,
+      t.priority || "Medium",
+      t.category || "",
+      t.status || "Open",
+      `${t.progress || 0}%`,
+      t.dueDate?.toLocaleDateString() || "",
+      new Date(t.created).toLocaleString()
+    ]);
+  } else {
+    // Default: tickets
+    headers = ["ID", "Summary", "Organisation", "Department", "Contact", "Reported By", "Assignees", "Priority", "Category", "Status", "Created", "Updated"];
+    rows = items.map(t => [
+      t.id,
+      `"${t.summary || ""}"`,
+      t.org || "",
+      t.department || "",
+      t.contact || "",
+      t.reportedBy || "",
+      `"${(t.assignees || []).map(a => a.name).join("; ")}"`,
+      t.priority || "Medium",
+      t.category || "",
+      t.status || "Open",
+      new Date(t.created).toLocaleString(),
+      new Date(t.updated).toLocaleString()
+    ]);
+  }
+
+  const csv = [headers, ...rows].map(r => r.join(",")).join("\n");
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(new Blob([csv], { type: "text/csv" }));
+  a.download = `${type}_export_${new Date().toISOString().split('T')[0]}.csv`;
+  a.click();
 }
+
 function exportJSON(items) {
+  if (!items || items.length === 0) {
+    alert("No data to export");
+    return;
+  }
   const data = items.map(t => ({ ...t, assignees: (t.assignees || []).map(a => ({ id: a.id, name: a.name, role: a.role })) }));
-  const a = document.createElement("a"); a.href = URL.createObjectURL(new Blob([JSON.stringify(data, null, 2)], { type: "application/json" })); a.download = "export.json"; a.click();
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(new Blob([JSON.stringify(data, null, 2)], { type: "application/json" }));
+  a.download = `export_${new Date().toISOString().split('T')[0]}.json`;
+  a.click();
 }
+
 function exportPrint(items, type = "tickets") {
+  if (!items || items.length === 0) {
+    alert(`No ${type} to print`);
+    return;
+  }
+
   const isProject = type === "projects";
   const rows = items.map(t => isProject
     ? `<tr><td>${t.id}</td><td>${t.title}</td><td>${t.org}</td><td>${t.priority}</td><td>${t.status}</td><td>${t.progress}%</td><td>${new Date(t.created).toLocaleDateString()}</td></tr>`
@@ -83,7 +162,8 @@ function exportPrint(items, type = "tickets") {
   ).join("");
   const w = window.open("", "_blank");
   w.document.write(`<html><head><title>${type} Export</title><style>body{font-family:sans-serif;font-size:12px}table{border-collapse:collapse;width:100%}th,td{border:1px solid #ccc;padding:6px 8px;text-align:left}th{background:#f1f5f9}</style></head><body><h2>${type} Export — ${new Date().toLocaleDateString()}</h2><p>${items.length} ${type}</p><table><thead><tr>${isProject ? "<th>ID</th><th>Title</th><th>Org</th><th>Priority</th><th>Status</th><th>Progress</th><th>Created</th>" : "<th>ID</th><th>Summary</th><th>Org</th><th>Priority</th><th>Status</th><th>Created</th>"}</tr></thead><tbody>${rows}</tbody></table></body></html>`);
-  w.document.close(); w.print();
+  w.document.close();
+  w.print();
 }
 
 // ─── UI PRIMITIVES ─────────────────────────────────────────────────────────────
@@ -534,6 +614,7 @@ export default function HelpDesk() {
   const [targetTable, setTargetTable] = useState("tickets");
   const [exportFilterType, setExportFilterType] = useState("all"); // all, assignee, category, type
   const [exportFilterValue, setExportFilterValue] = useState(""); // assignee id, category name, type
+  const [exportFormat, setExportFormat] = useState("csv"); // csv, json, pdf
   const [loginEmail, setLoginEmail] = useState("");
   const [loginPassword, setLoginPassword] = useState("");
   // Restore from localStorage session — survives page reload
@@ -566,6 +647,13 @@ export default function HelpDesk() {
     }
   });
   const [range, setRange] = useState("all");
+
+  // ✅ NEW: Departments and filters
+  const [departments, setDepartments] = useState([]);
+  const [deptFilter, setDeptFilter] = useState("all");
+  const [orgFilter, setOrgFilter] = useState("all");
+  const [orgClassifyType, setOrgClassifyType] = useState("all");
+  const [newDept, setNewDept] = useState({ name: "" });
 
   // ✅ NEW: Save current view and filters to localStorage
   useEffect(() => {
@@ -714,6 +802,15 @@ export default function HelpDesk() {
       setProjectCategories(data.categories || []);
       setTicketCustomAttrs(data.customAttrs || []);
       setProjectCustomAttrs(data.customAttrs || []);
+
+      // ✅ NEW: Load departments
+      try {
+        const deptResponse = await axios.get(`${BASE_URL}/departments`);
+        setDepartments(deptResponse.data || []);
+      } catch (e) {
+        console.log("Departments not available, using defaults");
+        setDepartments(DEPARTMENTS_DEFAULT.map((name, i) => ({ id: i, name })));
+      }
 
       const parsedTickets = [
         ...(data.tickets || []),
@@ -891,6 +988,9 @@ export default function HelpDesk() {
     if (currentUser.role !== "Admin" && t.reportedBy !== currentUser.name && !t.assignees?.some(a => a.id === currentUser.id)) return false;
     if (statusF !== "All" && t.status !== statusF) return false;
     if (priorityF !== "All" && t.priority !== priorityF) return false;
+    // ✅ NEW: Apply org and dept filters
+    if (orgFilter !== "all" && t.org !== orgFilter) return false;
+    if (deptFilter !== "all" && t.department !== deptFilter) return false;
     if (search) {
       if (search.startsWith("event:")) {
         const id = search.split(":")[1];
@@ -899,7 +999,7 @@ export default function HelpDesk() {
       if (!t.summary.toLowerCase().includes(search.toLowerCase()) && !t.id.toLowerCase().includes(search.toLowerCase()) && !t.org.toLowerCase().includes(search.toLowerCase())) return false;
     }
     return true;
-  }), [tickets, cvd, currentUser, statusF, priorityF, search]);
+  }), [tickets, cvd, currentUser, statusF, priorityF, search, orgFilter, deptFilter]);
 
   const totalPages = Math.ceil(filtered.length / TICKETS_PER_PAGE);
 
@@ -925,7 +1025,7 @@ export default function HelpDesk() {
     return true;
   }), [projects, cpv, currentUser, projStatusF, projPriorityF, projSearch]);
 
-  const stats = useMemo(() => ({ total: fbr.length, open: fbr.filter(x => x.status === "Open").length, inProgress: fbr.filter(x => x.status === "In Progress").length, resolved: fbr.filter(x => x.status === "Resolved" || x.status === "Closed").length, critical: fbr.filter(x => x.priority === "Critical").length }), [fbr]);
+  const stats = useMemo(() => ({ total: fbr.length, open: fbr.filter(x => x.status === "Open" || x.status === "In Progress").length, inProgress: fbr.filter(x => x.status === "In Progress").length, resolved: fbr.filter(x => x.status === "Resolved" || x.status === "Closed").length, critical: fbr.filter(x => x.priority === "Critical").length }), [fbr]);
 
   // For dashboard: Agents and Viewers only see stats for projects assigned to them
   const dashboardProjects = useMemo(() => {
@@ -954,27 +1054,61 @@ export default function HelpDesk() {
 
         if (file.name.endsWith(".csv")) {
           const lines = content.split("\n").filter(l => l.trim() !== "");
+          if (lines.length < 2) {
+            setCustomAlert({ show: true, message: "CSV file is empty", type: "error" });
+            return;
+          }
+
           const headers = lines[0].split(",").map(h => h.trim().toLowerCase());
 
           payload = lines.slice(1).map(line => {
-            const values = line.split(",");
-            let row = headers.reduce((obj, header, i) => {
-              let val = values[i]?.trim() || "";
-              if (val.startsWith('"') && val.endsWith('"')) val = val.slice(1, -1);
+            const values = line.split(",").map(v => v.trim());
+            let row = {};
 
-              // FIX: Map "organization" to "org" so Sequelize recognizes it
-              if (header === "organization") {
-                obj["org"] = val;
-              } else if (header !== "password") {
-                obj[header] = val;
+            // Parse each header and value
+            headers.forEach((header, i) => {
+              let val = values[i] || "";
+
+              // Remove quotes if present
+              if (val.startsWith('"') && val.endsWith('"')) {
+                val = val.slice(1, -1);
               }
-              return obj;
-            }, {});
 
+              // Skip empty values and password
+              if (val === "" || header === "password") return;
+
+              // Map field names
+              if (header === "organization") {
+                row["org"] = val;
+              } else if (header === "firstname") {
+                row["firstName"] = val;
+              } else if (header === "lastname") {
+                row["lastName"] = val;
+              } else if (header === "middlename") {
+                row["middleName"] = val;
+              } else if (header === "countrycode") {
+                row["countryCode"] = val;
+              } else {
+                row[header] = val;
+              }
+            });
+
+            // Apply defaults and validations for users
             if (targetTable === "users") {
-              row.password = "TEMP_UNSET_" + Math.random().toString(36).slice(-8);
+              // ✅ FIXED: Generate password automatically if not provided
+              if (!row.password) {
+                row.password = "TempPass_" + Math.random().toString(36).slice(-10);
+              }
 
-              // Ensure Role matches your DB ENUM (Capitalized)
+              // ✅ Ensure required fields have defaults
+              if (!row.name) {
+                row.name = `${row.firstName || "User"} ${row.lastName || ""}`.trim() || "Imported User";
+              }
+              if (!row.email) {
+                row.email = `user_${Date.now()}_${Math.random().toString(36).slice(-5)}@imported.local`;
+              }
+
+              // ✅ Validate role
               if (row.role) {
                 const validRoles = ["Admin", "Manager", "Agent", "Viewer", "Super Admin"];
                 const cleaned = row.role.charAt(0).toUpperCase() + row.role.slice(1).toLowerCase();
@@ -982,18 +1116,50 @@ export default function HelpDesk() {
               } else {
                 row.role = "Viewer";
               }
+
+              // ✅ Set defaults for optional fields
+              if (row.active === undefined || row.active === "") row.active = true;
+              if (row.status === undefined || row.status === "") row.status = "Logged-Out";
+              if (row.confirmed === undefined || row.confirmed === "") row.confirmed = true;
             }
+
             return row;
-          });
+          }).filter(row => row && (row.email || row.name)); // Only include non-empty rows
         } else {
+          // JSON import
           payload = JSON.parse(content);
-          // Ensure payload is always an array
           if (!Array.isArray(payload)) {
             payload = [payload];
           }
+
+          // Apply same defaults for users in JSON
+          if (targetTable === "users") {
+            payload = payload.map(row => {
+              if (!row.password) {
+                row.password = "TempPass_" + Math.random().toString(36).slice(-10);
+              }
+              if (!row.name && row.firstName) {
+                row.name = `${row.firstName} ${row.lastName || ""}`.trim();
+              }
+              if (!row.email) {
+                row.email = `user_${Date.now()}_${Math.random().toString(36).slice(-5)}@imported.local`;
+              }
+              if (row.role) {
+                const validRoles = ["Admin", "Manager", "Agent", "Viewer", "Super Admin"];
+                const cleaned = row.role.charAt(0).toUpperCase() + row.role.slice(1).toLowerCase();
+                row.role = validRoles.includes(cleaned) ? cleaned : "Viewer";
+              } else {
+                row.role = "Viewer";
+              }
+              if (row.active === undefined) row.active = true;
+              if (row.status === undefined) row.status = "Logged-Out";
+              if (row.confirmed === undefined) row.confirmed = true;
+              return row;
+            });
+          }
         }
 
-        // ✅ CHANGED: Map to direct API endpoints instead of /api/import/:table
+        // ✅ Map to direct API endpoints
         const API_MAP = {
           tickets: TICKETS_API,
           users: USERS_API,
@@ -1004,27 +1170,34 @@ export default function HelpDesk() {
 
         const apiEndpoint = API_MAP[targetTable];
         if (!apiEndpoint) {
-          alert(`Unknown table: ${targetTable}`);
+          setCustomAlert({ show: true, message: `Unknown table: ${targetTable}`, type: "error" });
           return;
         }
 
         // Import each item individually to the database
         let successCount = 0;
+        let failedCount = 0;
+
         for (const item of payload) {
           try {
             await axios.post(apiEndpoint, item);
             successCount++;
           } catch (itemErr) {
             console.error(`Failed to import item:`, item, itemErr);
+            failedCount++;
           }
         }
 
         setCustomAlert({
           show: true,
-          message: `${successCount}/${payload.length} ${targetTable} imported successfully!`,
-          type: "success"
+          message: `✅ ${successCount}/${payload.length} ${targetTable} imported successfully!${failedCount > 0 ? ` (${failedCount} failed)` : ""}`,
+          type: successCount > 0 ? "success" : "error"
         });
-        loadData();
+
+        if (successCount > 0) {
+          loadData();
+        }
+
         e.target.value = null;
       } catch (err) {
         console.error(err);
@@ -1473,6 +1646,33 @@ export default function HelpDesk() {
       alert("Failed to delete project: " + (e.response?.data?.error || e.message));
     }
   };
+
+  // ✅ NEW: Department management functions
+  const addDept = async () => {
+    if (!newDept?.name?.trim()) {
+      setCustomAlert({ show: true, message: "Department name required", type: "error" });
+      return;
+    }
+    try {
+      const dept = await axios.post(`${BASE_URL}/departments`, newDept);
+      setDepartments([...departments, dept.data]);
+      setNewDept({ name: "" });
+      setCustomAlert({ show: true, message: "✅ Department added!", type: "success" });
+    } catch (e) {
+      setCustomAlert({ show: true, message: "Failed to add department", type: "error" });
+    }
+  };
+
+  const deleteDept = async (id) => {
+    if (!window.confirm("Delete this department?")) return;
+    try {
+      await axios.delete(`${BASE_URL}/departments/${id}`);
+      setDepartments(departments.filter(d => d.id !== id));
+      setCustomAlert({ show: true, message: "✅ Department deleted!", type: "success" });
+    } catch (e) {
+      setCustomAlert({ show: true, message: "Failed to delete department", type: "error" });
+    }
+  };
   const toggleProjSel = id => { const s = new Set(selectedProjIds); s.has(id) ? s.delete(id) : s.add(id); setSelectedProjIds(s); };
   const toggleAllProj = () => selectedProjIds.size === filteredProjects.length && filteredProjects.length > 0 ? setSelectedProjIds(new Set()) : setSelectedProjIds(new Set(filteredProjects.map(p => p.id)));
   const selProjects = filteredProjects.filter(p => selectedProjIds.has(p.id));
@@ -1650,6 +1850,7 @@ export default function HelpDesk() {
     { id: "projectviews", label: "Project Views", icon: "📂" },
     { id: "organisations", label: "Organisations", icon: "🏢" },
     { id: "categories", label: "Categories", icon: "🏷" },
+    { id: "departments", label: "Departments", icon: "🏛" },
     { id: "usermgmt", label: "User Management", icon: "👥" },
     { id: "customattrs", label: "Custom Attributes", icon: "✏️" },
     { id: "dbmgmt", label: "Database Mgmt", icon: "💾" },
@@ -1658,6 +1859,7 @@ export default function HelpDesk() {
     { id: "projectviews", label: "Project Views", icon: "📂" },
     { id: "organisations", label: "Organisations", icon: "🏢" },
     { id: "categories", label: "Categories", icon: "🏷" },
+    { id: "departments", label: "Departments", icon: "🏛" },
     { id: "usermgmt", label: "User Management", icon: "👥" },
     { id: "customattrs", label: "Custom Attributes", icon: "✏️" },
   ] : [
@@ -1847,7 +2049,11 @@ export default function HelpDesk() {
 
         <div style={{ padding: "8px 8px 0", flex: 1, overflow: "auto" }}>
           {sideNav.map(n => (
-            <button key={n.id} onClick={() => setView(n.id)} style={{ display: "flex", alignItems: "center", gap: 9, width: "100%", padding: "8px 11px", borderRadius: 7, border: "none", cursor: "pointer", background: view === n.id ? "#1e293b" : "transparent", color: view === n.id ? "#60a5fa" : "#64748b", fontSize: 13, fontWeight: view === n.id ? 600 : 400, marginBottom: 2, textAlign: "left", fontFamily: "'DM Sans',sans-serif" }}>
+            <button key={n.id} onClick={() => {
+              setView(n.id);
+              // ✅ NEW: When clicking "All Tickets", set filter to "all" (all statuses)
+              if (n.id === "tickets") setTvFilter("all");
+            }} style={{ display: "flex", alignItems: "center", gap: 9, width: "100%", padding: "8px 11px", borderRadius: 7, border: "none", cursor: "pointer", background: view === n.id ? "#1e293b" : "transparent", color: view === n.id ? "#60a5fa" : "#64748b", fontSize: 13, fontWeight: view === n.id ? 600 : 400, marginBottom: 2, textAlign: "left", fontFamily: "'DM Sans',sans-serif" }}>
               <span>{n.icon}</span>{n.label}
             </button>
           ))}
@@ -2044,6 +2250,16 @@ export default function HelpDesk() {
                 ))}
               </div>
 
+              {/* ✅ NEW: Unassigned Tickets Card */}
+              <div style={{ marginBottom: 14, padding: "14px 16px", background: "#f3e8ff", borderRadius: 12, borderLeft: "4px solid #a855f7", boxShadow: "0 1px 4px rgba(0,0,0,0.06)", cursor: "pointer" }}
+                onClick={() => { setView("tickets"); setTvFilter("unassigned"); }}
+                onMouseEnter={e => e.currentTarget.style.boxShadow = "0 4px 16px rgba(0,0,0,0.12)"}
+                onMouseLeave={e => e.currentTarget.style.boxShadow = "0 1px 4px rgba(0,0,0,0.06)"}>
+                <div style={{ fontSize: 18, marginBottom: 4 }}>🔸</div>
+                <div style={{ fontSize: 26, fontWeight: 800, color: "#a855f7" }}>{fbr.filter(t => !t.assignees || t.assignees.length === 0).length}</div>
+                <div style={{ fontSize: 11, fontWeight: 600, color: "#374151", marginTop: 2 }}>Unassigned</div>
+              </div>
+
               {/* ── ROW 2: PROJECTS ── */}
               <div style={{ marginBottom: 4 }}>
                 <span style={{ fontSize: 10, fontWeight: 700, color: "#94a3b8", textTransform: "uppercase", letterSpacing: "0.07em", marginLeft: 2 }}>📁 Projects</span>
@@ -2109,6 +2325,23 @@ export default function HelpDesk() {
               <input placeholder="Search…" value={search} onChange={e => setSearch(e.target.value)} style={{ ...iS, width: 200, fontSize: 13, padding: "7px 10px" }} />
               <select value={statusF} onChange={e => setStatusF(e.target.value)} style={{ ...sS, width: 128, fontSize: 13, padding: "7px 10px" }}><option value="All">All Status</option>{STATUSES.map(s => <option key={s}>{s}</option>)}</select>
               <select value={priorityF} onChange={e => setPriorityF(e.target.value)} style={{ ...sS, width: 128, fontSize: 13, padding: "7px 10px" }}><option value="All">All Priority</option>{PRIORITIES.map(p => <option key={p}>{p}</option>)}</select>
+
+              {/* ✅ NEW: Organization filter */}
+              <select value={orgFilter} onChange={(e) => setOrgFilter(e.target.value)} style={{ ...sS, width: 140, fontSize: 13, padding: "7px 10px" }}>
+                <option value="all">All Organizations</option>
+                {[...new Set(fbr.map(t => t.org))].map(org => (
+                  <option key={org} value={org}>{org || "No Org"}</option>
+                ))}
+              </select>
+
+              {/* ✅ NEW: Department filter */}
+              <select value={deptFilter} onChange={(e) => setDeptFilter(e.target.value)} style={{ ...sS, width: 140, fontSize: 13, padding: "7px 10px" }}>
+                <option value="all">All Departments</option>
+                {departments.map(d => (
+                  <option key={d.id} value={d.name}>{d.name}</option>
+                ))}
+              </select>
+
               <span style={{ fontSize: 12, color: "#64748b" }}>{filtered.length} tickets</span>
               <div style={{ marginLeft: "auto", display: "flex", gap: 8, alignItems: "center" }}>
                 {selectedIds.size > 0 && <span style={{ fontSize: 12, color: "#3b82f6", fontWeight: 600, background: "#eff6ff", padding: "4px 10px", borderRadius: 99 }}>{selectedIds.size} selected</span>}
@@ -2219,10 +2452,29 @@ export default function HelpDesk() {
                 <div style={{ position: "relative" }}>
                   <button onClick={() => setShowExport(!showExport)} style={{ ...bG, display: "flex", alignItems: "center", gap: 6, padding: "7px 13px" }}>⬇ Export <span style={{ fontSize: 10 }}>▾</span></button>
                   {showExport && <><div style={{ position: "fixed", inset: 0, zIndex: 149 }} onClick={() => setShowExport(false)} />
-                    <div style={{ position: "absolute", right: 0, top: "calc(100% + 4px)", background: "#fff", border: "1.5px solid #e2e8f0", borderRadius: 10, zIndex: 150, boxShadow: "0 8px 24px rgba(0,0,0,0.12)", minWidth: 188, overflow: "hidden" }}>
-                      {[{ l: "📄 Export CSV", a: () => exportCSV(selectedIds.size > 0 ? selTickets : filtered) }, { l: "📋 Export JSON", a: () => exportJSON(selectedIds.size > 0 ? selTickets : filtered) }, { l: "🖨 Print / PDF", a: () => exportPrint(selectedIds.size > 0 ? selTickets : filtered) }].map(x => (
-                        <button key={x.l} onClick={() => { x.a(); setShowExport(false); }} style={{ display: "block", width: "100%", padding: "10px 14px", border: "none", background: "#fff", cursor: "pointer", fontSize: 13, textAlign: "left", fontFamily: "'DM Sans',sans-serif", borderBottom: "1px solid #f8fafc" }}>{x.l}</button>
-                      ))}
+                    <div style={{ position: "absolute", right: 0, top: "calc(100% + 4px)", background: "#fff", border: "1.5px solid #e2e8f0", borderRadius: 10, zIndex: 150, boxShadow: "0 8px 24px rgba(0,0,0,0.12)", minWidth: 220, overflow: "hidden" }}>
+                      <div style={{ padding: "10px 12px", borderBottom: "1px solid #f1f5f9" }}>
+                        <select
+                          value={exportFormat}
+                          onChange={(e) => setExportFormat(e.target.value)}
+                          style={{ ...sS, fontSize: 12, padding: "6px 8px", width: "100%" }}
+                        >
+                          <option value="csv">📄 Export as CSV</option>
+                          <option value="json">📋 Export as JSON</option>
+                          <option value="pdf">🖨 Export as PDF / Print</option>
+                        </select>
+                      </div>
+                      <button
+                        onClick={() => {
+                          const data = selectedIds.size > 0 ? selTickets : filtered;
+                          if (exportFormat === "csv") exportCSV(data, "tickets");
+                          else if (exportFormat === "json") exportJSON(data);
+                          else exportPrint(data, "tickets");
+                          setShowExport(false);
+                        }}
+                        style={{ display: "block", width: "100%", padding: "10px 14px", border: "none", background: "#fff", cursor: "pointer", fontSize: 13, textAlign: "left", fontFamily: "'DM Sans',sans-serif", fontWeight: 600, color: "#3b82f6" }}>
+                        ⬇️ Export
+                      </button>
                     </div>
                   </>}
                 </div>
@@ -2346,10 +2598,29 @@ export default function HelpDesk() {
                 <div style={{ position: "relative" }}>
                   <button onClick={() => setShowProjExport(!showProjExport)} style={{ ...bG, display: "flex", alignItems: "center", gap: 6, padding: "7px 13px" }}>⬇ Export <span style={{ fontSize: 10 }}>▾</span></button>
                   {showProjExport && <><div style={{ position: "fixed", inset: 0, zIndex: 149 }} onClick={() => setShowProjExport(false)} />
-                    <div style={{ position: "absolute", right: 0, top: "calc(100% + 4px)", background: "#fff", border: "1.5px solid #e2e8f0", borderRadius: 10, zIndex: 150, boxShadow: "0 8px 24px rgba(0,0,0,0.12)", minWidth: 188, overflow: "hidden" }}>
-                      {[{ l: "📄 Export CSV", a: () => exportCSV(selectedProjIds.size > 0 ? selProjects : filteredProjects, "projects") }, { l: "📋 Export JSON", a: () => exportJSON(selectedProjIds.size > 0 ? selProjects : filteredProjects) }, { l: "🖨 Print / PDF", a: () => exportPrint(selectedProjIds.size > 0 ? selProjects : filteredProjects, "projects") }].map(x => (
-                        <button key={x.l} onClick={() => { x.a(); setShowProjExport(false); }} style={{ display: "block", width: "100%", padding: "10px 14px", border: "none", background: "#fff", cursor: "pointer", fontSize: 13, textAlign: "left", fontFamily: "'DM Sans',sans-serif", borderBottom: "1px solid #f8fafc" }}>{x.l}</button>
-                      ))}
+                    <div style={{ position: "absolute", right: 0, top: "calc(100% + 4px)", background: "#fff", border: "1.5px solid #e2e8f0", borderRadius: 10, zIndex: 150, boxShadow: "0 8px 24px rgba(0,0,0,0.12)", minWidth: 220, overflow: "hidden" }}>
+                      <div style={{ padding: "10px 12px", borderBottom: "1px solid #f1f5f9" }}>
+                        <select
+                          value={exportFormat}
+                          onChange={(e) => setExportFormat(e.target.value)}
+                          style={{ ...sS, fontSize: 12, padding: "6px 8px", width: "100%" }}
+                        >
+                          <option value="csv">📄 Export as CSV</option>
+                          <option value="json">📋 Export as JSON</option>
+                          <option value="pdf">🖨 Export as PDF / Print</option>
+                        </select>
+                      </div>
+                      <button
+                        onClick={() => {
+                          const data = selectedProjIds.size > 0 ? selProjects : filteredProjects;
+                          if (exportFormat === "csv") exportCSV(data, "projects");
+                          else if (exportFormat === "json") exportJSON(data);
+                          else exportPrint(data, "projects");
+                          setShowProjExport(false);
+                        }}
+                        style={{ display: "block", width: "100%", padding: "10px 14px", border: "none", background: "#fff", cursor: "pointer", fontSize: 13, textAlign: "left", fontFamily: "'DM Sans',sans-serif", fontWeight: 600, color: "#8b5cf6" }}>
+                        ⬇️ Export
+                      </button>
                     </div>
                   </>}
                 </div>
@@ -2485,7 +2756,33 @@ export default function HelpDesk() {
           {view === "reports" && <>
             <div style={{ display: "flex", gap: 9, marginBottom: 14, alignItems: "center", flexWrap: "wrap" }}>
               <span style={{ fontSize: 13, fontWeight: 600, color: "#374151" }}>Export Report:</span>
-              {[{ l: "📄 CSV", a: () => exportCSV(classifiedReportsData) }, { l: "📋 JSON", a: () => exportJSON(classifiedReportsData) }, { l: "🖨 Print", a: () => exportPrint(classifiedReportsData) }].map(b => <button key={b.l} onClick={b.a} style={bG}>{b.l}</button>)}
+
+              {/* Export Format Selector */}
+              <select
+                value={exportFormat}
+                onChange={(e) => setExportFormat(e.target.value)}
+                style={{ ...sS, fontSize: 13, padding: "7px 10px", minWidth: 120 }}
+              >
+                <option value="csv">📄 CSV</option>
+                <option value="json">📋 JSON</option>
+                <option value="pdf">🖨 PDF / Print</option>
+              </select>
+
+              {/* Unified Export Button */}
+              <button
+                onClick={() => {
+                  if (exportFormat === "csv") {
+                    exportCSV(classifiedReportsData, "tickets");
+                  } else if (exportFormat === "json") {
+                    exportJSON(classifiedReportsData);
+                  } else if (exportFormat === "pdf") {
+                    exportPrint(classifiedReportsData, "tickets");
+                  }
+                }}
+                style={{ ...bP, padding: "7px 16px", fontSize: 13, background: "#3b82f6", color: "#fff" }}
+              >
+                ⬇️ Export
+              </button>
             </div>
 
             {/* Classification Filters */}
@@ -2730,6 +3027,31 @@ export default function HelpDesk() {
                   ))}
                 </div>
               </div>}
+              {/* ✅ NEW: Departments Management */}
+              {settingsTab === "departments" && <div style={{ background: "#fff", borderRadius: 12, padding: 22, boxShadow: "0 1px 4px rgba(0,0,0,0.06)" }}>
+                <h3 style={{ margin: "0 0 4px", fontSize: 15, fontWeight: 700 }}>Departments ({departments.length})</h3>
+                <p style={{ margin: "0 0 18px", fontSize: 12, color: "#64748b" }}>Manage organizational departments for tickets and projects.</p>
+                {currentUser?.role === "Admin" ? (
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: 9, marginBottom: 18, padding: 14, background: "#f8fafc", borderRadius: 9 }}>
+                    <input
+                      style={iS}
+                      placeholder="Department name *"
+                      value={newDept?.name || ""}
+                      onChange={e => setNewDept({ name: e.target.value })}
+                    />
+                    <button onClick={addDept} style={bP}>Add</button>
+                  </div>
+                ) : <div style={{ marginBottom: 18, padding: "10px 14px", background: "#fef3c7", color: "#92400e", borderRadius: 8, fontSize: 13, fontWeight: 500 }}>Read Only: Department management is restricted to Admins.</div>}
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(160px,1fr))", gap: 9 }}>
+                  {departments.map(d => (
+                    <div key={d.id} style={{ display: "flex", alignItems: "center", gap: 9, padding: "11px 13px", borderRadius: 9, border: "1.5px solid #e2e8f0", background: "#fafafa" }}>
+                      <span style={{ flex: 1, fontSize: 13, fontWeight: 600 }}>{d.name}</span>
+                      {currentUser?.role === "Admin" && <button onClick={() => deleteDept(d.id)} style={{ border: "none", background: "#fee2e2", color: "#ef4444", borderRadius: 6, padding: "4px 10px", cursor: "pointer", fontSize: 12, fontWeight: 600 }}>Delete</button>}
+                    </div>
+                  ))}
+                </div>
+                {departments.length === 0 && <div style={{ textAlign: "center", color: "#94a3b8", padding: 28 }}>No departments yet. Add one to get started.</div>}
+              </div>}
               {settingsTab === "usermgmt" && <div style={{ background: "#fff", borderRadius: 12, padding: 22, boxShadow: "0 1px 4px rgba(0,0,0,0.06)" }}>
                 <h3 style={{ margin: "0 0 14px", fontSize: 15, fontWeight: 700 }}>User Management ({users.length} users)</h3>
                 {currentUser?.role === "Super Admin" || currentUser?.role === "Admin" ? (
@@ -2930,7 +3252,7 @@ export default function HelpDesk() {
       <Modal open={showNewTicket} onClose={() => { setShowNewTicket(false); setShowAssigneeDD(false); }} title="Create New Ticket" width={700}>
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0 18px" }}>
           <FF label="Organisation" required><select style={sS} value={form.org} onChange={e => setForm({ ...form, org: e.target.value })}><option value="">Select…</option>{orgs.map(o => <option key={o.id}>{o.name}</option>)}</select></FF>
-          <FF label="Department"><select style={sS} value={form.department} onChange={e => setForm({ ...form, department: e.target.value })}><option value="">Select…</option>{DEPARTMENTS.map(d => <option key={d}>{d}</option>)}</select></FF>
+          <FF label="Department"><select style={sS} value={form.department} onChange={e => setForm({ ...form, department: e.target.value })}><option value="">Select…</option>{departments.map(d => <option key={d.id}>{d.name}</option>)}</select></FF>
           <FF label="Contact Name"><input style={iS} placeholder="e.g. John Smith" value={form.contact} onChange={e => setForm({ ...form, contact: e.target.value })} /></FF>
           <FF label="Reported By"><input style={iS} placeholder="Who is raising this ticket?" value={form.reportedBy} onChange={e => setForm({ ...form, reportedBy: e.target.value })} /></FF>
           <FF label="Priority"><select style={sS} value={form.priority} onChange={e => setForm({ ...form, priority: e.target.value })}>{PRIORITIES.map(p => <option key={p}>{p}</option>)}</select></FF>
@@ -2991,7 +3313,7 @@ export default function HelpDesk() {
       <Modal open={showNewProject} onClose={() => setShowNewProject(false)} title="Create New Project" width={700}>
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0 18px" }}>
           <FF label="Organisation" required><select style={sS} value={projForm.org} onChange={e => setProjForm({ ...projForm, org: e.target.value })}><option value="">Select…</option>{orgs.map(o => <option key={o.id}>{o.name}</option>)}</select></FF>
-          <FF label="Department"><select style={sS} value={projForm.department} onChange={e => setProjForm({ ...projForm, department: e.target.value })}><option value="">Select…</option>{DEPARTMENTS.map(d => <option key={d}>{d}</option>)}</select></FF>
+          <FF label="Department"><select style={sS} value={projForm.department} onChange={e => setProjForm({ ...projForm, department: e.target.value })}><option value="">Select…</option>{departments.map(d => <option key={d.id}>{d.name}</option>)}</select></FF>
           <FF label="Reported By"><input style={iS} value={projForm.reportedBy} onChange={e => setProjForm({ ...projForm, reportedBy: e.target.value })} /></FF>
           <FF label="Priority"><select style={sS} value={projForm.priority} onChange={e => setProjForm({ ...projForm, priority: e.target.value })}>{PROJECT_PRIORITIES.map(p => <option key={p}>{p}</option>)}</select></FF>
           <FF label="Category"><select style={sS} value={projForm.category} onChange={e => setProjForm({ ...projForm, category: e.target.value })}><option value="">Select…</option>{projectCategories.map(c => <option key={c.id}>{c.name}</option>)}</select></FF>
@@ -3123,7 +3445,16 @@ export default function HelpDesk() {
           {/* Status Update */}
           <div style={{ marginBottom: 14 }}>
             <div style={{ fontSize: 11, fontWeight: 600, color: "#374151", marginBottom: 7 }}>UPDATE STATUS</div>
-            <div style={{ display: "flex", gap: 7, flexWrap: "wrap" }}>{STATUSES.map(s => <button key={s} onClick={() => updateStatus(selTicket.id, s)} style={{ padding: "5px 13px", borderRadius: 7, border: "none", cursor: "pointer", fontSize: 12, fontWeight: 600, fontFamily: "'DM Sans',sans-serif", background: selTicket.status === s ? STATUS_COLOR[s].text : "#f1f5f9", color: selTicket.status === s ? "#fff" : "#64748b" }}>{s}</button>)}</div>
+            <div style={{ display: "flex", gap: 7, flexWrap: "wrap", marginBottom: 10 }}>{STATUSES.map(s => <button key={s} onClick={() => updateStatus(selTicket.id, s)} style={{ padding: "5px 13px", borderRadius: 7, border: "none", cursor: "pointer", fontSize: 12, fontWeight: 600, fontFamily: "'DM Sans',sans-serif", background: selTicket.status === s ? STATUS_COLOR[s].text : "#f1f5f9", color: selTicket.status === s ? "#fff" : "#64748b" }}>{s}</button>)}</div>
+            {/* ✅ NEW: Save Changes Button */}
+            <button
+              onClick={() => {
+                setCustomAlert({ show: true, message: "✅ Ticket changes saved!", type: "success" });
+              }}
+              style={{ ...bP, background: "#22c55e", color: "#fff", fontWeight: 600, padding: "8px 16px", fontSize: 12 }}
+            >
+              💾 Save Changes
+            </button>
           </div>
 
           {/* Timeline (v1) */}

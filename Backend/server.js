@@ -136,6 +136,20 @@ const Project = sequelize.define("Project", {
     tasks: { type: DataTypes.JSON, defaultValue: [] }
 }, { timestamps: true });
 
+// ✅ NEW: Department Model
+const Department = sequelize.define("Department", {
+    id: {
+        type: DataTypes.INTEGER,
+        primaryKey: true,
+        autoIncrement: true,
+    },
+    name: {
+        type: DataTypes.STRING,
+        allowNull: false,
+        unique: true,
+    },
+}, { timestamps: true });
+
 // ─── SERIALIZER (Matches your original fmt) ──────────────────────────────────
 const fmt = (doc) => {
     if (!doc) return null;
@@ -299,7 +313,51 @@ app.delete("/api/customAttrs/:id", async (req, res) => {
     }
 });
 
+// ✅ NEW: Departments (Full CRUD)
+app.get("/api/departments", async (req, res) => {
+    try {
+        const departments = await Department.findAll({ order: [['name', 'ASC']] });
+        res.json(departments.map(fmt));
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
 
+app.post("/api/departments", async (req, res) => {
+    try {
+        const { name } = req.body;
+
+        if (!name || !name.trim()) {
+            return res.status(400).json({ error: "Department name is required" });
+        }
+
+        const existing = await Department.findOne({ where: { name: name.trim() } });
+        if (existing) {
+            return res.status(409).json({ error: "Department already exists" });
+        }
+
+        const dept = await Department.create({ name: name.trim() });
+        res.status(201).json(fmt(dept));
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+app.delete("/api/departments/:id", async (req, res) => {
+    try {
+        const { id } = req.params;
+
+        const dept = await Department.findByPk(id);
+        if (!dept) {
+            return res.status(404).json({ error: "Department not found" });
+        }
+
+        await dept.destroy();
+        res.json({ success: true, message: "Department deleted" });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
 
 // ─── 5. TICKETS (FULL LOGIC) ─────────────────────────────────────────────────
 
@@ -394,8 +452,8 @@ app.delete("/api/projects/:id", async (req, res) => {
 // Universal Export: Get all data for all tables (for full backups)
 app.get("/api/all-data", async (req, res) => {
     try {
-        const [users, orgs, categories, customAttrs, tickets, webcasts, satsangs, projects] = await Promise.all([
-            User.findAll(), Org.findAll(), Category.findAll(), CustomAttr.findAll(), Ticket.findAll(), Webcast.findAll(), Satsang.findAll(), Project.findAll()
+        const [users, orgs, categories, customAttrs, tickets, webcasts, satsangs, projects, departments] = await Promise.all([
+            User.findAll(), Org.findAll(), Category.findAll(), CustomAttr.findAll(), Ticket.findAll(), Webcast.findAll(), Satsang.findAll(), Project.findAll(), Department.findAll()
         ]);
         res.json({
             users: users.map(fmt),
@@ -406,6 +464,7 @@ app.get("/api/all-data", async (req, res) => {
             webcasts: webcasts.map(fmt),
             satsangs: satsangs.map(fmt),
             projects: projects.map(fmt),
+            departments: departments.map(fmt),
         });
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
@@ -582,6 +641,9 @@ sequelize.sync({ alter: true }).then(async () => {
     } catch (migErr) {
         console.error("⚠️ Status migration warning:", migErr.message);
     }
+
+    // ✅ NO HARDCODED DEPARTMENTS - Only add via frontend!
+    // Departments must be created manually through the Settings → Departments tab
 
     app.listen(PORT, () => console.log(`🚀 DeskFlow API → http://localhost:${PORT}`));
 }).catch(err => {
