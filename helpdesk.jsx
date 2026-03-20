@@ -2875,7 +2875,6 @@ export default function HelpDesk() {
                   </>}
                 </div>
 
-                <button onClick={() => setShowManageTicket(showManageTicket === "categories" ? null : "categories")} style={{ ...bG, padding: "7px 12px", fontSize: 12, background: showManageTicket === "categories" ? "#eff6ff" : "#fff", color: showManageTicket === "categories" ? "#3b82f6" : "#374151" }}>🏷 Categories</button>
                 <button onClick={() => setShowManageTicket(showManageTicket === "customattrs" ? null : "customattrs")} style={{ ...bG, padding: "7px 12px", fontSize: 12, background: showManageTicket === "customattrs" ? "#eff6ff" : "#fff", color: showManageTicket === "customattrs" ? "#3b82f6" : "#374151" }}>✏️ Fields</button>
                 <div style={{ position: "relative" }}>
                   <button onClick={() => setShowExport(!showExport)} style={{ ...bG, display: "flex", alignItems: "center", gap: 6, padding: "7px 13px" }}>⬇ Export <span style={{ fontSize: 10 }}>▾</span></button>
@@ -2908,30 +2907,6 @@ export default function HelpDesk() {
                 </div>
               </div>
             </div>
-
-            {/* Inline Ticket Categories Manager */}
-            {showManageTicket === "categories" && <div style={{ borderBottom: "1px solid #f1f5f9", padding: "16px 18px", background: "#f8fafc" }}>
-              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
-                <span style={{ fontSize: 13, fontWeight: 700, color: "#0f172a" }}>🏷 Ticket Categories</span>
-                <button onClick={() => setShowManageTicket(null)} style={{ border: "none", background: "#e2e8f0", borderRadius: 6, width: 24, height: 24, cursor: "pointer", fontSize: 14, color: "#64748b" }}>×</button>
-              </div>
-              <div style={{ display: "flex", gap: 9, marginBottom: 14, alignItems: "center", flexWrap: "wrap" }}>
-                <input style={{ ...iS, flex: 1, minWidth: 140, fontSize: 13, padding: "7px 10px" }} placeholder="Category name *" value={newTicketCat.name} onChange={e => setNewTicketCat({ ...newTicketCat, name: e.target.value })} />
-                <div style={{ display: "flex", alignItems: "center", gap: 6 }}><label style={{ fontSize: 12, fontWeight: 600, color: "#374151" }}>Color</label><input type="color" value={newTicketCat.color} onChange={e => setNewTicketCat({ ...newTicketCat, color: e.target.value })} style={{ width: 30, height: 30, border: "none", borderRadius: 6, cursor: "pointer", padding: 2 }} /></div>
-                <button onClick={addTicketCat} style={{ ...bP, padding: "7px 16px", fontSize: 12 }}>+ Add</button>
-              </div>
-              <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
-                {ticketCategories.map(c => (
-                  <div key={c.id} style={{ display: "flex", alignItems: "center", gap: 7, padding: "6px 10px 6px 8px", borderRadius: 8, border: `1.5px solid ${c.color}44`, background: `${c.color}11` }}>
-                    <div style={{ width: 10, height: 10, borderRadius: 2, background: c.color, flexShrink: 0 }} />
-                    <span style={{ fontSize: 12, fontWeight: 600, color: "#1e293b" }}>{c.name}</span>
-                    <span style={{ fontSize: 10, color: "#94a3b8" }}>{tickets.filter(t => t.category === c.name).length}</span>
-                    <button onClick={() => setTicketCategories(ticketCategories.filter(x => x.id !== c.id))} style={{ border: "none", background: "transparent", color: "#ef4444", cursor: "pointer", fontSize: 14, fontWeight: 700, padding: "0 2px", lineHeight: 1 }}>×</button>
-                  </div>
-                ))}
-                {ticketCategories.length === 0 && <span style={{ fontSize: 12, color: "#94a3b8" }}>No categories yet.</span>}
-              </div>
-            </div>}
 
             {/* Inline Ticket Custom Attrs Manager */}
             {showManageTicket === "customattrs" && <div style={{ borderBottom: "1px solid #f1f5f9", padding: "16px 18px", background: "#f8fafc" }}>
@@ -3048,7 +3023,6 @@ export default function HelpDesk() {
               <span style={{ fontSize: 12, color: "#64748b" }}>{filteredProjects.length} projects</span>
               <div style={{ marginLeft: "auto", display: "flex", gap: 8, alignItems: "center" }}>
                 {selectedProjIds.size > 0 && <span style={{ fontSize: 12, color: "#3b82f6", fontWeight: 600, background: "#eff6ff", padding: "4px 10px", borderRadius: 99 }}>{selectedProjIds.size} selected</span>}
-                <button onClick={() => setShowManageProject(showManageProject === "categories" ? null : "categories")} style={{ ...bG, padding: "7px 12px", fontSize: 12 }}>🏷 Categories</button>
                 <button onClick={() => setShowManageProject(showManageProject === "customattrs" ? null : "customattrs")} style={{ ...bG, padding: "7px 12px", fontSize: 12 }}>✏️ Fields</button>
                 <div style={{ position: "relative" }}>
                   <button onClick={() => setShowProjExport(!showProjExport)} style={{ ...bG, display: "flex", alignItems: "center", gap: 6, padding: "7px 13px" }}>⬇ Export <span style={{ fontSize: 10 }}>▾</span></button>
@@ -3083,29 +3057,6 @@ export default function HelpDesk() {
               </div>
             </div>
 
-            {/* Inline Project Categories Manager */}
-            {showManageProject === "categories" && <div style={{ borderBottom: "1px solid #f1f5f9", padding: "16px 18px", background: "#faf5ff" }}>
-              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
-                <span style={{ fontSize: 13, fontWeight: 700, color: "#0f172a" }}>🏷 Project Categories</span>
-                <button onClick={() => setShowManageProject(null)} style={{ border: "none", background: "#e2e8f0", borderRadius: 6, width: 24, height: 24, cursor: "pointer", fontSize: 14, color: "#64748b" }}>×</button>
-              </div>
-              <div style={{ display: "flex", gap: 9, marginBottom: 14, alignItems: "center", flexWrap: "wrap" }}>
-                <input style={{ ...iS, flex: 1, minWidth: 140, fontSize: 13, padding: "7px 10px" }} placeholder="Category name *" value={newProjCat.name} onChange={e => setNewProjCat({ ...newProjCat, name: e.target.value })} />
-                <div style={{ display: "flex", alignItems: "center", gap: 6 }}><label style={{ fontSize: 12, fontWeight: 600, color: "#374151" }}>Color</label><input type="color" value={newProjCat.color} onChange={e => setNewProjCat({ ...newProjCat, color: e.target.value })} style={{ width: 30, height: 30, border: "none", borderRadius: 6, cursor: "pointer", padding: 2 }} /></div>
-                <button onClick={addProjCat} style={{ ...bP, padding: "7px 16px", fontSize: 12, background: "linear-gradient(135deg,#8b5cf6,#6366f1)" }}>+ Add</button>
-              </div>
-              <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
-                {projectCategories.map(c => (
-                  <div key={c.id} style={{ display: "flex", alignItems: "center", gap: 7, padding: "6px 10px 6px 8px", borderRadius: 8, border: `1.5px solid ${c.color}44`, background: `${c.color}11` }}>
-                    <div style={{ width: 10, height: 10, borderRadius: 2, background: c.color, flexShrink: 0 }} />
-                    <span style={{ fontSize: 12, fontWeight: 600, color: "#1e293b" }}>{c.name}</span>
-                    <span style={{ fontSize: 10, color: "#94a3b8" }}>{projects.filter(p => p.category === c.name).length}</span>
-                    <button onClick={() => setProjectCategories(projectCategories.filter(x => x.id !== c.id))} style={{ border: "none", background: "transparent", color: "#ef4444", cursor: "pointer", fontSize: 14, fontWeight: 700, padding: "0 2px", lineHeight: 1 }}>×</button>
-                  </div>
-                ))}
-                {projectCategories.length === 0 && <span style={{ fontSize: 12, color: "#94a3b8" }}>No categories yet.</span>}
-              </div>
-            </div>}
 
             {/* Inline Project Custom Attrs */}
             {showManageProject === "customattrs" && <div style={{ borderBottom: "1px solid #f1f5f9", padding: "16px 18px", background: "#faf5ff" }}>
