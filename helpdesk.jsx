@@ -599,11 +599,6 @@ const SmartChart = ({ title, data, defaultType = "bar", defaultColor = "#3b82f6"
         })}
       </svg>);
     }
-    if (type === "pie") {
-      // Delegate entirely to the unified PieChart component
-      const pieData = data.map((d, i) => ({ ...d, color: d.color || pieCo(i, defaultColor === "#3b82f6" ? null : defaultColor) }));
-      return <PieChart data={pieData} donut={false} />;
-    }
     if (type === "scatter") return (<svg width="100%" viewBox={`0 0 ${W} ${H}`} style={{ overflow: "visible" }}>
       {[0, 0.5, 1].map(p => <line key={p} x1={PL} y1={PT + IH * (1 - p)} x2={W - PR} y2={PT + IH * (1 - p)} stroke="#f1f5f9" strokeWidth={1} />)}
       {data.map((d, i) => {
@@ -646,6 +641,34 @@ const SmartChart = ({ title, data, defaultType = "bar", defaultColor = "#3b82f6"
     }
     return null;
   };
+
+  if (type === "pie") {
+    const pieData = data.map((d, i) => ({ ...d, color: d.color || pieCo(i, defaultColor === "#3b82f6" ? null : defaultColor) }));
+    return (
+      <div style={{ width: "100%" }}>
+        {/* chart-type picker row */}
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", marginBottom: 8, position: "relative" }}>
+          <button onClick={() => setShowPicker(!showPicker)} style={{ display: "flex", alignItems: "center", gap: 5, padding: "4px 8px", borderRadius: 6, border: "1px solid #e2e8f0", background: "#f8fafc", cursor: "pointer", fontSize: 11, color: "#374151", fontFamily: "'DM Sans',sans-serif", fontWeight: 500 }}>
+            <span>{CHART_TYPES.find(t => t.id === type)?.icon}</span>
+            <span>{CHART_TYPES.find(t => t.id === type)?.label}</span>
+            <span style={{ fontSize: 9, color: "#94a3b8" }}>▾</span>
+          </button>
+          {showPicker && <><div style={{ position: "fixed", inset: 0, zIndex: 149 }} onClick={() => setShowPicker(false)} />
+            <div style={{ position: "absolute", right: 0, top: "calc(100% + 4px)", background: "#fff", border: "1.5px solid #e2e8f0", borderRadius: 10, zIndex: 150, boxShadow: "0 8px 24px rgba(0,0,0,0.14)", minWidth: 140, overflow: "hidden", padding: 4 }}>
+              {CHART_TYPES.map(ct => (
+                <button key={ct.id} onClick={() => { setType(ct.id); setShowPicker(false); setHov(null); }}
+                  style={{ display: "flex", alignItems: "center", gap: 8, width: "100%", padding: "7px 10px", border: "none", background: type === ct.id ? "#eff6ff" : "#fff", cursor: "pointer", fontSize: 12, textAlign: "left", fontFamily: "'DM Sans',sans-serif", borderRadius: 6, color: type === ct.id ? "#3b82f6" : "#374151", fontWeight: type === ct.id ? 600 : 400, marginBottom: 1 }}>
+                  <span style={{ fontSize: 13, width: 18, textAlign: "center" }}>{ct.icon}</span>{ct.label}
+                  {type === ct.id && <span style={{ marginLeft: "auto", color: "#3b82f6", fontWeight: 700 }}>✓</span>}
+                </button>
+              ))}
+            </div>
+          </>}
+        </div>
+        <PieChart data={pieData} donut={false} />
+      </div>
+    );
+  }
 
   return (
     <div style={{ background: "#fff", borderRadius: 12, padding: "14px 16px", boxShadow: "0 1px 4px rgba(0,0,0,0.06)" }}>
