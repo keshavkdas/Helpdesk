@@ -2812,45 +2812,74 @@ export default function HelpDesk() {
               {/* Dashboard Graphs - Different layouts for different roles */}
               {(currentUser?.role === "Admin" || currentUser?.role === "Manager") ? (
                 <>
-                  {/* Admin/Manager: 3-column grid (3 graphs) */}
-                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12, marginBottom: 12 }}>
-                    <SmartChart title="Tickets Over Time (Weekly)" data={dashboardDailyData} defaultColor="#3b82f6" />
-                    <SmartChart title="Ticket Priority" data={priorityDist} defaultType="pie" />
-                    <SmartChart title="By Category" data={categoryDist} defaultColor="#8b5cf6" />
-                  </div>
-                  {/* Admin/Manager: 2nd row (2 graphs) */}
+                  {/* Admin/Manager: 2x2 grid - All equal size with bigger pie charts */}
                   <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 12 }}>
-                    <SmartChart title="Ticket Status (w/ Unassigned)" data={dashboardStatusDist} defaultType="pie" />
-                    <SmartChart title="People Closing Tickets" data={dashboardClosingUsers} defaultColor="#10b981" />
+                    <div style={{ background: "#fff", borderRadius: 12, padding: 18, boxShadow: "0 1px 4px rgba(0,0,0,0.06)", minHeight: 350 }}>
+                      <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 12, color: "#374151" }}>Tickets Over Time (Weekly)</div>
+                      <SmartChart data={dashboardDailyData} defaultColor="#3b82f6" />
+                    </div>
+                    <div style={{ background: "#fff", borderRadius: 12, padding: 18, boxShadow: "0 1px 4px rgba(0,0,0,0.06)", minHeight: 350 }}>
+                      <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 12, color: "#374151" }}>Ticket Priority</div>
+                      <SmartChart data={priorityDist} defaultType="pie" />
+                    </div>
+                  </div>
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 12 }}>
+                    <div style={{ background: "#fff", borderRadius: 12, padding: 18, boxShadow: "0 1px 4px rgba(0,0,0,0.06)", minHeight: 350 }}>
+                      <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 12, color: "#374151" }}>By Category</div>
+                      <SmartChart data={categoryDist} defaultColor="#8b5cf6" />
+                    </div>
+                    <div style={{ background: "#fff", borderRadius: 12, padding: 18, boxShadow: "0 1px 4px rgba(0,0,0,0.06)", minHeight: 350 }}>
+                      <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 12, color: "#374151" }}>Ticket Status (w/ Unassigned)</div>
+                      <SmartChart data={dashboardStatusDist} defaultType="pie" />
+                    </div>
+                  </div>
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 12 }}>
+                    <div style={{ background: "#fff", borderRadius: 12, padding: 18, boxShadow: "0 1px 4px rgba(0,0,0,0.06)", minHeight: 350 }}>
+                      <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 12, color: "#374151" }}>People Closing Tickets</div>
+                      <SmartChart data={dashboardClosingUsers} defaultColor="#10b981" />
+                    </div>
+                  </div>
+
+                  {/* Recent Tickets for Admin/Manager */}
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr", gap: 12 }}>
+                    <div style={{ background: "#fff", borderRadius: 12, padding: 16, boxShadow: "0 1px 4px rgba(0,0,0,0.06)" }}>
+                      <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 10, color: "#374151" }}>Recent Tickets</div>
+                      {(currentUser?.role === "Admin" ? tickets : tickets.filter(t => t.reportedBy === currentUser?.name || t.assignees?.some(a => a.id === currentUser?.id))).slice(0, 5).map(t => (
+                        <div key={t.id} onClick={() => setSelTicket(t)} style={{ display: "flex", alignItems: "center", gap: 9, padding: "6px", borderRadius: 8, cursor: "pointer", border: "1px solid #f1f5f9", marginBottom: 5 }}>
+                          <div style={{ display: "flex" }}>{(t.assignees || []).slice(0, 2).map((a, i) => <div key={a.id} style={{ marginLeft: i > 0 ? -6 : 0, border: "2px solid #fff", borderRadius: "50%" }}><Avatar name={a.name} size={24} /></div>)}{!t.assignees?.length && <Avatar name="?" size={24} />}</div>
+                          <div style={{ flex: 1, minWidth: 0 }}><div style={{ fontSize: 12, fontWeight: 600, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{t.summary}</div><div style={{ fontSize: 10, color: "#94a3b8" }}>{t.id} · {t.org}</div></div>
+                          <Badge label={t.status} style={{ ...STATUS_COLOR[t.status], fontSize: 10 }} />
+                        </div>
+                      ))}
+                    </div>
                   </div>
                 </>
               ) : (
                 <>
-                  {/* Viewer/Agent: 2-column grid (4 graphs total - 2 per row) */}
+                  {/* Viewer/Agent: Smaller graphs, 2x2 layout - NO Recent Tickets */}
                   <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 12 }}>
-                    <SmartChart title="Tickets Over Time (Weekly)" data={dashboardDailyData} defaultColor="#3b82f6" />
-                    <SmartChart title="Ticket Priority" data={priorityDist} defaultType="pie" />
+                    <div style={{ background: "#fff", borderRadius: 12, padding: 14, boxShadow: "0 1px 4px rgba(0,0,0,0.06)", minHeight: 280 }}>
+                      <div style={{ fontSize: 11, fontWeight: 600, marginBottom: 10, color: "#374151" }}>Tickets Over Time (Weekly)</div>
+                      <SmartChart data={dashboardDailyData} defaultColor="#3b82f6" />
+                    </div>
+                    <div style={{ background: "#fff", borderRadius: 12, padding: 14, boxShadow: "0 1px 4px rgba(0,0,0,0.06)", minHeight: 280 }}>
+                      <div style={{ fontSize: 11, fontWeight: 600, marginBottom: 10, color: "#374151" }}>Ticket Priority</div>
+                      <SmartChart data={priorityDist} defaultType="pie" />
+                    </div>
                   </div>
                   <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 12 }}>
-                    <SmartChart title="By Category" data={categoryDist} defaultColor="#8b5cf6" />
-                    <SmartChart title="Ticket Status (w/ Unassigned)" data={dashboardStatusDist} defaultType="pie" />
+                    <div style={{ background: "#fff", borderRadius: 12, padding: 14, boxShadow: "0 1px 4px rgba(0,0,0,0.06)", minHeight: 280 }}>
+                      <div style={{ fontSize: 11, fontWeight: 600, marginBottom: 10, color: "#374151" }}>By Category</div>
+                      <SmartChart data={categoryDist} defaultColor="#8b5cf6" />
+                    </div>
+                    <div style={{ background: "#fff", borderRadius: 12, padding: 14, boxShadow: "0 1px 4px rgba(0,0,0,0.06)", minHeight: 280 }}>
+                      <div style={{ fontSize: 11, fontWeight: 600, marginBottom: 10, color: "#374151" }}>Ticket Status (w/ Unassigned)</div>
+                      <SmartChart data={dashboardStatusDist} defaultType="pie" />
+                    </div>
                   </div>
+                  {/* NO Recent Tickets for Viewer/Agent */}
                 </>
               )}
-
-              {/* Recent Tickets */}
-              <div style={{ display: "grid", gridTemplateColumns: "1fr", gap: 12 }}>
-                <div style={{ background: "#fff", borderRadius: 12, padding: 16, boxShadow: "0 1px 4px rgba(0,0,0,0.06)" }}>
-                  <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 10, color: "#374151" }}>Recent Tickets</div>
-                  {(currentUser?.role === "Admin" ? tickets : tickets.filter(t => t.reportedBy === currentUser?.name || t.assignees?.some(a => a.id === currentUser?.id))).slice(0, 5).map(t => (
-                    <div key={t.id} onClick={() => setSelTicket(t)} style={{ display: "flex", alignItems: "center", gap: 9, padding: "6px", borderRadius: 8, cursor: "pointer", border: "1px solid #f1f5f9", marginBottom: 5 }}>
-                      <div style={{ display: "flex" }}>{(t.assignees || []).slice(0, 2).map((a, i) => <div key={a.id} style={{ marginLeft: i > 0 ? -6 : 0, border: "2px solid #fff", borderRadius: "50%" }}><Avatar name={a.name} size={24} /></div>)}{!t.assignees?.length && <Avatar name="?" size={24} />}</div>
-                      <div style={{ flex: 1, minWidth: 0 }}><div style={{ fontSize: 12, fontWeight: 600, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{t.summary}</div><div style={{ fontSize: 10, color: "#94a3b8" }}>{t.id} · {t.org}</div></div>
-                      <Badge label={t.status} style={{ ...STATUS_COLOR[t.status], fontSize: 10 }} />
-                    </div>
-                  ))}
-                </div>
-              </div>
             </div>
           </>}
 
