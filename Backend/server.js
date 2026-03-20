@@ -830,6 +830,121 @@ app.post("/api/all-data/import", async (req, res) => {
 
 app.get("/", (req, res) => res.json({ msg: "🚀 DeskFlow API v1" }));
 
+// ─── ✅ WEBCAST MIGRATION FUNCTION ────────────────────────────────────────────
+// Automatic Webcast Migration on Server Startup
+async function migrateWebcastsOnStartup() {
+    try {
+        console.log("\n🔄 === WEBCAST MIGRATION STARTING ===\n");
+
+        // Step 1: Ensure Webcast category exists
+        const [webcastCategory, categoryCreated] = await Category.findOrCreate({
+            where: { name: 'Webcast' },
+            defaults: { name: 'Webcast', color: '#f97316' }
+        });
+
+        if (categoryCreated) {
+            console.log("✅ Created new Webcast category (Color: #f97316)");
+        } else {
+            console.log("✅ Webcast category already exists");
+        }
+
+        // Step 2: Get all Webcast records
+        const webcasts = await Webcast.findAll();
+        console.log(`\n📊 Found ${webcasts.length} webcast record(s) to migrate\n`);
+
+        if (webcasts.length === 0) {
+            console.log("✅ No webcast records to migrate\n");
+            console.log("🔄 === WEBCAST MIGRATION COMPLETE ===\n");
+            return;
+        }
+
+        // Step 3: Copy each Webcast to Ticket table
+        let migrated = 0;
+        let skipped = 0;
+        let errors = 0;
+
+        for (const webcast of webcasts) {
+            try {
+                // Check if ticket with same ID already exists
+                const existingTicket = await Ticket.findByPk(webcast.id);
+
+                if (existingTicket) {
+                    console.log(`⏭️  Skipped: ${webcast.id} (already exists as ticket)`);
+                    skipped++;
+                    continue;
+                }
+
+                // Create ticket from webcast data
+                await Ticket.create({
+                    id: webcast.id,
+                    summary: webcast.summary,
+                    description: webcast.description,
+                    org: webcast.org,
+                    department: webcast.department,
+                    contact: webcast.contact,
+                    reportedBy: webcast.reportedBy,
+                    assignees: webcast.assignees,
+                    cc: webcast.cc,
+                    priority: webcast.priority,
+                    category: 'Webcast',
+                    status: webcast.status,
+                    customAttrs: webcast.customAttrs,
+                    isWebcast: true,
+                    satsangType: webcast.satsangType,
+                    location: webcast.location,
+                    timeline: webcast.timeline,
+                    comments: webcast.comments,
+                    vendor: webcast.vendor,
+                    dueDate: webcast.dueDate,
+                    satsangId: webcast.satsangId,
+                    createdAt: webcast.createdAt,
+                    updatedAt: webcast.updatedAt
+                });
+
+                console.log(`✅ Migrated: ${webcast.id} - ${webcast.summary.substring(0, 50)}`);
+                migrated++;
+
+            } catch (err) {
+                console.error(`❌ Error migrating ${webcast.id}:`, err.message);
+                errors++;
+            }
+        }
+
+        // Step 4: Sync all isWebcast=true tickets to have category='Webcast'
+        const [updateCount] = await Ticket.update(
+            { category: 'Webcast' },
+            { where: { isWebcast: true } }
+        );
+
+        console.log(`\n📈 Synced ${updateCount} webcast tickets with category field`);
+
+        // Step 5: Verification
+        const webcastTicketCount = await Ticket.count({
+            where: {
+                [Op.or]: [
+                    { isWebcast: true },
+                    sequelize.where(
+                        sequelize.fn('LOWER', sequelize.col('category')),
+                        Op.like,
+                        '%webcast%'
+                    )
+                ]
+            }
+        });
+
+        console.log(`\n📋 Migration Summary:`);
+        console.log(`   ✅ Migrated: ${migrated}`);
+        console.log(`   ⏭️  Skipped: ${skipped}`);
+        console.log(`   ❌ Errors: ${errors}`);
+        console.log(`   📊 Total webcast tickets in system: ${webcastTicketCount}`);
+
+        console.log("\n🔄 === WEBCAST MIGRATION COMPLETE ===\n");
+
+    } catch (err) {
+        console.error('❌ Webcast migration error:', err.message);
+    }
+}
+
 // ─── START ────────────────────────────────────────────────────────────────────
 const PORT = process.env.PORT || 5000;
 sequelize.sync({ alter: true }).then(async () => {
@@ -843,6 +958,9 @@ sequelize.sync({ alter: true }).then(async () => {
     } catch (migErr) {
         console.error("⚠️ Status migration warning:", migErr.message);
     }
+
+    // ✅ RUN AUTOMATIC WEBCAST MIGRATION
+    await migrateWebcastsOnStartup();
 
     // ✅ NO HARDCODED DEPARTMENTS & LOCATIONS - Only add via frontend!
     // Departments and Locations must be created manually through Settings tabs

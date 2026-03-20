@@ -1075,6 +1075,10 @@ export default function HelpDesk() {
   const cpv = PROJECT_VIEWS.find(v => v.id === pvFilter) || PROJECT_VIEWS[5];
 
   const filtered = useMemo(() => tickets.filter(t => {
+    // ✅ Exclude webcast tickets from regular tickets view
+    const isWebcastCategory = t.category && (t.category.toLowerCase().includes("webcast") || t.isWebcast);
+    if (isWebcastCategory) return false;
+
     if (!currentUser || !cvd.filter(t, currentUser)) return false;
     // Non-admins only see tickets assigned to them or reported by them
     if (currentUser.role !== "Admin" && t.reportedBy !== currentUser.name && !t.assignees?.some(a => a.id === currentUser.id)) return false;
@@ -1093,6 +1097,28 @@ export default function HelpDesk() {
     }
     return true;
   }), [tickets, cvd, currentUser, statusF, priorityF, search, orgFilter, deptFilter, categoryFilter]);
+
+  // ✅ NEW: Filter for webcast tickets only
+  const webcastFiltered = useMemo(() => tickets.filter(t => {
+    const isWebcastCategory = t.category && (t.category.toLowerCase().includes("webcast") || t.isWebcast);
+    if (!isWebcastCategory) return false;
+
+    if (!currentUser || !cvd.filter(t, currentUser)) return false;
+    // Non-admins only see tickets assigned to them or reported by them
+    if (currentUser.role !== "Admin" && t.reportedBy !== currentUser.name && !t.assignees?.some(a => a.id === currentUser.id)) return false;
+    if (statusF !== "All" && t.status !== statusF) return false;
+    if (priorityF !== "All" && t.priority !== priorityF) return false;
+    if (orgFilter !== "all" && t.org !== orgFilter) return false;
+    if (deptFilter !== "all" && t.department !== deptFilter) return false;
+    if (search) {
+      if (search.startsWith("event:")) {
+        const id = search.split(":")[1];
+        return String(t.satsangId) === id;
+      }
+      if (!t.summary.toLowerCase().includes(search.toLowerCase()) && !t.id.toLowerCase().includes(search.toLowerCase()) && !t.org.toLowerCase().includes(search.toLowerCase())) return false;
+    }
+    return true;
+  }), [tickets, cvd, currentUser, statusF, priorityF, search, orgFilter, deptFilter]);
 
   const totalPages = Math.ceil(filtered.length / TICKETS_PER_PAGE);
 
@@ -2505,10 +2531,10 @@ export default function HelpDesk() {
             }} />
             <div style={{ position: "relative", zIndex: 1 }}>
               {/* ── ROW 1: TICKETS ── */}
-              <div style={{ marginBottom: 4 }}>
-                <span style={{ fontSize: 10, fontWeight: 700, color: "#94a3b8", textTransform: "uppercase", letterSpacing: "0.07em", marginLeft: 2 }}>🎫 Tickets</span>
+              <div style={{ marginBottom: 6 }}>
+                <span style={{ fontSize: 14, fontWeight: 900, color: "#1e293b", textTransform: "uppercase", letterSpacing: "0.1em", marginLeft: 2 }}>🎫 TICKETS</span>
               </div>
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(6,1fr)", gap: 9, marginBottom: 14 }}>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(6,1fr)", gap: 9, marginBottom: 20 }}>
                 {[
                   { label: "Open", value: stats.open, bg: "#fef3c7", accent: "#f59e0b", icon: "📬", action: () => { setView("tickets"); setTvFilter("open"); setStatusF("All"); setPriorityF("All"); } },
                   { label: "Unassigned", value: fbr.filter(t => !t.assignees || t.assignees.length === 0).length, bg: "#f3e8ff", accent: "#a855f7", icon: "🔸", action: () => { setView("tickets"); setTvFilter("unassigned"); } },
@@ -2517,40 +2543,19 @@ export default function HelpDesk() {
                   { label: "Resolved", value: stats.resolved, bg: "#dcfce7", accent: "#22c55e", icon: "✅", action: () => { setView("tickets"); setTvFilter("closed"); setStatusF("All"); setPriorityF("All"); } },
                   { label: "Total", value: stats.total, bg: "#dbeafe", accent: "#3b82f6", icon: "🎫", action: () => { setView("tickets"); setTvFilter("all"); setStatusF("All"); setPriorityF("All"); } },
                 ].map(s => (
-                  <div key={s.label} onClick={s.action} style={{ background: s.bg, borderRadius: 12, padding: "14px 16px", boxShadow: "0 1px 4px rgba(0,0,0,0.06)", borderLeft: `4px solid ${s.accent}`, cursor: "pointer", transition: "box-shadow 0.15s" }}
-                    onMouseEnter={e => e.currentTarget.style.boxShadow = "0 4px 16px rgba(0,0,0,0.12)"}
-                    onMouseLeave={e => e.currentTarget.style.boxShadow = "0 1px 4px rgba(0,0,0,0.06)"}>
-                    <div style={{ fontSize: 18, marginBottom: 4 }}>{s.icon}</div>
-                    <div style={{ fontSize: 26, fontWeight: 800, color: s.accent }}>{s.value}</div>
-                    <div style={{ fontSize: 11, fontWeight: 600, color: "#374151", marginTop: 2 }}>{s.label}</div>
+                  <div key={s.label} onClick={s.action} style={{ background: s.bg, borderRadius: 12, padding: "16px 16px", boxShadow: "0 2px 6px rgba(0,0,0,0.1)", borderLeft: `5px solid ${s.accent}`, cursor: "pointer", transition: "all 0.2s ease" }}
+                    onMouseEnter={e => { e.currentTarget.style.boxShadow = "0 6px 20px rgba(0,0,0,0.15)"; e.currentTarget.style.transform = "translateY(-2px)"; }}
+                    onMouseLeave={e => { e.currentTarget.style.boxShadow = "0 2px 6px rgba(0,0,0,0.1)"; e.currentTarget.style.transform = "translateY(0)"; }}>
+                    <div style={{ fontSize: 20, marginBottom: 6 }}>{s.icon}</div>
+                    <div style={{ fontSize: 32, fontWeight: 900, color: s.accent, lineHeight: 1 }}>{s.value}</div>
+                    <div style={{ fontSize: 12, fontWeight: 700, color: "#1e293b", marginTop: 4 }}>{s.label}</div>
                   </div>
                 ))}
               </div>
 
               {/* ✅ REMOVED: Separate Unassigned Card - Now integrated above */}
 
-              {/* ── ROW 2: PROJECTS ── */}
-              <div style={{ marginBottom: 4 }}>
-                <span style={{ fontSize: 10, fontWeight: 700, color: "#94a3b8", textTransform: "uppercase", letterSpacing: "0.07em", marginLeft: 2 }}>📁 Projects</span>
-              </div>
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(6,1fr)", gap: 9, marginBottom: 14 }}>
-                {[
-                  { label: "Open", value: projStats.open, bg: "#fef3c7", accent: "#f59e0b", icon: "📂", action: () => { setView("projects"); setPvFilter("open"); setProjStatusF("All"); setProjPriorityF("All"); } },
-                  { label: "Unassigned", value: dashboardProjects.filter(p => !p.assignees || p.assignees.length === 0).length, bg: "#f3e8ff", accent: "#a855f7", icon: "👤", action: () => { setView("projects"); setPvFilter("unassigned"); } },
-                  { label: "In Progress", value: projStats.inProgress, bg: "#ede9fe", accent: "#6366f1", icon: "⚙️", action: () => { setView("projects"); setPvFilter("inprogress"); setProjStatusF("All"); setProjPriorityF("All"); } },
-                  { label: "Critical", value: projStats.critical, bg: "#fee2e2", accent: "#ef4444", icon: "🔥", action: () => { setView("projects"); setPvFilter("critical"); setProjStatusF("All"); setProjPriorityF("All"); } },
-                  { label: "Resolved", value: projStats.resolved, bg: "#dcfce7", accent: "#22c55e", icon: "✅", action: () => { setView("projects"); setPvFilter("closed"); setProjStatusF("All"); setProjPriorityF("All"); } },
-                  { label: "Total", value: projStats.total, bg: "#ede9fe", accent: "#8b5cf6", icon: "📁", action: () => { setView("projects"); setPvFilter("all"); setProjStatusF("All"); setProjPriorityF("All"); } },
-                ].map(s => (
-                  <div key={s.label} onClick={s.action} style={{ background: s.bg, borderRadius: 12, padding: "14px 16px", boxShadow: "0 1px 4px rgba(0,0,0,0.06)", borderLeft: `4px solid ${s.accent}`, cursor: "pointer", transition: "box-shadow 0.15s" }}
-                    onMouseEnter={e => e.currentTarget.style.boxShadow = "0 4px 16px rgba(0,0,0,0.12)"}
-                    onMouseLeave={e => e.currentTarget.style.boxShadow = "0 1px 4px rgba(0,0,0,0.06)"}>
-                    <div style={{ fontSize: 18, marginBottom: 4 }}>{s.icon}</div>
-                    <div style={{ fontSize: 26, fontWeight: 800, color: s.accent }}>{s.value}</div>
-                    <div style={{ fontSize: 11, fontWeight: 600, color: "#374151", marginTop: 2 }}>{s.label}</div>
-                  </div>
-                ))}
-              </div>
+              {/* ✅ REMOVED: Projects stats section - Now shown only in Projects view */}
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12, marginBottom: 12 }}>
                 <SmartChart title="Tickets Over Time" data={dailyData} defaultColor="#3b82f6" />
                 <SmartChart title="Ticket Priority" data={priorityDist} defaultType="pie" />
@@ -2597,10 +2602,10 @@ export default function HelpDesk() {
                 ))}
               </select>
 
-              {/* ✅ NEW: Category filter */}
+              {/* ✅ NEW: Category filter - only non-webcast categories */}
               <select value={categoryFilter} onChange={(e) => setCategoryFilter(e.target.value)} style={{ ...sS, width: 140, fontSize: 13, padding: "7px 10px" }}>
                 <option value="all">All Categories</option>
-                {ticketCategories.map(c => (
+                {ticketCategories.filter(c => !c.name.toLowerCase().includes("webcast")).map(c => (
                   <option key={c.id} value={c.name}>{c.name}</option>
                 ))}
               </select>
@@ -2980,11 +2985,11 @@ export default function HelpDesk() {
           {view === "webcast" && <>
             <div style={{ display: "grid", gridTemplateColumns: "repeat(5,1fr)", gap: 9, marginBottom: 16 }}>
               {[
-                { label: "Total Webcasts", value: tickets.filter(t => t.isWebcast).length, color: "#f97316", icon: "📡" },
-                { label: "Open", value: tickets.filter(t => t.isWebcast && t.status === "Open").length, color: "#3b82f6", icon: "📂" },
-                { label: "In Progress", value: tickets.filter(t => t.isWebcast && t.status === "In Progress").length, color: "#eab308", icon: "⚙️" },
-                { label: "Closed", value: tickets.filter(t => t.isWebcast && t.status === "Closed").length, color: "#64748b", icon: "✅" },
-                { label: "Critical", value: tickets.filter(t => t.isWebcast && t.priority === "Critical").length, color: "#ef4444", icon: "🔥" },
+                { label: "Total Webcasts", value: tickets.filter(t => t.isWebcast || (t.category && t.category.toLowerCase().includes("webcast"))).length, color: "#f97316", icon: "📡" },
+                { label: "Open", value: tickets.filter(t => (t.isWebcast || (t.category && t.category.toLowerCase().includes("webcast"))) && t.status === "Open").length, color: "#3b82f6", icon: "📂" },
+                { label: "In Progress", value: tickets.filter(t => (t.isWebcast || (t.category && t.category.toLowerCase().includes("webcast"))) && t.status === "In Progress").length, color: "#eab308", icon: "⚙️" },
+                { label: "Closed", value: tickets.filter(t => (t.isWebcast || (t.category && t.category.toLowerCase().includes("webcast"))) && t.status === "Closed").length, color: "#64748b", icon: "✅" },
+                { label: "Critical", value: tickets.filter(t => (t.isWebcast || (t.category && t.category.toLowerCase().includes("webcast"))) && t.priority === "Critical").length, color: "#ef4444", icon: "🔥" },
               ].map(s => (
                 <div key={s.label} style={{ background: "#fff", borderRadius: 12, padding: "14px 16px", boxShadow: "0 1px 4px rgba(0,0,0,0.06)", borderTop: `3px solid ${s.color}` }}>
                   <div style={{ fontSize: 20, marginBottom: 5 }}>{s.icon}</div>
@@ -2998,7 +3003,7 @@ export default function HelpDesk() {
               <div style={{ overflowX: "auto" }}>
                 <table style={{ width: "100%", borderCollapse: "collapse" }}>
                   <thead><tr style={{ background: "#f8fafc" }}>{["ID", "Summary", "Location", "Satsang Type", "Priority", "Status"].map(h => <th key={h} style={thStyle}>{h}</th>)}</tr></thead>
-                  <tbody>{tickets.filter(t => t.isWebcast).slice(0, 10).map((t, i) => (
+                  <tbody>{tickets.filter(t => t.isWebcast || (t.category && t.category.toLowerCase().includes("webcast"))).slice(0, 10).map((t, i) => (
                     <tr key={t.id + i} className="rh" onClick={() => setSelTicket(t)} style={{ cursor: "pointer" }}>
                       <td style={tdStyle}><span style={{ fontFamily: "'DM Mono',monospace", fontSize: 11.5, color: "#3b82f6" }}>{t.id}</span></td>
                       <td style={{ ...tdStyle, maxWidth: 200 }}><div style={{ whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{t.summary}</div></td>
@@ -3008,7 +3013,7 @@ export default function HelpDesk() {
                       <td style={tdStyle}><Badge label={t.status} style={{ ...STATUS_COLOR[t.status] }} /></td>
                     </tr>
                   ))}
-                    {tickets.filter(t => t.isWebcast).length === 0 && <tr><td colSpan={6} style={{ padding: 24, textAlign: "center", color: "#94a3b8", fontSize: 13 }}>No webcast tickets yet. Mark a ticket as Webcast when creating it.</td></tr>}
+                    {tickets.filter(t => t.isWebcast || (t.category && t.category.toLowerCase().includes("webcast"))).length === 0 && <tr><td colSpan={6} style={{ padding: 24, textAlign: "center", color: "#94a3b8", fontSize: 13 }}>No webcast tickets yet. Mark a ticket as Webcast when creating it.</td></tr>}
                   </tbody>
                 </table>
               </div>
@@ -3285,7 +3290,7 @@ export default function HelpDesk() {
                       <div style={{ width: 11, height: 11, borderRadius: 3, background: c.color, flexShrink: 0 }} />
                       <span style={{ flex: 1, fontSize: 13, fontWeight: 600 }}>{c.name}</span>
                       <span style={{ fontSize: 11, color: "#94a3b8" }}>{tickets.filter(t => t.category === c.name).length}</span>
-                      {currentUser?.role === "Admin" && <button onClick={() => deleteCat(c.id)} style={{ border: "none", background: "#fee2e2", color: "#ef4444", borderRadius: 6, padding: "4px 10px", cursor: "pointer", fontSize: 12, fontWeight: 600 }}>x</button>}
+                      {currentUser?.role === "Admin" && <button onClick={() => deleteCat(c.id)} style={{ border: "none", background: "#fee2e2", color: "#ef4444", borderRadius: 6, padding: "4px 10px", cursor: "pointer", fontSize: 12, fontWeight: 600 }}>Delete</button>}
                     </div>
                   ))}
                 </div>
@@ -3312,7 +3317,7 @@ export default function HelpDesk() {
                       <div key={d.id} style={{ display: "flex", alignItems: "center", gap: 9, padding: "11px 13px", borderRadius: 9, border: `1.5px solid ${color}33`, background: `${color}0d` }}>
                         <div style={{ width: 11, height: 11, borderRadius: 3, background: color, flexShrink: 0 }} />
                         <span style={{ flex: 1, fontSize: 13, fontWeight: 600 }}>{d.name}</span>
-                        {currentUser?.role === "Admin" && <button onClick={() => deleteDept(d.id)} style={{ border: "none", background: "#fee2e2", color: "#ef4444", borderRadius: 6, padding: "4px 10px", cursor: "pointer", fontSize: 12, fontWeight: 600 }}>x</button>}
+                        {currentUser?.role === "Admin" && <button onClick={() => deleteDept(d.id)} style={{ border: "none", background: "#fee2e2", color: "#ef4444", borderRadius: 6, padding: "4px 10px", cursor: "pointer", fontSize: 12, fontWeight: 600 }}>Delete</button>}
                       </div>
                     );
                   })}
@@ -3341,7 +3346,7 @@ export default function HelpDesk() {
                       <div key={l.id} style={{ display: "flex", alignItems: "center", gap: 9, padding: "11px 13px", borderRadius: 9, border: `1.5px solid ${color}33`, background: `${color}0d` }}>
                         <div style={{ width: 11, height: 11, borderRadius: 3, background: color, flexShrink: 0 }} />
                         <span style={{ flex: 1, fontSize: 13, fontWeight: 600 }}>📍 {l.name}</span>
-                        {(currentUser?.role === "Admin" || currentUser?.role === "Manager") && <button onClick={() => deleteLocation(l.id)} style={{ border: "none", background: "#fee2e2", color: "#ef4444", borderRadius: 6, padding: "4px 10px", cursor: "pointer", fontSize: 12, fontWeight: 600 }}>x</button>}
+                        {(currentUser?.role === "Admin" || currentUser?.role === "Manager") && <button onClick={() => deleteLocation(l.id)} style={{ border: "none", background: "#fee2e2", color: "#ef4444", borderRadius: 6, padding: "4px 10px", cursor: "pointer", fontSize: 12, fontWeight: 600 }}>Delete</button>}
                       </div>
                     );
                   })}
