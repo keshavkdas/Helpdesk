@@ -441,7 +441,32 @@ app.get("/api/tickets", async (req, res) => {
 
 app.post("/api/tickets", async (req, res) => {
     try {
-        const ticket = await Ticket.create(req.body);
+        // Generate ticket ID (TKT-1001, TKT-1002, etc.)
+        // Only find tickets with 4-digit format (ignore temporary timestamp IDs)
+        const lastTicket = await Ticket.findOne({
+            where: {
+                id: { [Op.like]: "TKT-%" }
+            },
+            order: [['createdAt', 'DESC']]
+        });
+
+        let nextIdNum = 1001;
+        if (lastTicket && lastTicket.id) {
+            const parts = lastTicket.id.split("-")[1];
+            // Only use if it's a 4-digit number (not timestamp)
+            if (parts && parts.length === 4) {
+                const lastNum = parseInt(parts, 10);
+                if (!isNaN(lastNum)) nextIdNum = lastNum + 1;
+            }
+        }
+
+        // Ensure we don't go below 1001
+        if (nextIdNum < 1001) nextIdNum = 1001;
+
+        const ticketId = `TKT-${String(nextIdNum).padStart(4, "0")}`;
+        const ticketData = { ...req.body, id: ticketId };
+
+        const ticket = await Ticket.create(ticketData);
         res.status(201).json(fmt(ticket));
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
@@ -474,7 +499,30 @@ app.get("/api/projects", async (req, res) => {
 
 app.post("/api/projects", async (req, res) => {
     try {
-        const project = await Project.create(req.body);
+        // Generate project ID (PRJ-1001, PRJ-1002, etc.)
+        // Only find projects with 4-digit format (ignore temporary timestamp IDs)
+        const lastProject = await Project.findOne({
+            where: { id: { [Op.like]: "PRJ-%" } },
+            order: [['createdAt', 'DESC']]
+        });
+
+        let nextIdNum = 1001;
+        if (lastProject && lastProject.id) {
+            const parts = lastProject.id.split("-")[1];
+            // Only use if it's a 4-digit number (not timestamp)
+            if (parts && parts.length === 4) {
+                const lastNum = parseInt(parts, 10);
+                if (!isNaN(lastNum)) nextIdNum = lastNum + 1;
+            }
+        }
+
+        // Ensure we don't go below 1001
+        if (nextIdNum < 1001) nextIdNum = 1001;
+
+        const projectId = `PRJ-${String(nextIdNum).padStart(4, "0")}`;
+        const projectData = { ...req.body, id: projectId };
+
+        const project = await Project.create(projectData);
         res.status(201).json(fmt(project));
     } catch (err) { res.status(500).json({ error: err.message }); }
 });

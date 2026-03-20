@@ -1325,7 +1325,7 @@ export default function HelpDesk() {
     if (!form.summary || !form.org) return setCustomAlert({ show: true, message: "Organisation and Summary are required", type: "error" });
     const newT = {
       ...form,
-      id: `TKT-${Date.now()}`, // ✅ Temporary ID - server will generate actual one
+      // ✅ Don't send ID - server will generate TKT-1001, TKT-1002, etc.
       dueDate: form.dueDate || null,
       status: "Open",
       created: new Date().toISOString(),
@@ -1681,7 +1681,7 @@ export default function HelpDesk() {
     if (!projForm.title || !projForm.org) return setCustomAlert({ show: true, message: "Organisation and Title are required", type: "error" });
     const newP = {
       ...projForm,
-      id: `PRJ-${Date.now()}`, // ✅ Temporary ID - server will generate actual one
+      // ✅ Don't send ID - server will generate PRJ-1001, PRJ-1002, etc.
       status: projForm.status || "Open",
       created: new Date().toISOString(),
       updated: new Date().toISOString(),
