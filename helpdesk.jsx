@@ -689,12 +689,17 @@ export default function HelpDesk() {
     }
   });
   const [range, setRange] = useState("all");
+  const [dashboardOrg, setDashboardOrg] = useState("all");
+  const [dashboardOrgSearch, setDashboardOrgSearch] = useState("");
+  const [showDashboardOrgDD, setShowDashboardOrgDD] = useState(false);
 
   // ✅ NEW: Departments and filters
   const [departments, setDepartments] = useState([]);
   const [deptFilter, setDeptFilter] = useState("all");
   const [categoryFilter, setCategoryFilter] = useState("all");
   const [orgFilter, setOrgFilter] = useState("all");
+  const [orgFilterSearch, setOrgFilterSearch] = useState("");
+  const [showOrgFilterDD, setShowOrgFilterDD] = useState(false);
   const [orgClassifyType, setOrgClassifyType] = useState("all");
   const [newDept, setNewDept] = useState({ name: "" });
 
@@ -1060,6 +1065,15 @@ export default function HelpDesk() {
     return inRange.filter(t => t.reportedBy === currentUser?.name || t.assignees?.some(a => a.id === currentUser?.id));
   }, [tickets, rangeMs, now, currentUser]);
 
+  // ✅ NEW: Dashboard data filtered by organization
+  const dashboardData = useMemo(() => {
+    let data = fbr;
+    if (dashboardOrg !== "all") {
+      data = data.filter(t => t.org === dashboardOrg);
+    }
+    return data;
+  }, [fbr, dashboardOrg]);
+
   // ✅ NEW: Classified reports data based on filters
   const classifiedReportsData = useMemo(() => {
     let data = fbr;
@@ -1160,6 +1174,15 @@ export default function HelpDesk() {
 
   const stats = useMemo(() => ({ total: fbr.length, open: fbr.filter(x => x.status === "Open" || x.status === "In Progress").length, inProgress: fbr.filter(x => x.status === "In Progress").length, resolved: fbr.filter(x => x.status === "Resolved" || x.status === "Closed").length, critical: fbr.filter(x => x.priority === "Critical").length }), [fbr]);
 
+  // ✅ NEW: Dashboard stats (filtered by organization)
+  const dashboardStats = useMemo(() => ({
+    total: dashboardData.length,
+    open: dashboardData.filter(x => x.status === "Open" || x.status === "In Progress").length,
+    inProgress: dashboardData.filter(x => x.status === "In Progress").length,
+    resolved: dashboardData.filter(x => x.status === "Resolved" || x.status === "Closed").length,
+    critical: dashboardData.filter(x => x.priority === "Critical").length
+  }), [dashboardData]);
+
   // For dashboard: Agents and Viewers only see stats for projects assigned to them
   const dashboardProjects = useMemo(() => {
     if (currentUser?.role === "Agent" || currentUser?.role === "Viewer") {
@@ -1173,6 +1196,76 @@ export default function HelpDesk() {
   const dailyData = useMemo(() => { const days = parseInt(range) <= 7 ? parseInt(range) : 7; return Array.from({ length: days }, (_, i) => { const d = new Date(now - (days - 1 - i) * dayMs); return { label: d.toLocaleDateString("en", { weekday: "short" }), value: fbr.filter(t => t.created.getDate() === d.getDate() && t.created.getMonth() === d.getMonth()).length }; }); }, [fbr, range, now, dayMs]);
   const priorityDist = useMemo(() => PRIORITIES.map(p => ({ label: p, value: fbr.filter(t => t.priority === p).length, color: PRIORITY_COLOR[p] })), [fbr]);
   const categoryDist = useMemo(() => categories.slice(0, 6).map(c => ({ label: c.name, value: fbr.filter(t => t.category === c.name).length, color: c.color })), [fbr, categories]);
+
+  // ✅ NEW: Dashboard-specific chart data (with org filter)
+  const dashboardDailyData = useMemo(() => {
+    const days = 7;
+    return Array.from({ length: days }, (_, i) => {
+      const d = new Date(now - (days - 1 - i) * dayMs);
+      return {
+        label: d.toLocaleDateString("en", { weekday: "short" }),
+        value: dashboardData.filter(t => t.created.getDate() === d.getDate() && t.created.getMonth() === d.getMonth()).length
+      };
+    });
+  }, [dashboardData, now, dayMs]);
+
+  const dashboardStatusDist = useMemo(() => {
+    const statusCounts = {};
+    STATUSES.forEach(s => statusCounts[s] = 0);
+    statusCounts["Unassigned"] = 0;
+
+    dashboardData.forEach(t => {
+      if (!t.assignees || t.assignees.length === 0) {
+        statusCounts["Unassigned"]++;
+      } else {
+        statusCounts[t.status] = (statusCounts[t.status] || 0) + 1;
+      }
+    });
+
+    return Object.entries(statusCounts).map(([s, count]) => ({
+      label: s,
+      color: s === "Unassigned" ? "#94a3b8" : Object.values(STATUS_COLOR)[STATUSES.indexOf(s)]?.text || "#64748b",
+      value: count
+    }));
+  }, [dashboardData]);
+
+  const dashboardClosingUsers = useMemo(() => {
+    const closedTickets = dashboardData.filter(t => t.status === "Resolved" || t.status === "Closed");
+    const userClosures = {};
+
+    closedTickets.forEach(t => {
+      if (t.assignees && t.assignees.length > 0) {
+        t.assignees.forEach(a => {
+          userClosures[a.name] = (userClosures[a.name] || 0) + 1;
+        });
+      }
+    });
+
+    return Object.entries(userClosures)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 6)
+      .map(([name, count]) => ({ label: name, value: count }));
+  }, [dashboardData]);
+
+  // ✅ NEW: Yearly data for reports (30+ days)
+  const yearlyData = useMemo(() => {
+    const months = 12;
+    const monthlyData = {};
+
+    fbr.forEach(t => {
+      const monthKey = t.created.toLocaleDateString("en", { month: "short" });
+      monthlyData[monthKey] = (monthlyData[monthKey] || 0) + 1;
+    });
+
+    return Array.from({ length: months }, (_, i) => {
+      const d = new Date(now - (months - 1 - i) * dayMs * 30);
+      const monthKey = d.toLocaleDateString("en", { month: "short" });
+      return {
+        label: monthKey,
+        value: monthlyData[monthKey] || 0
+      };
+    });
+  }, [fbr, now, dayMs]);
 
   // ─── TICKET HANDLERS (v1 API) ──────────────────────────────────────────────
   const handleSelectiveImport = (e) => {
@@ -2521,7 +2614,45 @@ export default function HelpDesk() {
             {view === "projects" && <p style={{ margin: 0, fontSize: 11, color: "#94a3b8" }}>{cpv.desc}</p>}
           </div>
           <div style={{ display: "flex", gap: 9, alignItems: "center" }}>
-            {(view === "reports" || view === "dashboard") && <select value={range} onChange={e => setRange(e.target.value)} style={{ ...sS, width: 140, fontSize: 13, padding: "7px 10px" }}><option value="all">All Time</option><option value="1">Today</option><option value="7">Last 7 Days</option><option value="30">Last 30 Days</option></select>}
+            {(view === "reports" || view === "dashboard") && (
+              <select value={range} onChange={e => setRange(e.target.value)} style={{ ...sS, width: 140, fontSize: 13, padding: "7px 10px" }}>
+                {view === "reports" ? (
+                  <>
+                    <option value="all">All Time</option>
+                    <option value="1">Today</option>
+                    <option value="7">Last 7 Days</option>
+                    <option value="30">Last 30 Days</option>
+                  </>
+                ) : (
+                  <>
+                    <option value="1">Today</option>
+                    <option value="7">Last 7 Days</option>
+                  </>
+                )}
+              </select>
+            )}
+            {view === "dashboard" && (
+              <div style={{ position: "relative", width: 180 }}>
+                <input type="text" placeholder="Select org..." value={dashboardOrgSearch ? dashboardOrgSearch : (dashboardOrg !== "all" ? dashboardOrg : "")} onChange={e => setDashboardOrgSearch(e.target.value)} onFocus={() => { setDashboardOrgSearch(""); setShowDashboardOrgDD(true); }} style={{ ...sS, width: "100%", fontSize: 13, padding: "7px 10px" }} />
+                {showDashboardOrgDD && <>
+                  <div style={{ position: "fixed", inset: 0, zIndex: 199 }} onClick={() => { setShowDashboardOrgDD(false); setDashboardOrgSearch(""); }} />
+                  <div style={{ position: "absolute", top: "calc(100% + 3px)", left: 0, right: 0, background: "#fff", border: "1.5px solid #e2e8f0", borderRadius: 8, zIndex: 200, boxShadow: "0 4px 12px rgba(0,0,0,0.1)", maxHeight: 200, overflowY: "auto" }}>
+                    <div style={{ padding: 8, borderBottom: "1px solid #f1f5f9", position: "sticky", top: 0, background: "#fff" }}>
+                      <input type="text" placeholder="Search orgs..." value={dashboardOrgSearch} onChange={e => setDashboardOrgSearch(e.target.value)} onClick={e => e.stopPropagation()} autoFocus style={{ ...sS, width: "100%", fontSize: 12 }} />
+                    </div>
+                    <div onClick={() => { setDashboardOrg("all"); setShowDashboardOrgDD(false); setDashboardOrgSearch(""); }} style={{ padding: "8px 12px", cursor: "pointer", borderBottom: "1px solid #f1f5f9", background: dashboardOrg === "all" ? "#f0f9ff" : "#fff", fontWeight: dashboardOrg === "all" ? 600 : 400 }}>
+                      <div style={{ fontSize: 12 }}>All Organizations</div>
+                    </div>
+                    {orgs.filter(o => dashboardOrgSearch === "" || o.name.toLowerCase().includes(dashboardOrgSearch.toLowerCase())).map(o => (
+                      <div key={o.id} onClick={() => { setDashboardOrg(o.name); setShowDashboardOrgDD(false); setDashboardOrgSearch(""); }} style={{ padding: "8px 12px", cursor: "pointer", borderBottom: "1px solid #f1f5f9", background: dashboardOrg === o.name ? "#f0f9ff" : "#fff", fontWeight: dashboardOrg === o.name ? 600 : 400 }}>
+                        <div style={{ fontSize: 12 }}>{o.name}</div>
+                      </div>
+                    ))}
+                    {orgs.filter(o => dashboardOrgSearch === "" || o.name.toLowerCase().includes(dashboardOrgSearch.toLowerCase())).length === 0 && <div style={{ padding: "12px", textAlign: "center", fontSize: 12, color: "#94a3b8" }}>No orgs found</div>}
+                  </div>
+                </>}
+              </div>
+            )}
             {/* {view !== "dashboard" && <>
               <button onClick={() => setShowNewTicket(true)} style={{ ...bP, padding: "8px 14px", fontSize: 13 }}>+ New Ticket</button>
               <button onClick={() => setShowNewProject(true)} style={{ ...bG, padding: "8px 14px", fontSize: 13 }}>+ New Project</button>
@@ -2550,12 +2681,12 @@ export default function HelpDesk() {
               </div>
               <div style={{ display: "grid", gridTemplateColumns: "repeat(6,1fr)", gap: 9, marginBottom: 20 }}>
                 {[
-                  { label: "Open", value: stats.open, bg: "#fef3c7", accent: "#f59e0b", icon: "📬", action: () => { setView("tickets"); setTvFilter("open"); setStatusF("All"); setPriorityF("All"); } },
-                  { label: "Unassigned", value: fbr.filter(t => !t.assignees || t.assignees.length === 0).length, bg: "#f3e8ff", accent: "#a855f7", icon: "🔸", action: () => { setView("tickets"); setTvFilter("unassigned"); } },
-                  { label: "In Progress", value: stats.inProgress, bg: "#ede9fe", accent: "#6366f1", icon: "⚙️", action: () => { setView("tickets"); setTvFilter("all"); setStatusF("In Progress"); setPriorityF("All"); } },
-                  { label: "Critical", value: stats.critical, bg: "#fee2e2", accent: "#ef4444", icon: "🔥", action: () => { setView("tickets"); setTvFilter("alerts"); setStatusF("All"); setPriorityF("Critical"); } },
-                  { label: "Resolved", value: stats.resolved, bg: "#dcfce7", accent: "#22c55e", icon: "✅", action: () => { setView("tickets"); setTvFilter("closed"); setStatusF("All"); setPriorityF("All"); } },
-                  { label: "Total", value: stats.total, bg: "#dbeafe", accent: "#3b82f6", icon: "🎫", action: () => { setView("tickets"); setTvFilter("all"); setStatusF("All"); setPriorityF("All"); } },
+                  { label: "Open", value: dashboardStats.open, bg: "#fef3c7", accent: "#f59e0b", icon: "📬", action: () => { setView("tickets"); setTvFilter("open"); setStatusF("All"); setPriorityF("All"); } },
+                  { label: "Unassigned", value: dashboardData.filter(t => !t.assignees || t.assignees.length === 0).length, bg: "#f3e8ff", accent: "#a855f7", icon: "🔸", action: () => { setView("tickets"); setTvFilter("unassigned"); } },
+                  { label: "In Progress", value: dashboardStats.inProgress, bg: "#ede9fe", accent: "#6366f1", icon: "⚙️", action: () => { setView("tickets"); setTvFilter("all"); setStatusF("In Progress"); setPriorityF("All"); } },
+                  { label: "Critical", value: dashboardStats.critical, bg: "#fee2e2", accent: "#ef4444", icon: "🔥", action: () => { setView("tickets"); setTvFilter("alerts"); setStatusF("All"); setPriorityF("Critical"); } },
+                  { label: "Resolved", value: dashboardStats.resolved, bg: "#dcfce7", accent: "#22c55e", icon: "✅", action: () => { setView("tickets"); setTvFilter("closed"); setStatusF("All"); setPriorityF("All"); } },
+                  { label: "Total", value: dashboardStats.total, bg: "#dbeafe", accent: "#3b82f6", icon: "🎫", action: () => { setView("tickets"); setTvFilter("all"); setStatusF("All"); setPriorityF("All"); } },
                 ].map(s => (
                   <div key={s.label} onClick={s.action} style={{ background: s.bg, borderRadius: 12, padding: "16px 16px", boxShadow: "0 2px 6px rgba(0,0,0,0.1)", borderLeft: `5px solid ${s.accent}`, cursor: "pointer", transition: "all 0.2s ease" }}
                     onMouseEnter={e => { e.currentTarget.style.boxShadow = "0 6px 20px rgba(0,0,0,0.15)"; e.currentTarget.style.transform = "translateY(-2px)"; }}
@@ -2571,12 +2702,13 @@ export default function HelpDesk() {
 
               {/* ✅ REMOVED: Projects stats section - Now shown only in Projects view */}
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12, marginBottom: 12 }}>
-                <SmartChart title="Tickets Over Time" data={dailyData} defaultColor="#3b82f6" />
+                <SmartChart title="Tickets Over Time (Weekly)" data={dashboardDailyData} defaultColor="#3b82f6" />
                 <SmartChart title="Ticket Priority" data={priorityDist} defaultType="pie" />
                 <SmartChart title="By Category" data={categoryDist} defaultColor="#8b5cf6" />
               </div>
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 12 }}>
-                <SmartChart title="Ticket Status" data={STATUSES.map((s, i) => ({ label: s, color: Object.values(STATUS_COLOR)[i].text, value: fbr.filter(t => t.status === s).length }))} defaultType="pie" />
+                <SmartChart title="Ticket Status (w/ Unassigned)" data={dashboardStatusDist} defaultType="pie" />
+                <SmartChart title="People Closing Tickets" data={dashboardClosingUsers} defaultColor="#10b981" />
               </div>
               <div style={{ display: "grid", gridTemplateColumns: "1fr", gap: 12 }}>
                 <div style={{ background: "#fff", borderRadius: 12, padding: 16, boxShadow: "0 1px 4px rgba(0,0,0,0.06)" }}>
@@ -2601,12 +2733,26 @@ export default function HelpDesk() {
               <select value={priorityF} onChange={e => setPriorityF(e.target.value)} style={{ ...sS, width: 128, fontSize: 13, padding: "7px 10px" }}><option value="All">All Priority</option>{PRIORITIES.map(p => <option key={p}>{p}</option>)}</select>
 
               {/* ✅ NEW: Organization filter */}
-              <select value={orgFilter} onChange={(e) => setOrgFilter(e.target.value)} style={{ ...sS, width: 140, fontSize: 13, padding: "7px 10px" }}>
-                <option value="all">All Organizations</option>
-                {[...new Set(fbr.map(t => t.org))].map(org => (
-                  <option key={org} value={org}>{org || "No Org"}</option>
-                ))}
-              </select>
+              <div style={{ position: "relative", width: 200 }}>
+                <input type="text" placeholder="Search org..." value={orgFilterSearch ? orgFilterSearch : (orgFilter !== "all" ? orgFilter : "")} onChange={e => setOrgFilterSearch(e.target.value)} onFocus={() => { setOrgFilterSearch(""); setShowOrgFilterDD(true); }} style={{ ...sS, width: "100%", fontSize: 13, padding: "7px 10px" }} />
+                {showOrgFilterDD && <>
+                  <div style={{ position: "fixed", inset: 0, zIndex: 199 }} onClick={() => { setShowOrgFilterDD(false); setOrgFilterSearch(""); }} />
+                  <div style={{ position: "absolute", top: "calc(100% + 3px)", left: 0, right: 0, background: "#fff", border: "1.5px solid #e2e8f0", borderRadius: 8, zIndex: 200, boxShadow: "0 4px 12px rgba(0,0,0,0.1)", maxHeight: 200, overflowY: "auto" }}>
+                    <div style={{ padding: 8, borderBottom: "1px solid #f1f5f9", position: "sticky", top: 0, background: "#fff" }}>
+                      <input type="text" placeholder="Search organizations..." value={orgFilterSearch} onChange={e => setOrgFilterSearch(e.target.value)} onClick={e => e.stopPropagation()} autoFocus style={{ ...sS, width: "100%", fontSize: 12 }} />
+                    </div>
+                    <div onClick={() => { setOrgFilter("all"); setShowOrgFilterDD(false); setOrgFilterSearch(""); }} style={{ padding: "8px 12px", cursor: "pointer", borderBottom: "1px solid #f1f5f9", background: orgFilter === "all" ? "#f0f9ff" : "#fff", fontWeight: orgFilter === "all" ? 600 : 400 }}>
+                      <div style={{ fontSize: 12 }}>All Organizations</div>
+                    </div>
+                    {orgs.filter(o => orgFilterSearch === "" || o.name.toLowerCase().includes(orgFilterSearch.toLowerCase())).map(o => (
+                      <div key={o.id} onClick={() => { setOrgFilter(o.name); setShowOrgFilterDD(false); setOrgFilterSearch(""); }} style={{ padding: "8px 12px", cursor: "pointer", borderBottom: "1px solid #f1f5f9", background: orgFilter === o.name ? "#f0f9ff" : "#fff", fontWeight: orgFilter === o.name ? 600 : 400 }}>
+                        <div style={{ fontSize: 12 }}>{o.name}</div>
+                      </div>
+                    ))}
+                    {orgs.filter(o => orgFilterSearch === "" || o.name.toLowerCase().includes(orgFilterSearch.toLowerCase())).length === 0 && <div style={{ padding: "12px", textAlign: "center", fontSize: 12, color: "#94a3b8" }}>No organizations found</div>}
+                  </div>
+                </>}
+              </div>
 
               {/* ✅ NEW: Department filter */}
               <select value={deptFilter} onChange={(e) => setDeptFilter(e.target.value)} style={{ ...sS, width: 140, fontSize: 13, padding: "7px 10px" }}>
@@ -3158,6 +3304,15 @@ export default function HelpDesk() {
               </div>
               <div style={{ background: "#fff", borderRadius: 12, padding: 18, boxShadow: "0 1px 4px rgba(0,0,0,0.06)" }}><div style={{ fontSize: 12, fontWeight: 600, marginBottom: 12 }}>Ticket Volume</div><BarChart data={dailyData} /></div>
               <div style={{ background: "#fff", borderRadius: 12, padding: 18, boxShadow: "0 1px 4px rgba(0,0,0,0.06)" }}><div style={{ fontSize: 12, fontWeight: 600, marginBottom: 12 }}>By Category</div><BarChart data={categoryDist.map(c => ({ ...c, value: classifiedReportsData.filter(t => t.category === c.label).length }))} color="#8b5cf6" /></div>
+            </div>
+
+            {/* ✅ NEW: Yearly & All-Time Graphs Section */}
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 12 }}>
+              <SmartChart title="Tickets Over 12 Months (All Time)" data={yearlyData} defaultColor="#8b5cf6" />
+              <SmartChart title="Ticket Status Distribution (All Time)" data={STATUSES.map((s, i) => ({ label: s, color: Object.values(STATUS_COLOR)[i].text, value: fbr.filter(t => t.status === s).length }))} defaultType="pie" />
+            </div>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr", gap: 12, marginBottom: 12 }}>
+              <SmartChart title="Priority Distribution (All Time)" data={PRIORITIES.map(p => ({ label: p, value: fbr.filter(t => t.priority === p).length, color: PRIORITY_COLOR[p] }))} defaultType="pie" />
             </div>
             <div style={{ background: "#fff", borderRadius: 12, padding: 18, boxShadow: "0 1px 4px rgba(0,0,0,0.06)" }}>
               <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 12 }}>Agent Performance</div>
