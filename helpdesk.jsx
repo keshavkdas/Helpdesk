@@ -810,6 +810,9 @@ export default function HelpDesk() {
   const [showForwardRequest, setShowForwardRequest] = useState(false);  // Show request form instead of direct forward
   const [showAdminForwardApprovals, setShowAdminForwardApprovals] = useState(false);  // Admin approval modal
 
+  // ✅ NEW: Timeline View
+  const [showTimelineView, setShowTimelineView] = useState(false);  // Show full timeline in modal
+
   // ── Profile ──
   const [profileOpen, setProfileOpen] = useState(false);
   const [editProfileOpen, setEditProfileOpen] = useState(false);
@@ -1400,42 +1403,76 @@ export default function HelpDesk() {
   const toggleAll = () => selectedIds.size === filtered.length && filtered.length > 0 ? setSelectedIds(new Set()) : setSelectedIds(new Set(filtered.map(t => t.id)));
   const selTickets = filtered.filter(t => selectedIds.has(t.id));
 
-  // ─── FORWARD TICKET (v2 - WITH REQUEST WORKFLOW) ───────────────────────────────────────────────────
+  // ─── FORWARD TICKET (v3 - ROLE-BASED) ───────────────────────────────────────────────────
 
-  // ✅ NEW: Request forward (user creates request, admin approves)
-  const handleRequestForward = async (agentId) => {
+  // ✅ Main forward handler - checks role
+  const handleForwardTicket = async (agentId) => {
     if (!fwdReason.trim()) return setCustomAlert({ show: true, message: "Reason is required", type: "error" });
     if (!agentId) return setCustomAlert({ show: true, message: "Please select an agent", type: "error" });
 
     const agent = users.find(u => u.id === agentId);
-    const forwardRequest = {
-      id: `FWD-${Date.now()}`,
-      ticketId: selTicket.id,
-      ticketSummary: selTicket.summary,
-      fromUser: currentUser.name,
-      toAgent: agent,
-      reason: fwdReason,
-      status: "Pending",  // Pending, Approved, Rejected
-      createdAt: new Date().toISOString(),
-      approvedBy: null,
-      approvedAt: null
-    };
+    const nowISO = new Date().toISOString();
 
-    setForwardRequests(prev => [forwardRequest, ...prev]);
-    setShowForward(false);
-    setShowForwardRequest(false);
-    setFwdReason("");
-    setFwdTargetAgent("");
-    setCustomAlert({ show: true, message: "✅ Forward request sent to admin for approval", type: "success" });
+    // ✅ If Admin or Manager - forward directly
+    if (currentUser?.role === "Admin" || currentUser?.role === "Manager") {
+      try {
+        const update = {
+          ...selTicket,
+          assignees: [agent],
+          updated: nowISO,
+          timeline: [
+            ...(selTicket.timeline || []),
+            {
+              action: `✉️ Forwarded to Agent: ${agent.name}`,
+              by: currentUser.name,
+              date: nowISO,
+              note: `Role: ${currentUser.role} | Reason: ${fwdReason}`
+            }
+          ]
+        };
+
+        await axios.put(`${TICKETS_API}/${selTicket.id}`, update);
+        setTickets(p => p.map(x => x.id === selTicket.id ? { ...update, updated: new Date(nowISO) } : x));
+        setSelTicket({ ...update, updated: new Date(nowISO) });
+
+        setShowForward(false);
+        setFwdReason("");
+        setFwdTargetAgent("");
+        setCustomAlert({ show: true, message: "✅ Ticket forwarded successfully!", type: "success" });
+      } catch (e) {
+        setCustomAlert({ show: true, message: "Failed to forward ticket", type: "error" });
+      }
+    }
+    // ✅ If Agent or Viewer - create request
+    else {
+      const forwardRequest = {
+        id: `FWD-${Date.now()}`,
+        ticketId: selTicket.id,
+        ticketSummary: selTicket.summary,
+        fromUser: currentUser.name,
+        fromRole: currentUser.role,
+        toAgent: agent,
+        reason: fwdReason,
+        status: "Pending",
+        createdAt: new Date().toISOString(),
+        approvedBy: null,
+        approvedAt: null
+      };
+
+      setForwardRequests(prev => [forwardRequest, ...prev]);
+      setShowForward(false);
+      setFwdReason("");
+      setFwdTargetAgent("");
+      setCustomAlert({ show: true, message: "✅ Forward request sent to admin for approval", type: "success" });
+    }
   };
 
-  // ✅ Admin approves forward
+  // ✅ Admin approves forward request
   const approveForwardRequest = async (request) => {
     const t = selTicket;
     const nowISO = new Date().toISOString();
 
     try {
-      // Update ticket with new assignee
       const update = {
         ...t,
         assignees: [request.toAgent],
@@ -1443,10 +1480,10 @@ export default function HelpDesk() {
         timeline: [
           ...(t.timeline || []),
           {
-            action: `Forwarded to Agent: ${request.toAgent.name}`,
+            action: `✉️ Forwarded to Agent: ${request.toAgent.name}`,
             by: currentUser.name,
             date: nowISO,
-            note: `Request from ${request.fromUser}. Reason: ${request.reason}`
+            note: `Request from ${request.fromRole} ${request.fromUser}. Reason: ${request.reason}`
           }
         ]
       };
@@ -1455,20 +1492,19 @@ export default function HelpDesk() {
       setTickets(p => p.map(x => x.id === t.id ? { ...update, updated: new Date(nowISO) } : x));
       setSelTicket({ ...update, updated: new Date(nowISO) });
 
-      // Update request status
       setForwardRequests(prev => prev.map(r =>
         r.id === request.id
           ? { ...r, status: "Approved", approvedBy: currentUser.name, approvedAt: nowISO }
           : r
       ));
 
-      setCustomAlert({ show: true, message: "✅ Forward request approved and forwarded", type: "success" });
+      setCustomAlert({ show: true, message: "✅ Forward request approved", type: "success" });
     } catch (e) {
       setCustomAlert({ show: true, message: "Failed to approve forward", type: "error" });
     }
   };
 
-  // ✅ Admin rejects forward
+  // ✅ Admin rejects forward request
   const rejectForwardRequest = (request) => {
     setForwardRequests(prev => prev.map(r =>
       r.id === request.id
@@ -3689,14 +3725,23 @@ export default function HelpDesk() {
           {/* Forward Ticket Button */}
           <button onClick={() => setShowForward(true)} style={{ ...bG, padding: "6px 14px", marginBottom: 14, fontSize: 12 }}>Forward Ticket ➦</button>
 
+          {/* Timeline View Button */}
+          <button onClick={() => setShowTimelineView(true)} style={{ ...bG, padding: "6px 14px", marginBottom: 14, marginLeft: 8, fontSize: 12, background: "#f3e8ff", color: "#7c3aed" }}>📜 View Timeline</button>
+
           {/* Send to Vendor Button */}
           <button onClick={() => setShowVendor(true)} style={{ ...bG, padding: "6px 14px", marginBottom: 14, marginLeft: 8, fontSize: 12, background: "#fff7ed", color: "#ea580c" }}>Send to Vendor 🏭</button>
 
-          {/* Forward Ticket Modal - Request Workflow */}
+          {/* Forward Ticket Modal - Role-based */}
           {showForward && (
             <div style={{ marginBottom: 14, padding: "14px", background: "#eff6ff", borderRadius: 9, border: "1px solid #bfdbfe" }}>
-              <div style={{ fontSize: 12, fontWeight: 700, color: "#1e40af", marginBottom: 10 }}>📬 Request Forward to Agent</div>
-              <div style={{ fontSize: 11, color: "#64748b", marginBottom: 10, fontStyle: "italic" }}>✓ Your request will be sent to Admin for approval</div>
+              <div style={{ fontSize: 12, fontWeight: 700, color: "#1e40af", marginBottom: 10 }}>
+                {(currentUser?.role === "Admin" || currentUser?.role === "Manager") ? "➦ Forward Ticket" : "📬 Request Forward"}
+              </div>
+              <div style={{ fontSize: 11, color: "#64748b", marginBottom: 10, fontStyle: "italic" }}>
+                {(currentUser?.role === "Admin" || currentUser?.role === "Manager")
+                  ? "✓ Direct forward (no approval needed)"
+                  : "✓ Request will be sent to Admin for approval"}
+              </div>
 
               {/* Filter out: currently assigned users */}
               <FF label="Select Agent (currently assigned excluded)" required>
@@ -3724,7 +3769,16 @@ export default function HelpDesk() {
 
               <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 8 }}>
                 <button onClick={() => { setShowForward(false); setFwdReason(""); setFwdTargetAgent(""); }} style={bG}>Cancel</button>
-                <button onClick={() => handleRequestForward(fwdTargetAgent)} style={{ ...bP, background: "#2563eb", boxShadow: "0 2px 6px rgba(37,99,235,0.3)" }}>Send Request to Admin ✉️</button>
+                <button
+                  onClick={() => handleForwardTicket(fwdTargetAgent)}
+                  style={{
+                    ...bP,
+                    background: (currentUser?.role === "Admin" || currentUser?.role === "Manager") ? "#2563eb" : "#f59e0b",
+                    boxShadow: `0 2px 6px rgba(${(currentUser?.role === "Admin" || currentUser?.role === "Manager") ? "37,99,235" : "245,158,11"},0.3)`
+                  }}
+                >
+                  {(currentUser?.role === "Admin" || currentUser?.role === "Manager") ? "Forward Ticket ➦" : "Send Request to Admin ✉️"}
+                </button>
               </div>
             </div>
           )}
@@ -3795,6 +3849,52 @@ export default function HelpDesk() {
             }} style={{ ...bP, marginTop: 7, padding: "7px 15px", fontSize: 13 }}>Post Comment</button>
           </div>
         </div>}
+      </Modal>
+
+      {/* ✅ NEW: TIMELINE VIEW MODAL */}
+      <Modal open={showTimelineView} onClose={() => setShowTimelineView(false)} title={`📜 Ticket Timeline - ${selTicket?.id || ""}`} width={600}>
+        {selTicket && (
+          <div style={{ maxHeight: "600px", overflowY: "auto" }}>
+            {(!selTicket.timeline || selTicket.timeline.length === 0) ? (
+              <div style={{ textAlign: "center", padding: "30px", color: "#94a3b8" }}>
+                <div style={{ fontSize: 14, marginBottom: 8 }}>📭 No timeline events yet</div>
+                <div style={{ fontSize: 12 }}>This ticket hasn't been updated yet</div>
+              </div>
+            ) : (
+              <div>
+                {[...selTicket.timeline].reverse().map((entry, idx) => (
+                  <div key={idx} style={{ marginBottom: 16, paddingBottom: 16, borderBottom: idx < selTicket.timeline.length - 1 ? "1px solid #f1f5f9" : "none" }}>
+                    <div style={{ display: "flex", alignItems: "flex-start", gap: 10 }}>
+                      {/* Timeline dot */}
+                      <div style={{ width: 32, height: 32, minWidth: 32, background: "#dbeafe", borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 14 }}>
+                        {entry.action.includes("Created") && "✨"}
+                        {entry.action.includes("Forwarded") && "➦"}
+                        {entry.action.includes("Sent") && "🏭"}
+                        {entry.action.includes("Reopened") && "🔄"}
+                        {entry.action.includes("Closed") && "✓"}
+                        {entry.action.includes("Updated") && "✏️"}
+                        {!entry.action.includes("Created") && !entry.action.includes("Forwarded") && !entry.action.includes("Sent") && !entry.action.includes("Reopened") && !entry.action.includes("Closed") && !entry.action.includes("Updated") && "📝"}
+                      </div>
+
+                      {/* Timeline content */}
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ fontSize: 13, fontWeight: 600, color: "#1f2937", marginBottom: 2 }}>{entry.action}</div>
+                        <div style={{ fontSize: 11, color: "#64748b", marginBottom: 4 }}>
+                          By <strong>{entry.by}</strong> • {new Date(entry.date).toLocaleString()}
+                        </div>
+                        {entry.note && (
+                          <div style={{ fontSize: 12, color: "#475569", background: "#f8fafc", padding: "8px 10px", borderRadius: 6, borderLeft: "3px solid #3b82f6", marginTop: 6 }}>
+                            {entry.note}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
       </Modal>
 
       {/* ✅ NEW: ADMIN FORWARD APPROVALS MODAL */}
