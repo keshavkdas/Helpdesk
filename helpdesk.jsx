@@ -805,6 +805,11 @@ export default function HelpDesk() {
   const [fwdVendorName, setFwdVendorName] = useState("");
   const [fwdVendorEmail, setFwdVendorEmail] = useState("");
 
+  // ✅ NEW: Forward Request Workflow
+  const [forwardRequests, setForwardRequests] = useState([]);  // List of forward requests waiting approval
+  const [showForwardRequest, setShowForwardRequest] = useState(false);  // Show request form instead of direct forward
+  const [showAdminForwardApprovals, setShowAdminForwardApprovals] = useState(false);  // Admin approval modal
+
   // ── Profile ──
   const [profileOpen, setProfileOpen] = useState(false);
   const [editProfileOpen, setEditProfileOpen] = useState(false);
@@ -1395,19 +1400,82 @@ export default function HelpDesk() {
   const toggleAll = () => selectedIds.size === filtered.length && filtered.length > 0 ? setSelectedIds(new Set()) : setSelectedIds(new Set(filtered.map(t => t.id)));
   const selTickets = filtered.filter(t => selectedIds.has(t.id));
 
-  // ─── FORWARD TICKET (v1) ───────────────────────────────────────────────────
-  const handleForwardToAgent = async (agentId) => {
-    if (!fwdReason.trim()) return alert("Reason is required.");
-    if (!agentId) return alert("Please select an agent.");
+  // ─── FORWARD TICKET (v2 - WITH REQUEST WORKFLOW) ───────────────────────────────────────────────────
+
+  // ✅ NEW: Request forward (user creates request, admin approves)
+  const handleRequestForward = async (agentId) => {
+    if (!fwdReason.trim()) return setCustomAlert({ show: true, message: "Reason is required", type: "error" });
+    if (!agentId) return setCustomAlert({ show: true, message: "Please select an agent", type: "error" });
+
+    const agent = users.find(u => u.id === agentId);
+    const forwardRequest = {
+      id: `FWD-${Date.now()}`,
+      ticketId: selTicket.id,
+      ticketSummary: selTicket.summary,
+      fromUser: currentUser.name,
+      toAgent: agent,
+      reason: fwdReason,
+      status: "Pending",  // Pending, Approved, Rejected
+      createdAt: new Date().toISOString(),
+      approvedBy: null,
+      approvedAt: null
+    };
+
+    setForwardRequests(prev => [forwardRequest, ...prev]);
+    setShowForward(false);
+    setShowForwardRequest(false);
+    setFwdReason("");
+    setFwdTargetAgent("");
+    setCustomAlert({ show: true, message: "✅ Forward request sent to admin for approval", type: "success" });
+  };
+
+  // ✅ Admin approves forward
+  const approveForwardRequest = async (request) => {
     const t = selTicket;
+    const nowISO = new Date().toISOString();
+
     try {
-      const agent = users.find(u => u.id === agentId);
-      const nowISO = new Date().toISOString();
-      const update = { ...t, assignees: [agent], updated: nowISO, timeline: [...(t.timeline || []), { action: `Forwarded to Agent: ${agent.name}`, by: currentUser.name, date: nowISO, note: fwdReason }] };
+      // Update ticket with new assignee
+      const update = {
+        ...t,
+        assignees: [request.toAgent],
+        updated: nowISO,
+        timeline: [
+          ...(t.timeline || []),
+          {
+            action: `Forwarded to Agent: ${request.toAgent.name}`,
+            by: currentUser.name,
+            date: nowISO,
+            note: `Request from ${request.fromUser}. Reason: ${request.reason}`
+          }
+        ]
+      };
+
       await axios.put(`${TICKETS_API}/${t.id}`, update);
       setTickets(p => p.map(x => x.id === t.id ? { ...update, updated: new Date(nowISO) } : x));
-      setSelTicket({ ...update, updated: new Date(nowISO) }); setShowForward(false); setFwdReason("");
-    } catch (e) { alert("Forwarding failed"); }
+      setSelTicket({ ...update, updated: new Date(nowISO) });
+
+      // Update request status
+      setForwardRequests(prev => prev.map(r =>
+        r.id === request.id
+          ? { ...r, status: "Approved", approvedBy: currentUser.name, approvedAt: nowISO }
+          : r
+      ));
+
+      setCustomAlert({ show: true, message: "✅ Forward request approved and forwarded", type: "success" });
+    } catch (e) {
+      setCustomAlert({ show: true, message: "Failed to approve forward", type: "error" });
+    }
+  };
+
+  // ✅ Admin rejects forward
+  const rejectForwardRequest = (request) => {
+    setForwardRequests(prev => prev.map(r =>
+      r.id === request.id
+        ? { ...r, status: "Rejected", approvedBy: currentUser.name, approvedAt: new Date().toISOString() }
+        : r
+    ));
+    setCustomAlert({ show: true, message: "✅ Forward request rejected", type: "success" });
   };
 
   const handleSendForRepair = async (vendorName, contactInfo) => {
@@ -3389,7 +3457,7 @@ export default function HelpDesk() {
                 <div style={{ padding: 7, borderBottom: "1px solid #f1f5f9" }}><input style={{ ...iS, fontSize: 13 }} placeholder="Search agents…" value={assigneeSearch} onChange={e => setAssigneeSearch(e.target.value)} onClick={e => e.stopPropagation()} autoFocus /></div>
                 {users.filter(u => u.active && u.name.toLowerCase().includes(assigneeSearch.toLowerCase())).map(u => {
                   const sel = form.assignees.find(a => a.id === u.id); return (
-                    <div key={u.id} onClick={() => toggleAssignee(u)} style={{ display: "flex", alignItems: "center", gap: 9, padding: "8px 13px", cursor: "pointer", background: sel ? "#eff6ff" : "#fff" }}>
+                    <div key={u.id} onClick={() => { toggleAssignee(u); setShowAssigneeDD(false); }} style={{ display: "flex", alignItems: "center", gap: 9, padding: "8px 13px", cursor: "pointer", background: sel ? "#eff6ff" : "#fff" }}>
                       <Avatar name={u.name} size={26} /><div style={{ flex: 1 }}><div style={{ fontSize: 13, fontWeight: 600 }}>{u.name}</div><div style={{ fontSize: 11, color: "#94a3b8" }}>{u.role}</div></div>
                       {sel && <span style={{ color: "#3b82f6", fontWeight: 700 }}>✓</span>}
                     </div>);
@@ -3446,7 +3514,7 @@ export default function HelpDesk() {
               <div style={{ padding: 7, borderBottom: "1px solid #f1f5f9", position: "sticky", top: 0, background: "#fff" }}><input style={{ ...iS, fontSize: 13 }} placeholder="Search users…" value={assigneeSearch} onChange={e => setAssigneeSearch(e.target.value)} onClick={e => e.stopPropagation()} autoFocus /></div>
               {users.filter(u => u.active && u.name.toLowerCase().includes(assigneeSearch.toLowerCase())).map(u => {
                 const sel = projForm.assignees.find(a => a.id === u.id); return (
-                  <div key={u.id} onClick={() => setProjForm({ ...projForm, assignees: sel ? projForm.assignees.filter(a => a.id !== u.id) : [...projForm.assignees, u] })} style={{ display: "flex", alignItems: "center", gap: 9, padding: "8px 13px", cursor: "pointer", background: sel ? "#eff6ff" : "#fff", borderBottom: "1px solid #f1f5f9" }}>
+                  <div key={u.id} onClick={() => { setProjForm({ ...projForm, assignees: sel ? projForm.assignees.filter(a => a.id !== u.id) : [...projForm.assignees, u] }); setShowAssigneeDD(false); }} style={{ display: "flex", alignItems: "center", gap: 9, padding: "8px 13px", cursor: "pointer", background: sel ? "#eff6ff" : "#fff", borderBottom: "1px solid #f1f5f9" }}>
                     <Avatar name={u.name} size={26} /><div style={{ flex: 1 }}><div style={{ fontSize: 13, fontWeight: 600 }}>{u.name}</div><div style={{ fontSize: 11, color: "#94a3b8" }}>{u.role}</div></div>
                     {sel && <span style={{ color: "#8b5cf6", fontWeight: 700 }}>✓</span>}
                   </div>);
@@ -3624,15 +3692,39 @@ export default function HelpDesk() {
           {/* Send to Vendor Button */}
           <button onClick={() => setShowVendor(true)} style={{ ...bG, padding: "6px 14px", marginBottom: 14, marginLeft: 8, fontSize: 12, background: "#fff7ed", color: "#ea580c" }}>Send to Vendor 🏭</button>
 
-          {/* Forward Ticket Modal (Agent Only) */}
+          {/* Forward Ticket Modal - Request Workflow */}
           {showForward && (
             <div style={{ marginBottom: 14, padding: "14px", background: "#eff6ff", borderRadius: 9, border: "1px solid #bfdbfe" }}>
-              <div style={{ fontSize: 12, fontWeight: 700, color: "#1e40af", marginBottom: 10 }}>Forward to Agent</div>
-              <FF label="Select Agent" required><select style={sS} value={fwdTargetAgent} onChange={e => setFwdTargetAgent(e.target.value)}><option value="">Select...</option>{users.filter(u => u.active).map(u => <option key={u.id} value={u.id}>{u.name} ({u.role})</option>)}</select></FF>
-              <FF label="Reason for Forwarding" required><textarea style={{ ...iS, height: 50, resize: "none" }} value={fwdReason} onChange={e => setFwdReason(e.target.value)} placeholder="Why is this ticket being forwarded?" /></FF>
+              <div style={{ fontSize: 12, fontWeight: 700, color: "#1e40af", marginBottom: 10 }}>📬 Request Forward to Agent</div>
+              <div style={{ fontSize: 11, color: "#64748b", marginBottom: 10, fontStyle: "italic" }}>✓ Your request will be sent to Admin for approval</div>
+
+              {/* Filter out: currently assigned users */}
+              <FF label="Select Agent (currently assigned excluded)" required>
+                <select
+                  style={sS}
+                  value={fwdTargetAgent}
+                  onChange={e => setFwdTargetAgent(e.target.value)}
+                >
+                  <option value="">Select...</option>
+                  {users.filter(u =>
+                    u.active &&
+                    !selTicket.assignees?.find(a => a.id === u.id)  // ✅ Exclude assigned users
+                  ).map(u => <option key={u.id} value={u.id}>{u.name} ({u.role})</option>)}
+                </select>
+              </FF>
+
+              <FF label="Reason for Forwarding" required>
+                <textarea
+                  style={{ ...iS, height: 50, resize: "none" }}
+                  value={fwdReason}
+                  onChange={e => setFwdReason(e.target.value)}
+                  placeholder="Why is this ticket being forwarded?"
+                />
+              </FF>
+
               <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 8 }}>
                 <button onClick={() => { setShowForward(false); setFwdReason(""); setFwdTargetAgent(""); }} style={bG}>Cancel</button>
-                <button onClick={() => handleForwardToAgent(fwdTargetAgent)} style={{ ...bP, background: "#2563eb", boxShadow: "0 2px 6px rgba(37,99,235,0.3)" }}>Confirm Forward</button>
+                <button onClick={() => handleRequestForward(fwdTargetAgent)} style={{ ...bP, background: "#2563eb", boxShadow: "0 2px 6px rgba(37,99,235,0.3)" }}>Send Request to Admin ✉️</button>
               </div>
             </div>
           )}
@@ -3704,6 +3796,33 @@ export default function HelpDesk() {
           </div>
         </div>}
       </Modal>
+
+      {/* ✅ NEW: ADMIN FORWARD APPROVALS MODAL */}
+      {(currentUser?.role === "Admin" || currentUser?.role === "Manager") && forwardRequests.filter(r => r.status === "Pending").length > 0 && (
+        <div style={{ position: "fixed", top: 20, right: 20, background: "#fff", border: "2px solid #f59e0b", borderRadius: 10, padding: "16px", maxWidth: "350px", boxShadow: "0 10px 30px rgba(0,0,0,0.15)", zIndex: 10000 }}>
+          <div style={{ fontSize: 13, fontWeight: 700, color: "#ea580c", marginBottom: 12, display: "flex", alignItems: "center", gap: 6 }}>
+            🔔 Forward Requests ({forwardRequests.filter(r => r.status === "Pending").length})
+          </div>
+
+          {forwardRequests.filter(r => r.status === "Pending").map(request => (
+            <div key={request.id} style={{ background: "#fef3c7", padding: "10px", borderRadius: 7, marginBottom: 10, border: "1px solid #fcd34d" }}>
+              <div style={{ fontSize: 11, fontWeight: 600, color: "#78350f", marginBottom: 4 }}>
+                Ticket: {request.ticketId}
+              </div>
+              <div style={{ fontSize: 10, color: "#92400e", marginBottom: 6, lineHeight: 1.4 }}>
+                <strong>{request.fromUser}</strong> → <strong>{request.toAgent.name}</strong>
+              </div>
+              <div style={{ fontSize: 10, color: "#92400e", marginBottom: 8, fontStyle: "italic", background: "#fff9e6", padding: "6px", borderRadius: 4 }}>
+                "{request.reason}"
+              </div>
+              <div style={{ display: "flex", gap: 6 }}>
+                <button onClick={() => approveForwardRequest(request)} style={{ flex: 1, padding: "6px 10px", fontSize: 10, fontWeight: 600, background: "#10b981", color: "#fff", border: "none", borderRadius: 5, cursor: "pointer" }}>✓ Approve</button>
+                <button onClick={() => rejectForwardRequest(request)} style={{ flex: 1, padding: "6px 10px", fontSize: 10, fontWeight: 600, background: "#ef4444", color: "#fff", border: "none", borderRadius: 5, cursor: "pointer" }}>✕ Reject</button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
 
       {/* ── PROJECT DETAIL MODAL ── */}
       <Modal open={!!selProject} onClose={() => setSelProject(null)} title={selProject?.id || ""} width={720}>
