@@ -534,8 +534,8 @@ const SmartChart = ({ title, data, defaultType = "bar", defaultColor = "#3b82f6"
       };
       return (<div style={{ display: "flex", alignItems: "stretch", width: "100%" }}>
         {/* Left half: pie chart centered */}
-        <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center" }}>
-          <svg width={svgSize} height={svgSize} viewBox="0 0 100 100" style={{ overflow: "visible" }}>
+        <div style={{ flex: "0 0 auto", display: "flex", alignItems: "center", justifyContent: "center" }}>
+          <svg width={svgSize} height={svgSize} viewBox="0 0 100 100" style={{ overflow: "visible", display: "block" }}>
             {segs.map((s, i) => {
               const large = s.end - s.start > Math.PI ? 1 : 0; const isH = hov === i;
               const { lx, ly } = getLabelPos(s);
@@ -1142,11 +1142,8 @@ export default function HelpDesk() {
     return data;
   }, [fbr, exportFilterType, exportFilterValue]);
 
-  // ✅ NEW: Report time-range filtered data - used for all report graphs
-  const reportTimeRangeMs = reportTimeRange === "all" ? Infinity : parseInt(reportTimeRange) * dayMs;
-  const reportFilteredData = useMemo(() => {
-    return reportTimeRange === "all" ? tickets : tickets.filter(t => now - t.created.getTime() <= reportTimeRangeMs);
-  }, [tickets, reportTimeRange, reportTimeRangeMs, now, dayMs]);
+  // Report filtered data uses the same top-bar range filter as the dashboard
+  const reportFilteredData = fbr;
 
   const prbr = useMemo(() => range === "all" ? projects : projects.filter(p => now - p.created.getTime() <= rangeMs), [projects, rangeMs, range, now]);
 
@@ -3262,21 +3259,8 @@ export default function HelpDesk() {
 
           {/* ── REPORTS (v1 charts) ── */}
           {view === "reports" && <>
-            {/* Time Range Filter & Advanced Export Button */}
+            {/* Advanced Export Button */}
             <div style={{ display: "flex", gap: 12, marginBottom: 16, alignItems: "center", flexWrap: "wrap" }}>
-              <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-                <span style={{ fontSize: 13, fontWeight: 600, color: "#374151" }}>Time Range:</span>
-                <select
-                  value={reportTimeRange}
-                  onChange={e => setReportTimeRange(e.target.value)}
-                  style={{ ...sS, width: 140, fontSize: 13, padding: "7px 10px" }}>
-                  <option value="all">All Time</option>
-                  <option value="1">Today</option>
-                  <option value="7">Last 7 Days</option>
-                  <option value="30">Last 30 Days</option>
-                </select>
-              </div>
-
               <button
                 onClick={() => setShowAdvancedExportModal(true)}
                 style={{ ...bP, padding: "7px 16px", fontSize: 13, background: "#3b82f6", color: "#fff", marginLeft: "auto" }}>
@@ -3297,7 +3281,62 @@ export default function HelpDesk() {
               </div>
               <div style={{ background: "#fff", borderRadius: 12, padding: 18, boxShadow: "0 1px 4px rgba(0,0,0,0.06)" }}>
                 <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 12 }}>Ticket Volume</div>
-                <BarChart data={Array.from({ length: parseInt(reportTimeRange || "30") <= 7 ? parseInt(reportTimeRange || "30") : 7 }, (_, i) => { const d = new Date(now - (parseInt(reportTimeRange || "30") - 1 - i) * dayMs); return { label: d.toLocaleDateString("en", { weekday: "short" }), value: reportFilteredData.filter(t => t.created.getDate() === d.getDate() && t.created.getMonth() === d.getMonth()).length }; })} />
+                <BarChart data={(() => {
+                  if (range === "1") {
+                    // Today: 6 hourly buckets
+                    const todayStart = new Date(); todayStart.setHours(0, 0, 0, 0);
+                    return [
+                      { label: "12am", start: 0, end: 4 }, { label: "4am", start: 4, end: 8 },
+                      { label: "8am", start: 8, end: 12 }, { label: "12pm", start: 12, end: 16 },
+                      { label: "4pm", start: 16, end: 20 }, { label: "8pm", start: 20, end: 24 },
+                    ].map(slot => ({
+                      label: slot.label,
+                      value: reportFilteredData.filter(t => {
+                        const d = t.created instanceof Date ? t.created : new Date(t.created);
+                        return d >= todayStart && d.getHours() >= slot.start && d.getHours() < slot.end;
+                      }).length
+                    }));
+                  } else if (range === "7") {
+                    // Last 7 days: daily
+                    return Array.from({ length: 7 }, (_, i) => {
+                      const d = new Date(now - (6 - i) * dayMs);
+                      return {
+                        label: d.toLocaleDateString("en", { weekday: "short" }),
+                        value: reportFilteredData.filter(t => {
+                          const td = t.created instanceof Date ? t.created : new Date(t.created);
+                          return td.getDate() === d.getDate() && td.getMonth() === d.getMonth() && td.getFullYear() === d.getFullYear();
+                        }).length
+                      };
+                    });
+                  } else if (range === "30") {
+                    // Last 30 days: 4 weekly buckets
+                    return Array.from({ length: 4 }, (_, i) => {
+                      const wStart = new Date(now - (3 - i + 1) * 7 * dayMs);
+                      const wEnd = new Date(now - (3 - i) * 7 * dayMs);
+                      return {
+                        label: `W${i + 1}`,
+                        value: reportFilteredData.filter(t => {
+                          const td = t.created instanceof Date ? t.created : new Date(t.created);
+                          return td >= wStart && td < wEnd;
+                        }).length
+                      };
+                    });
+                  } else {
+                    // All time: last 12 months
+                    return Array.from({ length: 12 }, (_, i) => {
+                      const d = new Date(now);
+                      d.setMonth(d.getMonth() - (11 - i));
+                      const yr = d.getFullYear(), mo = d.getMonth();
+                      return {
+                        label: d.toLocaleDateString("en", { month: "short" }),
+                        value: reportFilteredData.filter(t => {
+                          const td = t.created instanceof Date ? t.created : new Date(t.created);
+                          return td.getFullYear() === yr && td.getMonth() === mo;
+                        }).length
+                      };
+                    });
+                  }
+                })()} />
               </div>
               <div style={{ background: "#fff", borderRadius: 12, padding: 18, boxShadow: "0 1px 4px rgba(0,0,0,0.06)" }}>
                 <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 12 }}>By Category</div>
