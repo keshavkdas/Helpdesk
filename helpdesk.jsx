@@ -499,7 +499,7 @@ const SmartChart = ({ title, data, defaultType = "bar", defaultColor = "#3b82f6"
       </svg>);
     }
     if (type === "pie") {
-      let off = 0; const r = 44, cx = 50, cy = 50;
+      let off = 0; const r = 100, cx = 50, cy = 50;
       const segs = data.map(d => { const p = total ? d.value / total : 0; const a = p * Math.PI * 2; const s = { ...d, start: off, end: off + a, pct: Math.round(p * 100) }; off += a; return s; });
       const arc = (s, large) => { const x1 = cx + r * Math.sin(s.start), y1 = cy - r * Math.cos(s.start), x2 = cx + r * Math.sin(s.end), y2 = cy - r * Math.cos(s.end); return `M ${cx} ${cy} L ${x1} ${y1} A ${r} ${r} 0 ${large} 1 ${x2} ${y2} Z`; };
       return (<div style={{ display: "flex", alignItems: "center", gap: 10 }}>
