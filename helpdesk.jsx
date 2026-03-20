@@ -3374,6 +3374,7 @@ export default function HelpDesk() {
           <FF label="Reported By"><input style={iS} placeholder="Who is raising this ticket?" value={form.reportedBy} onChange={e => setForm({ ...form, reportedBy: e.target.value })} /></FF>
           <FF label="Priority"><select style={sS} value={form.priority} onChange={e => setForm({ ...form, priority: e.target.value })}>{PRIORITIES.map(p => <option key={p}>{p}</option>)}</select></FF>
           <FF label="Category"><select style={sS} value={form.category} onChange={e => setForm({ ...form, category: e.target.value })}><option value="">Select…</option>{categories.map(c => <option key={c.id}>{c.name}</option>)}</select></FF>
+          <FF label="Location / Venue"><select style={sS} value={form.location} onChange={e => setForm({ ...form, location: e.target.value })}><option value="">Select venue…</option>{locations.map(l => <option key={l.id}>{l.name}</option>)}</select></FF>
           <FF label="Due Date"><input type="date" style={iS} value={form.dueDate || ""} onChange={e => setForm({ ...form, dueDate: e.target.value })} /></FF>
         </div>
         <FF label="Assignees">
