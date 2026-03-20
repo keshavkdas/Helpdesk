@@ -2974,7 +2974,7 @@ export default function HelpDesk() {
                     </div>
                     <div style={{ background: "#fff", borderRadius: 12, padding: 12, boxShadow: "0 1px 4px rgba(0,0,0,0.06)", minHeight: 220 }}>
                       <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 10, color: "#374151" }}>Ticket Priority</div>
-                      <SmartChart data={priorityDist} defaultType="pie" size="small" />
+                      <SmartChart data={priorityDist} defaultType="bubble" size="small" />
                     </div>
                   </div>
                   <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 12 }}>
