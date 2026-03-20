@@ -2851,24 +2851,24 @@ export default function HelpDesk() {
                 </>
               ) : (
                 <>
-                  {/* Viewer/Agent: 2-column grid with EQUAL SMALL graphs - NO Recent Tickets */}
+                  {/* Viewer/Agent: 2-column grid with SMALLER containers - NO Recent Tickets */}
                   <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 12 }}>
-                    <div style={{ background: "#fff", borderRadius: 12, padding: 10, boxShadow: "0 1px 4px rgba(0,0,0,0.06)", minHeight: 220 }}>
-                      <div style={{ fontSize: 10, fontWeight: 600, marginBottom: 8, color: "#374151" }}>Tickets Over Time (Weekly)</div>
+                    <div style={{ background: "#fff", borderRadius: 12, padding: 12, boxShadow: "0 1px 4px rgba(0,0,0,0.06)", minHeight: 180 }}>
+                      <div style={{ fontSize: 11, fontWeight: 600, marginBottom: 10, color: "#374151" }}>Tickets Over Time (Weekly)</div>
                       <SmartChart data={dashboardDailyData} defaultColor="#3b82f6" size="small" />
                     </div>
-                    <div style={{ background: "#fff", borderRadius: 12, padding: 10, boxShadow: "0 1px 4px rgba(0,0,0,0.06)", minHeight: 220 }}>
-                      <div style={{ fontSize: 10, fontWeight: 600, marginBottom: 8, color: "#374151" }}>Ticket Priority</div>
+                    <div style={{ background: "#fff", borderRadius: 12, padding: 12, boxShadow: "0 1px 4px rgba(0,0,0,0.06)", minHeight: 280 }}>
+                      <div style={{ fontSize: 11, fontWeight: 600, marginBottom: 10, color: "#374151" }}>Ticket Priority</div>
                       <SmartChart data={priorityDist} defaultType="pie" size="small" />
                     </div>
                   </div>
                   <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 12 }}>
-                    <div style={{ background: "#fff", borderRadius: 12, padding: 10, boxShadow: "0 1px 4px rgba(0,0,0,0.06)", minHeight: 220 }}>
-                      <div style={{ fontSize: 10, fontWeight: 600, marginBottom: 8, color: "#374151" }}>By Category</div>
+                    <div style={{ background: "#fff", borderRadius: 12, padding: 12, boxShadow: "0 1px 4px rgba(0,0,0,0.06)", minHeight: 180 }}>
+                      <div style={{ fontSize: 11, fontWeight: 600, marginBottom: 10, color: "#374151" }}>By Category</div>
                       <SmartChart data={categoryDist} defaultColor="#8b5cf6" size="small" />
                     </div>
-                    <div style={{ background: "#fff", borderRadius: 12, padding: 10, boxShadow: "0 1px 4px rgba(0,0,0,0.06)", minHeight: 220 }}>
-                      <div style={{ fontSize: 10, fontWeight: 600, marginBottom: 8, color: "#374151" }}>Ticket Status (w/ Unassigned)</div>
+                    <div style={{ background: "#fff", borderRadius: 12, padding: 12, boxShadow: "0 1px 4px rgba(0,0,0,0.06)", minHeight: 280 }}>
+                      <div style={{ fontSize: 11, fontWeight: 600, marginBottom: 10, color: "#374151" }}>Ticket Status (w/ Unassigned)</div>
                       <SmartChart data={dashboardStatusDist} defaultType="pie" size="small" />
                     </div>
                   </div>
