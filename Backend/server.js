@@ -249,6 +249,18 @@ app.delete("/api/users/:id", async (req, res) => {
 app.post("/api/validate-sessions", async (req, res) => {
     try {
         const { emails } = req.body; // emails is array of current logged in emails
+
+        if (!emails || !Array.isArray(emails)) {
+            return res.status(400).json({ error: "Emails array is required" });
+        }
+
+        if (emails.length === 0) {
+            return res.json({
+                active: [],
+                inactive: []
+            });
+        }
+
         const users = await User.findAll({
             where: { email: { [Op.in]: emails } }
         });
@@ -260,7 +272,10 @@ app.post("/api/validate-sessions", async (req, res) => {
             active: users.map(u => u.email),
             inactive: inactive,
         });
-    } catch (err) { res.status(500).json({ error: err.message }); }
+    } catch (err) {
+        console.error("Session validation error:", err.message);
+        res.status(500).json({ error: err.message });
+    }
 });
 
 app.get("/api/orgs", async (req, res) => {
@@ -441,34 +456,53 @@ app.get("/api/tickets", async (req, res) => {
 
 app.post("/api/tickets", async (req, res) => {
     try {
+        // ✅ Validate required fields FIRST
+        if (!req.body.summary || !req.body.summary.trim()) {
+            return res.status(400).json({ error: "Summary is required" });
+        }
+        if (!req.body.org || !req.body.org.trim()) {
+            return res.status(400).json({ error: "Organisation is required" });
+        }
+
         // Generate ticket ID (TKT-1001, TKT-1002, etc.)
-        // Only find tickets with 4-digit format (ignore temporary timestamp IDs)
-        const lastTicket = await Ticket.findOne({
-            where: {
-                id: { [Op.like]: "TKT-%" }
-            },
+        // Find ALL tickets and filter for 4-digit sequential IDs only
+        const allTickets = await Ticket.findAll({
+            where: { id: { [Op.like]: "TKT-%" } },
             order: [['createdAt', 'DESC']]
         });
 
+        // ✅ Filter tickets to only 4-digit sequential IDs (TKT-XXXX)
+        const sequentialTickets = allTickets.filter(t => {
+            const parts = t.id.split("-");
+            return parts.length === 2 && parts[1].length === 4 && /^\d{4}$/.test(parts[1]);
+        });
+
         let nextIdNum = 1001;
-        if (lastTicket && lastTicket.id) {
-            const parts = lastTicket.id.split("-")[1];
-            // Only use if it's a 4-digit number (not timestamp)
-            if (parts && parts.length === 4) {
-                const lastNum = parseInt(parts, 10);
-                if (!isNaN(lastNum)) nextIdNum = lastNum + 1;
-            }
+        if (sequentialTickets.length > 0) {
+            const lastNum = parseInt(sequentialTickets[0].id.split("-")[1], 10);
+            if (!isNaN(lastNum)) nextIdNum = lastNum + 1;
         }
 
-        // Ensure we don't go below 1001
-        if (nextIdNum < 1001) nextIdNum = 1001;
-
         const ticketId = `TKT-${String(nextIdNum).padStart(4, "0")}`;
-        const ticketData = { ...req.body, id: ticketId };
+
+        // ✅ Clean data - remove created/updated if sent (Sequelize handles these)
+        const ticketData = {
+            ...req.body,
+            id: ticketId,
+            summary: req.body.summary.trim(),
+            org: req.body.org.trim()
+        };
+        delete ticketData.created;
+        delete ticketData.updated;
+        delete ticketData.createdAt;
+        delete ticketData.updatedAt;
 
         const ticket = await Ticket.create(ticketData);
         res.status(201).json(fmt(ticket));
-    } catch (err) { res.status(500).json({ error: err.message }); }
+    } catch (err) {
+        console.error("Ticket creation error:", err.message);
+        res.status(500).json({ error: err.message || "Failed to create ticket" });
+    }
 });
 
 app.put("/api/tickets/:id", async (req, res) => {
@@ -499,32 +533,53 @@ app.get("/api/projects", async (req, res) => {
 
 app.post("/api/projects", async (req, res) => {
     try {
+        // ✅ Validate required fields FIRST
+        if (!req.body.title || !req.body.title.trim()) {
+            return res.status(400).json({ error: "Project title is required" });
+        }
+        if (!req.body.org || !req.body.org.trim()) {
+            return res.status(400).json({ error: "Organisation is required" });
+        }
+
         // Generate project ID (PRJ-1001, PRJ-1002, etc.)
-        // Only find projects with 4-digit format (ignore temporary timestamp IDs)
-        const lastProject = await Project.findOne({
+        // Find ALL projects and filter for 4-digit sequential IDs only
+        const allProjects = await Project.findAll({
             where: { id: { [Op.like]: "PRJ-%" } },
             order: [['createdAt', 'DESC']]
         });
 
+        // ✅ Filter projects to only 4-digit sequential IDs (PRJ-XXXX)
+        const sequentialProjects = allProjects.filter(p => {
+            const parts = p.id.split("-");
+            return parts.length === 2 && parts[1].length === 4 && /^\d{4}$/.test(parts[1]);
+        });
+
         let nextIdNum = 1001;
-        if (lastProject && lastProject.id) {
-            const parts = lastProject.id.split("-")[1];
-            // Only use if it's a 4-digit number (not timestamp)
-            if (parts && parts.length === 4) {
-                const lastNum = parseInt(parts, 10);
-                if (!isNaN(lastNum)) nextIdNum = lastNum + 1;
-            }
+        if (sequentialProjects.length > 0) {
+            const lastNum = parseInt(sequentialProjects[0].id.split("-")[1], 10);
+            if (!isNaN(lastNum)) nextIdNum = lastNum + 1;
         }
 
-        // Ensure we don't go below 1001
-        if (nextIdNum < 1001) nextIdNum = 1001;
-
         const projectId = `PRJ-${String(nextIdNum).padStart(4, "0")}`;
-        const projectData = { ...req.body, id: projectId };
+
+        // ✅ Clean data - remove created/updated if sent (Sequelize handles these)
+        const projectData = {
+            ...req.body,
+            id: projectId,
+            title: req.body.title.trim(),
+            org: req.body.org.trim()
+        };
+        delete projectData.created;
+        delete projectData.updated;
+        delete projectData.createdAt;
+        delete projectData.updatedAt;
 
         const project = await Project.create(projectData);
         res.status(201).json(fmt(project));
-    } catch (err) { res.status(500).json({ error: err.message }); }
+    } catch (err) {
+        console.error("Project creation error:", err.message);
+        res.status(500).json({ error: err.message || "Failed to create project" });
+    }
 });
 
 app.put("/api/projects/:id", async (req, res) => {

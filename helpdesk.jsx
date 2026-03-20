@@ -1326,10 +1326,9 @@ export default function HelpDesk() {
     const newT = {
       ...form,
       // ✅ Don't send ID - server will generate TKT-1001, TKT-1002, etc.
+      // ✅ Don't send created/updated - Sequelize timestamps handle these
       dueDate: form.dueDate || null,
       status: "Open",
-      created: new Date().toISOString(),
-      updated: new Date().toISOString(),
       comments: [],
       timeline: [{ action: "Created", by: currentUser.name, date: new Date().toISOString(), note: "Ticket opened." }]
     };
@@ -1682,9 +1681,8 @@ export default function HelpDesk() {
     const newP = {
       ...projForm,
       // ✅ Don't send ID - server will generate PRJ-1001, PRJ-1002, etc.
+      // ✅ Don't send created/updated - Sequelize timestamps handle these
       status: projForm.status || "Open",
-      created: new Date().toISOString(),
-      updated: new Date().toISOString(),
       dueDate: projForm.dueDate || null,
       comments: [],
       progress: projForm.progress || 0,
@@ -1693,7 +1691,7 @@ export default function HelpDesk() {
     try {
       const res = await axios.post(PROJECTS_API, newP);
       const created = res.data;
-      const projectWithDates = { ...created, created: new Date(created.created), updated: new Date(created.updated), dueDate: created.dueDate ? new Date(created.dueDate) : null };
+      const projectWithDates = { ...created, created: new Date(created.createdAt || created.created), updated: new Date(created.updatedAt || created.updated), dueDate: created.dueDate ? new Date(created.dueDate) : null };
       setProjects(prev => [projectWithDates, ...prev]);
       setSelProject(projectWithDates);  // ✅ Auto-open project details
       setShowNewProject(false);
@@ -1701,7 +1699,7 @@ export default function HelpDesk() {
       setCustomAlert({ show: true, message: "✅ Project created successfully!", type: "success" });
       // ✅ Animation handles fade-out automatically (3.5s)
     } catch (e) {
-      setCustomAlert({ show: true, message: "Failed to save project", type: "error" });
+      setCustomAlert({ show: true, message: "Failed to save project: " + (e.response?.data?.error || e.message), type: "error" });
     }
   };
   const addProjCC = () => { if (projCcInput && !projForm.cc.includes(projCcInput)) { setProjForm({ ...projForm, cc: [...projForm.cc, projCcInput] }); setProjCcInput(""); } };
