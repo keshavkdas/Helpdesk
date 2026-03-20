@@ -447,7 +447,7 @@ const ProgressBar = ({ value, color = "#3b82f6" }) => (
 // ─── SMART CHART ───────────────────────────────────────────────────────────────
 const CHART_TYPES = [
   { id: "bar", icon: "▐▌", label: "Bar" }, { id: "line", icon: "╱", label: "Line" }, { id: "pie", icon: "◔", label: "Pie" },
-  { id: "stacked", icon: "▬", label: "Stacked" }, { id: "area", icon: "◺", label: "Area" },
+  { id: "area", icon: "◺", label: "Area" },
   { id: "histogram", icon: "▮", label: "Histogram" }, { id: "scatter", icon: "⠿", label: "Scatter" },
   { id: "treemap", icon: "▦", label: "Treemap" }, { id: "bubble", icon: "⬤", label: "Bubble" },
 ];
@@ -523,23 +523,6 @@ const SmartChart = ({ title, data, defaultType = "bar", defaultColor = "#3b82f6"
           </div>))}
         </div>
       </div>);
-    }
-    if (type === "stacked") {
-      const colors = ["#3b82f6", "#22c55e", "#f59e0b"];
-      return (<svg width="100%" viewBox={`0 0 ${W} ${H}`} style={{ overflow: "visible" }}>
-        {data.map((d, i) => {
-          const isH = hov === i; const bx = toXb(i); const segs = [Math.round(d.value * 0.4), Math.round(d.value * 0.35), Math.round(d.value * 0.25)]; let curY = PT + IH;
-          return (<g key={i} style={{ cursor: "pointer" }} onMouseEnter={() => setHov(i)} onMouseLeave={() => setHov(null)}>
-            {segs.map((v, si) => {
-              const sh = Math.max((v / max) * IH, 1); curY -= sh; return (
-                <rect key={si} x={bx} y={curY} width={bw} height={sh} fill={colors[si]} rx={si === 0 ? 3 : 0}
-                  style={{ filter: isH ? `drop-shadow(0 -2px 5px ${colors[si]}66)` : "none", opacity: isH ? 1 : 0.82, transition: "opacity 0.15s" }} />);
-            })}
-            <text x={bx + bw / 2} y={H - 4} textAnchor="middle" fontSize={7} fill={isH ? "#374151" : "#94a3b8"}>{d.label?.slice(0, 6)}</text>
-          </g>);
-        })}
-        {["Open", "Closed", "In Progress"].map((c, i) => <g key={c}><rect x={PL + (i * 50)} y={2} width={7} height={7} fill={colors[i]} rx={1} /><text x={PL + (i * 50) + 10} y={9} fontSize={7} fill="#64748b">{c}</text></g>)}
-      </svg>);
     }
     if (type === "scatter") return (<svg width="100%" viewBox={`0 0 ${W} ${H}`} style={{ overflow: "visible" }}>
       {[0, 0.5, 1].map(p => <line key={p} x1={PL} y1={PT + IH * (1 - p)} x2={W - PR} y2={PT + IH * (1 - p)} stroke="#f1f5f9" strokeWidth={1} />)}
@@ -2706,9 +2689,9 @@ export default function HelpDesk() {
                 <SmartChart title="Ticket Priority" data={priorityDist} defaultType="pie" />
                 <SmartChart title="By Category" data={categoryDist} defaultColor="#8b5cf6" />
               </div>
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 12 }}>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12, marginBottom: 12 }}>
                 <SmartChart title="Ticket Status (w/ Unassigned)" data={dashboardStatusDist} defaultType="pie" />
-                <SmartChart title="People Closing Tickets" data={dashboardClosingUsers} defaultColor="#10b981" />
+                {(currentUser?.role === "Admin" || currentUser?.role === "Manager") && <SmartChart title="People Closing Tickets" data={dashboardClosingUsers} defaultColor="#10b981" />}
               </div>
               <div style={{ display: "grid", gridTemplateColumns: "1fr", gap: 12 }}>
                 <div style={{ background: "#fff", borderRadius: 12, padding: 16, boxShadow: "0 1px 4px rgba(0,0,0,0.06)" }}>
