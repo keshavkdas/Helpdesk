@@ -640,6 +640,26 @@ export default function HelpDesk() {
   const [exportFilterType, setExportFilterType] = useState("all"); // all, assignee, category, type
   const [exportFilterValue, setExportFilterValue] = useState(""); // assignee id, category name, type
   const [exportFormat, setExportFormat] = useState("csv"); // csv, json, pdf
+
+  // ✅ NEW: Advanced Export Modal State
+  const [showAdvancedExportModal, setShowAdvancedExportModal] = useState(false);
+  const [advancedExportFilters, setAdvancedExportFilters] = useState({
+    byAssignee: false,
+    byCategory: false,
+    byStatus: false,
+    byPriority: false,
+    byVendor: false,
+    byDateRange: false,
+    dateFromInput: "",
+    dateToInput: "",
+    selectedAssignees: [],
+    selectedCategories: [],
+    selectedStatuses: [],
+    selectedPriorities: [],
+    selectedVendors: [],
+  });
+  const [reportTimeRange, setReportTimeRange] = useState("all"); // Time range filter for reports
+
   const [loginEmail, setLoginEmail] = useState("");
   const [loginPassword, setLoginPassword] = useState("");
   // Restore from localStorage session — survives page reload
@@ -1079,6 +1099,12 @@ export default function HelpDesk() {
 
     return data;
   }, [fbr, exportFilterType, exportFilterValue]);
+
+  // ✅ NEW: Report time-range filtered data - used for all report graphs
+  const reportTimeRangeMs = reportTimeRange === "all" ? Infinity : parseInt(reportTimeRange) * dayMs;
+  const reportFilteredData = useMemo(() => {
+    return reportTimeRange === "all" ? tickets : tickets.filter(t => now - t.created.getTime() <= reportTimeRangeMs);
+  }, [tickets, reportTimeRange, reportTimeRangeMs, now, dayMs]);
 
   const prbr = useMemo(() => range === "all" ? projects : projects.filter(p => now - p.created.getTime() <= rangeMs), [projects, rangeMs, range, now]);
 
@@ -2427,6 +2453,104 @@ export default function HelpDesk() {
         onCancel={confirmModal.onCancel}
       />
 
+      {/* ✅ NEW: Advanced Export Modal */}
+      {showAdvancedExportModal && <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 10000 }}>
+        <div style={{ background: "#fff", borderRadius: 14, padding: 24, maxWidth: 600, width: "90%", maxHeight: "90vh", overflow: "auto", boxShadow: "0 20px 60px rgba(0,0,0,0.3)" }}>
+          <div style={{ fontSize: 18, fontWeight: 700, marginBottom: 6, color: "#1e293b" }}>Advanced Export Options</div>
+          <div style={{ fontSize: 13, color: "#64748b", marginBottom: 18 }}>Select the filters you want to apply when exporting</div>
+
+          {/* Export Format */}
+          <div style={{ marginBottom: 16 }}>
+            <label style={{ fontSize: 12, fontWeight: 600, color: "#374151", display: "block", marginBottom: 6 }}>Export Format</label>
+            <div style={{ display: "flex", gap: 8 }}>
+              {["csv", "json", "pdf"].map(fmt => (
+                <button key={fmt} onClick={() => setExportFormat(fmt)} style={{ padding: "8px 16px", borderRadius: 8, border: fmt === exportFormat ? "2px solid #3b82f6" : "1px solid #e2e8f0", background: fmt === exportFormat ? "#eff6ff" : "#fff", cursor: "pointer", fontWeight: 600, fontSize: 12, color: fmt === exportFormat ? "#3b82f6" : "#64748b" }}>
+                  {fmt === "csv" ? "📄 CSV" : fmt === "json" ? "📋 JSON" : "🖨 PDF"}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Filter Checkboxes */}
+          <div style={{ marginBottom: 18, borderTop: "1px solid #f1f5f9", paddingTop: 14 }}>
+            <div style={{ fontSize: 12, fontWeight: 600, color: "#374151", marginBottom: 10 }}>Filter Options:</div>
+
+            <label style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10, cursor: "pointer" }}>
+              <input type="checkbox" checked={advancedExportFilters.byAssignee} onChange={e => setAdvancedExportFilters({ ...advancedExportFilters, byAssignee: e.target.checked })} style={{ width: 18, height: 18, cursor: "pointer" }} />
+              <span style={{ fontSize: 13, fontWeight: 500 }}>Export by Assignee</span>
+            </label>
+
+            <label style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10, cursor: "pointer" }}>
+              <input type="checkbox" checked={advancedExportFilters.byCategory} onChange={e => setAdvancedExportFilters({ ...advancedExportFilters, byCategory: e.target.checked })} style={{ width: 18, height: 18, cursor: "pointer" }} />
+              <span style={{ fontSize: 13, fontWeight: 500 }}>Export by Category</span>
+            </label>
+
+            <label style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10, cursor: "pointer" }}>
+              <input type="checkbox" checked={advancedExportFilters.byStatus} onChange={e => setAdvancedExportFilters({ ...advancedExportFilters, byStatus: e.target.checked })} style={{ width: 18, height: 18, cursor: "pointer" }} />
+              <span style={{ fontSize: 13, fontWeight: 500 }}>Export by Status</span>
+            </label>
+
+            <label style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10, cursor: "pointer" }}>
+              <input type="checkbox" checked={advancedExportFilters.byPriority} onChange={e => setAdvancedExportFilters({ ...advancedExportFilters, byPriority: e.target.checked })} style={{ width: 18, height: 18, cursor: "pointer" }} />
+              <span style={{ fontSize: 13, fontWeight: 500 }}>Export by Priority</span>
+            </label>
+
+            <label style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10, cursor: "pointer" }}>
+              <input type="checkbox" checked={advancedExportFilters.byVendor} onChange={e => setAdvancedExportFilters({ ...advancedExportFilters, byVendor: e.target.checked })} style={{ width: 18, height: 18, cursor: "pointer" }} />
+              <span style={{ fontSize: 13, fontWeight: 500 }}>Export by Vendor</span>
+            </label>
+
+            <label style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10, cursor: "pointer" }}>
+              <input type="checkbox" checked={advancedExportFilters.byDateRange} onChange={e => setAdvancedExportFilters({ ...advancedExportFilters, byDateRange: e.target.checked })} style={{ width: 18, height: 18, cursor: "pointer" }} />
+              <span style={{ fontSize: 13, fontWeight: 500 }}>Export by Date Range</span>
+            </label>
+
+            {advancedExportFilters.byDateRange && (
+              <div style={{ background: "#f8fafc", padding: 12, borderRadius: 8, marginLeft: 28, marginTop: 8 }}>
+                <div style={{ display: "flex", gap: 10, marginBottom: 8 }}>
+                  <div style={{ flex: 1 }}>
+                    <label style={{ fontSize: 11, fontWeight: 600, color: "#64748b", display: "block", marginBottom: 4 }}>From Date</label>
+                    <input type="date" value={advancedExportFilters.dateFromInput} onChange={e => setAdvancedExportFilters({ ...advancedExportFilters, dateFromInput: e.target.value })} style={{ ...iS, width: "100%", fontSize: 12 }} />
+                  </div>
+                  <div style={{ flex: 1 }}>
+                    <label style={{ fontSize: 11, fontWeight: 600, color: "#64748b", display: "block", marginBottom: 4 }}>To Date</label>
+                    <input type="date" value={advancedExportFilters.dateToInput} onChange={e => setAdvancedExportFilters({ ...advancedExportFilters, dateToInput: e.target.value })} style={{ ...iS, width: "100%", fontSize: 12 }} />
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Action Buttons */}
+          <div style={{ display: "flex", gap: 10, justifyContent: "flex-end", borderTop: "1px solid #f1f5f9", paddingTop: 14 }}>
+            <button onClick={() => setShowAdvancedExportModal(false)} style={{ ...bG, padding: "8px 16px", fontSize: 13 }}>Cancel</button>
+            <button onClick={() => {
+              // Filter data based on advanced options
+              let dataToExport = reportFilteredData;
+
+              if (advancedExportFilters.byDateRange && advancedExportFilters.dateFromInput && advancedExportFilters.dateToInput) {
+                const fromDate = new Date(advancedExportFilters.dateFromInput).getTime();
+                const toDate = new Date(advancedExportFilters.dateToInput).getTime();
+                dataToExport = dataToExport.filter(t => {
+                  const tDate = t.created.getTime();
+                  return tDate >= fromDate && tDate <= toDate + 86400000;
+                });
+              }
+
+              if (exportFormat === "csv") {
+                exportCSV(dataToExport, "tickets");
+              } else if (exportFormat === "json") {
+                exportJSON(dataToExport);
+              } else if (exportFormat === "pdf") {
+                exportPrint(dataToExport, "tickets");
+              }
+
+              setShowAdvancedExportModal(false);
+            }} style={{ ...bP, padding: "8px 16px", fontSize: 13, background: "#3b82f6", color: "#fff" }}>⬇️ Export Now</button>
+          </div>
+        </div>
+      </div>}
+
       {/* ── SIDEBAR ─────────────────────────────────────────────────────── */}
       <div style={{ width: 220, background: "#0f172a", display: "flex", flexDirection: "column", flexShrink: 0 }}>
         <div style={{ padding: "18px 18px 14px", borderBottom: "1px solid #1e293b" }}>
@@ -3032,113 +3156,62 @@ export default function HelpDesk() {
 
           {/* ── REPORTS (v1 charts) ── */}
           {view === "reports" && <>
-            <div style={{ display: "flex", gap: 9, marginBottom: 14, alignItems: "center", flexWrap: "wrap" }}>
-              <span style={{ fontSize: 13, fontWeight: 600, color: "#374151" }}>Export Report:</span>
+            {/* Time Range Filter & Advanced Export Button */}
+            <div style={{ display: "flex", gap: 12, marginBottom: 16, alignItems: "center", flexWrap: "wrap" }}>
+              <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                <span style={{ fontSize: 13, fontWeight: 600, color: "#374151" }}>Time Range:</span>
+                <select
+                  value={reportTimeRange}
+                  onChange={e => setReportTimeRange(e.target.value)}
+                  style={{ ...sS, width: 140, fontSize: 13, padding: "7px 10px" }}>
+                  <option value="all">All Time</option>
+                  <option value="1">Today</option>
+                  <option value="7">Last 7 Days</option>
+                  <option value="30">Last 30 Days</option>
+                </select>
+              </div>
 
-              {/* Export Format Selector */}
-              <select
-                value={exportFormat}
-                onChange={(e) => setExportFormat(e.target.value)}
-                style={{ ...sS, fontSize: 13, padding: "7px 10px", minWidth: 120 }}
-              >
-                <option value="csv">📄 CSV</option>
-                <option value="json">📋 JSON</option>
-                <option value="pdf">🖨 PDF / Print</option>
-              </select>
-
-              {/* Unified Export Button */}
               <button
-                onClick={() => {
-                  if (exportFormat === "csv") {
-                    exportCSV(classifiedReportsData, "tickets");
-                  } else if (exportFormat === "json") {
-                    exportJSON(classifiedReportsData);
-                  } else if (exportFormat === "pdf") {
-                    exportPrint(classifiedReportsData, "tickets");
-                  }
-                }}
-                style={{ ...bP, padding: "7px 16px", fontSize: 13, background: "#3b82f6", color: "#fff" }}
-              >
-                ⬇️ Export
+                onClick={() => setShowAdvancedExportModal(true)}
+                style={{ ...bP, padding: "7px 16px", fontSize: 13, background: "#3b82f6", color: "#fff", marginLeft: "auto" }}>
+                ⬇️ Advanced Export
               </button>
             </div>
-
-            {/* Classification Filters */}
-            <div style={{ display: "flex", gap: 12, marginBottom: 18, padding: 14, background: "#f8fafc", borderRadius: 9, alignItems: "center", flexWrap: "wrap" }}>
-              <div style={{ fontSize: 12, fontWeight: 600, color: "#374151" }}>Classify Reports By:</div>
-
-              <select
-                value={exportFilterType}
-                onChange={(e) => { setExportFilterType(e.target.value); setExportFilterValue(""); }}
-                style={{ ...sS, fontSize: 13, padding: "7px 10px", minWidth: 160 }}
-              >
-                <option value="all">All Tickets</option>
-                <option value="assignee">By Assignee</option>
-                <option value="category">By Category</option>
-                <option value="type">By Type (Ticket/Webcast)</option>
-                <option value="status">By Status</option>
-                <option value="priority">By Priority</option>
-              </select>
-
-              {exportFilterType !== "all" && (
-                <select
-                  value={exportFilterValue}
-                  onChange={(e) => setExportFilterValue(e.target.value)}
-                  style={{ ...sS, fontSize: 13, padding: "7px 10px", minWidth: 160 }}
-                >
-                  <option value="">Select {exportFilterType}</option>
-                  {exportFilterType === "assignee" && tickets.flatMap(t => t.assignees || []).filter((a, i, arr) => arr.findIndex(x => x.id === a.id) === i).map(a => (
-                    <option key={a.id} value={a.id}>{a.name}</option>
-                  ))}
-                  {exportFilterType === "category" && categories.map(c => (
-                    <option key={c.id} value={c.name}>{c.name}</option>
-                  ))}
-                  {exportFilterType === "type" && (
-                    <>
-                      <option value="ticket">Regular Tickets</option>
-                      <option value="webcast">Webcasts</option>
-                    </>
-                  )}
-                  {exportFilterType === "status" && STATUSES.map(s => (
-                    <option key={s} value={s}>{s}</option>
-                  ))}
-                  {exportFilterType === "priority" && PRIORITIES.map(p => (
-                    <option key={p} value={p}>{p}</option>
-                  ))}
-                </select>
-              )}
-
-              {exportFilterType !== "all" && exportFilterValue && (
-                <span style={{ fontSize: 12, color: "#64748b", background: "#fff", padding: "4px 10px", borderRadius: 6, fontWeight: 500 }}>
-                  📊 Showing {exportFilterType}: {exportFilterValue}
-                </span>
-              )}
-            </div>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 12 }}>
+            {/* All Equal-Sized Report Graphs - 3 per row */}
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 12, marginBottom: 12 }}>
               <div style={{ background: "#fff", borderRadius: 12, padding: 18, boxShadow: "0 1px 4px rgba(0,0,0,0.06)" }}>
                 <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 4 }}>Ticket Status Distribution</div>
                 <div style={{ fontSize: 11, color: "#94a3b8", marginBottom: 12 }}>Open / Closed / In Progress</div>
-                <DonutChart data={["Open", "Closed", "In Progress"].map(s => ({ label: s, color: STATUS_COLOR[s]?.text || "#94a3b8", value: classifiedReportsData.filter(t => t.status === s).length }))} />
+                <DonutChart data={["Open", "Closed", "In Progress"].map(s => ({ label: s, color: STATUS_COLOR[s]?.text || "#94a3b8", value: reportFilteredData.filter(t => t.status === s).length }))} />
               </div>
               <div style={{ background: "#fff", borderRadius: 12, padding: 18, boxShadow: "0 1px 4px rgba(0,0,0,0.06)" }}>
                 <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 4 }}>Project Status Distribution</div>
                 <div style={{ fontSize: 11, color: "#94a3b8", marginBottom: 12 }}>Open / Closed / In Progress</div>
-                <DonutChart data={["Open", "Closed", "In Progress"].map(s => ({ label: s, color: STATUS_COLOR[s]?.text || "#94a3b8", value: dashboardProjects.filter(p => p.status === s).length }))} />
+                <DonutChart data={["Open", "Closed", "In Progress"].map(s => ({ label: s, color: STATUS_COLOR[s]?.text || "#94a3b8", value: prbr.filter(p => p.status === s).length }))} />
               </div>
-              <div style={{ background: "#fff", borderRadius: 12, padding: 18, boxShadow: "0 1px 4px rgba(0,0,0,0.06)" }}><div style={{ fontSize: 12, fontWeight: 600, marginBottom: 12 }}>Ticket Volume</div><BarChart data={dailyData} /></div>
-              <div style={{ background: "#fff", borderRadius: 12, padding: 18, boxShadow: "0 1px 4px rgba(0,0,0,0.06)" }}><div style={{ fontSize: 12, fontWeight: 600, marginBottom: 12 }}>By Category</div><BarChart data={categoryDist.map(c => ({ ...c, value: classifiedReportsData.filter(t => t.category === c.label).length }))} color="#8b5cf6" /></div>
+              <div style={{ background: "#fff", borderRadius: 12, padding: 18, boxShadow: "0 1px 4px rgba(0,0,0,0.06)" }}>
+                <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 12 }}>Ticket Volume</div>
+                <BarChart data={Array.from({ length: parseInt(reportTimeRange || "30") <= 7 ? parseInt(reportTimeRange || "30") : 7 }, (_, i) => { const d = new Date(now - (parseInt(reportTimeRange || "30") - 1 - i) * dayMs); return { label: d.toLocaleDateString("en", { weekday: "short" }), value: reportFilteredData.filter(t => t.created.getDate() === d.getDate() && t.created.getMonth() === d.getMonth()).length }; })} />
+              </div>
+              <div style={{ background: "#fff", borderRadius: 12, padding: 18, boxShadow: "0 1px 4px rgba(0,0,0,0.06)" }}>
+                <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 12 }}>By Category</div>
+                <BarChart data={categoryDist.map(c => ({ ...c, value: reportFilteredData.filter(t => t.category === c.label).length }))} color="#8b5cf6" />
+              </div>
+              <div style={{ background: "#fff", borderRadius: 12, padding: 18, boxShadow: "0 1px 4px rgba(0,0,0,0.06)" }}>
+                <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 12 }}>Priority Distribution</div>
+                <DonutChart data={PRIORITIES.map(p => ({ label: p, value: reportFilteredData.filter(t => t.priority === p).length, color: PRIORITY_COLOR[p] }))} />
+              </div>
+              <div style={{ background: "#fff", borderRadius: 12, padding: 18, boxShadow: "0 1px 4px rgba(0,0,0,0.06)" }}>
+                <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 12 }}>Ticket Type Distribution</div>
+                <DonutChart data={[
+                  { label: "Regular Tickets", value: reportFilteredData.filter(t => !t.isWebcast && !(t.category && t.category.toLowerCase().includes("webcast"))).length, color: "#3b82f6" },
+                  { label: "Webcasts", value: reportFilteredData.filter(t => t.isWebcast || (t.category && t.category.toLowerCase().includes("webcast"))).length, color: "#f97316" }
+                ]} />
+              </div>
             </div>
 
-            {/* ✅ NEW: Yearly & All-Time Graphs Section */}
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 12 }}>
-              <SmartChart title="Tickets Over 12 Months (All Time)" data={yearlyData} defaultColor="#8b5cf6" />
-              <SmartChart title="Ticket Status Distribution (All Time)" data={STATUSES.map((s, i) => ({ label: s, color: Object.values(STATUS_COLOR)[i].text, value: fbr.filter(t => t.status === s).length }))} defaultType="pie" />
-            </div>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr", gap: 12, marginBottom: 12 }}>
-              <SmartChart title="Priority Distribution (All Time)" data={PRIORITIES.map(p => ({ label: p, value: fbr.filter(t => t.priority === p).length, color: PRIORITY_COLOR[p] }))} defaultType="pie" />
-            </div>
+            {/* Agent Performance Table */}
             <div style={{ background: "#fff", borderRadius: 12, padding: 18, boxShadow: "0 1px 4px rgba(0,0,0,0.06)" }}>
-              <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 12 }}>Agent Performance</div>
               <table style={{ width: "100%", borderCollapse: "collapse" }}>
                 <thead><tr>{["Agent", "Role", "Assigned", "Resolved", "Open", "Rate"].map(h => <th key={h} style={thStyle}>{h}</th>)}</tr></thead>
                 <tbody>{agentStats.map(a => {
