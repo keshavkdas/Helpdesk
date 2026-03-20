@@ -11,6 +11,7 @@ const ORGS_API = `${BASE_URL}/orgs`;
 const CATEGORIES_API = `${BASE_URL}/categories`;
 const CUSTOM_ATTRS_API = `${BASE_URL}/customAttrs`;
 const USERS_API = `${BASE_URL}/users`;
+const LOCATIONS_API = `${BASE_URL}/locations`;
 const DB_API = `${BASE_URL}/all-data`;
 const AUTH_API = `${BASE_URL}/auth/login`;
 const IMPORT_API = `${BASE_URL}/import`;
@@ -21,7 +22,6 @@ const VALIDATE_SESSIONS_API = `${BASE_URL}/validate-sessions`;
 const PRIORITIES = ["Low", "Medium", "High", "Critical"];
 const STATUSES = ["Open", "In Progress", "Resolved", "Closed"];
 const ROLES = ["Super Admin", "Admin", "Manager", "Agent", "Viewer"];
-const LOCATIONS = ["Amphitheater", "Main Hall", "Outdoor Ground", "Conference Center", "Community Center", "Regional Center", "Online", "Other"];
 const SATSANG_TYPES = ["G Satsang", "Weekly Satsang", "Special Satsang", "Youth Satsang", "Children Satsang"];
 const PROJECT_STATUSES = ["Open", "In Progress", "Resolved", "Closed"];
 const PROJECT_PRIORITIES = ["Low", "Medium", "High", "Critical"];
@@ -622,20 +622,7 @@ export default function HelpDesk() {
   // ── v2 projects (local state – no API for projects) ──
   const [projects, setProjects] = useState([]);
 
-  // ── Project Tasks ──
-  const [newProjectTask, setNewProjectTask] = useState("");
-
-  // Calculate project progress based on tasks and status
-  const calculateProjectProgress = (proj) => {
-    if (!proj.tasks || proj.tasks.length === 0) {
-      return getProgressFromStatus(proj.status);
-    }
-    const completedTasks = proj.tasks.filter(t => t.completed).length;
-    const taskProgress = Math.round((completedTasks / proj.tasks.length) * 100);
-    const statusProgress = getProgressFromStatus(proj.status);
-    // Average of task progress and status progress
-    return Math.round((taskProgress + statusProgress) / 2);
-  };
+  // ── Navigation ──
   const [view, setView] = useState(() => {
     try {
       return localStorage.getItem("deskflow_view") || "dashboard";
@@ -666,6 +653,10 @@ export default function HelpDesk() {
   const [orgFilter, setOrgFilter] = useState("all");
   const [orgClassifyType, setOrgClassifyType] = useState("all");
   const [newDept, setNewDept] = useState({ name: "" });
+
+  // ✅ NEW: Locations (from database)
+  const [locations, setLocations] = useState([]);
+  const [newLocation, setNewLocation] = useState({ name: "" });
 
   // ✅ NEW: Save current view and filters to localStorage
   useEffect(() => {
@@ -735,7 +726,7 @@ export default function HelpDesk() {
   const [showAssigneeDD, setShowAssigneeDD] = useState(false);
 
   // ── Project form ──
-  const emptyProjectForm = { org: "", department: "", reportedBy: "", title: "", description: "", assignees: [], priority: "Medium", category: "", status: "Open", location: "", dueDate: "", isWebcast: false, satsangType: "", progress: 0, customAttrs: {}, satsangId: null, tasks: [] };
+  const emptyProjectForm = { org: "", department: "", reportedBy: "", title: "", description: "", assignees: [], priority: "Medium", category: "", status: "Open", location: "", dueDate: "", isWebcast: false, satsangType: "", progress: 0, customAttrs: {}, satsangId: null };
   const [projForm, setProjForm] = useState(emptyProjectForm);
   const [projCcInput, setProjCcInput] = useState("");
 
@@ -837,6 +828,15 @@ export default function HelpDesk() {
         console.log("Departments loading from API:", e.message);
         // If API fails, set empty array - no hardcoded defaults!
         setDepartments([]);
+      }
+
+      // ✅ NEW: Load locations from database
+      try {
+        const locResponse = await axios.get(LOCATIONS_API);
+        setLocations(locResponse.data || []);
+      } catch (e) {
+        console.log("Locations loading from API:", e.message);
+        setLocations([]);
       }
 
       const parsedTickets = [
@@ -1714,6 +1714,33 @@ export default function HelpDesk() {
       setCustomAlert({ show: true, message: "Failed to delete department", type: "error" });
     }
   };
+
+  // ── LOCATION MANAGEMENT ──
+  const addLocation = async () => {
+    if (!newLocation?.name?.trim()) {
+      setCustomAlert({ show: true, message: "Location name required", type: "error" });
+      return;
+    }
+    try {
+      const loc = await axios.post(LOCATIONS_API, newLocation);
+      setLocations([...locations, loc.data]);
+      setNewLocation({ name: "" });
+      setCustomAlert({ show: true, message: "✅ Location added!", type: "success" });
+    } catch (e) {
+      setCustomAlert({ show: true, message: "Failed to add location", type: "error" });
+    }
+  };
+
+  const deleteLocation = async (id) => {
+    if (!window.confirm("Delete this location?")) return;
+    try {
+      await axios.delete(`${LOCATIONS_API}/${id}`);
+      setLocations(locations.filter(l => l.id !== id));
+      setCustomAlert({ show: true, message: "✅ Location deleted!", type: "success" });
+    } catch (e) {
+      setCustomAlert({ show: true, message: "Failed to delete location", type: "error" });
+    }
+  };
   const toggleProjSel = id => { const s = new Set(selectedProjIds); s.has(id) ? s.delete(id) : s.add(id); setSelectedProjIds(s); };
   const toggleAllProj = () => selectedProjIds.size === filteredProjects.length && filteredProjects.length > 0 ? setSelectedProjIds(new Set()) : setSelectedProjIds(new Set(filteredProjects.map(p => p.id)));
   const selProjects = filteredProjects.filter(p => selectedProjIds.has(p.id));
@@ -1892,6 +1919,7 @@ export default function HelpDesk() {
     { id: "organisations", label: "Organisations", icon: "🏢" },
     { id: "categories", label: "Categories", icon: "🏷" },
     { id: "departments", label: "Departments", icon: "🏛" },
+    { id: "locations", label: "Locations", icon: "📍" },
     { id: "usermgmt", label: "User Management", icon: "👥" },
     { id: "customattrs", label: "Custom Attributes", icon: "✏️" },
     { id: "dbmgmt", label: "Database Mgmt", icon: "💾" },
@@ -1901,6 +1929,7 @@ export default function HelpDesk() {
     { id: "organisations", label: "Organisations", icon: "🏢" },
     { id: "categories", label: "Categories", icon: "🏷" },
     { id: "departments", label: "Departments", icon: "🏛" },
+    { id: "locations", label: "Locations", icon: "📍" },
     { id: "usermgmt", label: "User Management", icon: "👥" },
     { id: "customattrs", label: "Custom Attributes", icon: "✏️" },
   ] : [
@@ -1945,7 +1974,7 @@ export default function HelpDesk() {
           </FF>
         </div>
         <FF label="Satsang Type"><select style={sS} value={f.satsangType} onChange={e => setF({ ...f, satsangType: e.target.value })}><option value="">Select type…</option>{SATSANG_TYPES.map(t => <option key={t}>{t}</option>)}</select></FF>
-        <FF label="Location / Venue"><select style={sS} value={f.location} onChange={e => setF({ ...f, location: e.target.value })}><option value="">Select venue…</option>{LOCATIONS.map(l => <option key={l}>{l}</option>)}</select></FF>
+        <FF label="Location / Venue"><select style={sS} value={f.location} onChange={e => setF({ ...f, location: e.target.value })}><option value="">Select venue…</option>{locations.map(l => <option key={l.id}>{l.name}</option>)}</select></FF>
       </div>}
     </div>
   </>;
@@ -3072,6 +3101,31 @@ export default function HelpDesk() {
                 </div>
                 {departments.length === 0 && <div style={{ textAlign: "center", color: "#94a3b8", padding: 28 }}>No departments yet. Add one to get started.</div>}
               </div>}
+              {/* ✅ NEW: Locations Management */}
+              {settingsTab === "locations" && <div style={{ background: "#fff", borderRadius: 12, padding: 22, boxShadow: "0 1px 4px rgba(0,0,0,0.06)" }}>
+                <h3 style={{ margin: "0 0 4px", fontSize: 15, fontWeight: 700 }}>Locations ({locations.length})</h3>
+                <p style={{ margin: "0 0 18px", fontSize: 12, color: "#64748b" }}>Manage ticket and project locations/venues.</p>
+                {currentUser?.role === "Admin" || currentUser?.role === "Manager" ? (
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: 9, marginBottom: 18, padding: 14, background: "#f8fafc", borderRadius: 9 }}>
+                    <input
+                      style={iS}
+                      placeholder="Location name *"
+                      value={newLocation?.name || ""}
+                      onChange={e => setNewLocation({ name: e.target.value })}
+                    />
+                    <button onClick={addLocation} style={bP}>Add</button>
+                  </div>
+                ) : <div style={{ marginBottom: 18, padding: "10px 14px", background: "#fef3c7", color: "#92400e", borderRadius: 8, fontSize: 13, fontWeight: 500 }}>Read Only: Location management is restricted to Admins and Managers.</div>}
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(160px,1fr))", gap: 9 }}>
+                  {locations.map(l => (
+                    <div key={l.id} style={{ display: "flex", alignItems: "center", gap: 9, padding: "11px 13px", borderRadius: 9, border: "1.5px solid #e2e8f0", background: "#fafafa" }}>
+                      <span style={{ flex: 1, fontSize: 13, fontWeight: 600 }}>📍 {l.name}</span>
+                      {(currentUser?.role === "Admin" || currentUser?.role === "Manager") && <button onClick={() => deleteLocation(l.id)} style={{ border: "none", background: "#fee2e2", color: "#ef4444", borderRadius: 6, padding: "4px 10px", cursor: "pointer", fontSize: 12, fontWeight: 600 }}>Delete</button>}
+                    </div>
+                  ))}
+                </div>
+                {locations.length === 0 && <div style={{ textAlign: "center", color: "#94a3b8", padding: 28 }}>No locations yet. Add one to get started.</div>}
+              </div>}
               {settingsTab === "usermgmt" && <div style={{ background: "#fff", borderRadius: 12, padding: 22, boxShadow: "0 1px 4px rgba(0,0,0,0.06)" }}>
                 <h3 style={{ margin: "0 0 14px", fontSize: 15, fontWeight: 700 }}>User Management ({users.length} users)</h3>
                 {currentUser?.role === "Super Admin" || currentUser?.role === "Admin" ? (
@@ -3333,7 +3387,7 @@ export default function HelpDesk() {
           <FF label="Reported By"><input style={iS} value={projForm.reportedBy} onChange={e => setProjForm({ ...projForm, reportedBy: e.target.value })} /></FF>
           <FF label="Priority"><select style={sS} value={projForm.priority} onChange={e => setProjForm({ ...projForm, priority: e.target.value })}>{PROJECT_PRIORITIES.map(p => <option key={p}>{p}</option>)}</select></FF>
           <FF label="Category"><select style={sS} value={projForm.category} onChange={e => setProjForm({ ...projForm, category: e.target.value })}><option value="">Select…</option>{projectCategories.map(c => <option key={c.id}>{c.name}</option>)}</select></FF>
-          <FF label="Location"><select style={sS} value={projForm.location} onChange={e => setProjForm({ ...projForm, location: e.target.value })}><option value="">Select…</option>{LOCATIONS.map(l => <option key={l}>{l}</option>)}</select></FF>
+          <FF label="Location"><select style={sS} value={projForm.location} onChange={e => setProjForm({ ...projForm, location: e.target.value })}><option value="">Select…</option>{locations.map(l => <option key={l.id}>{l.name}</option>)}</select></FF>
           <FF label="Due Date"><input type="date" style={iS} value={projForm.dueDate} onChange={e => setProjForm({ ...projForm, dueDate: e.target.value })} /></FF>
         </div>
         {projForm.category === "Webcast" && <WebcastFields f={projForm} setF={setProjForm} />}
@@ -3434,7 +3488,7 @@ export default function HelpDesk() {
                   <label style={{ fontSize: 11, fontWeight: 600, color: "#94a3b8", textTransform: "uppercase", display: "block", marginBottom: 5 }}>Location</label>
                   <select value={editTicket.location || ""} onChange={e => setEditTicket({ ...editTicket, location: e.target.value })} style={{ ...iS, width: "100%", fontSize: 13 }}>
                     <option value="">Select…</option>
-                    {LOCATIONS.map(l => <option key={l}>{l}</option>)}
+                    {locations.map(l => <option key={l.id}>{l.name}</option>)}
                   </select>
                 </div>
 
@@ -3621,75 +3675,10 @@ export default function HelpDesk() {
           <h2 style={{ margin: "0 0 9px", fontSize: 17, fontWeight: 700 }}>{selProject.title}</h2>
           <div style={{ marginBottom: 14, padding: "11px 14px", background: "#f8fafc", borderRadius: 9 }}>
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
-              <span style={{ fontSize: 11, fontWeight: 600, color: "#94a3b8", textTransform: "uppercase" }}>Progress (Status + Tasks)</span>
-              <span style={{ fontSize: 14, fontWeight: 700, color: "#8b5cf6" }}>{calculateProjectProgress(selProject)}%</span>
+              <span style={{ fontSize: 11, fontWeight: 600, color: "#94a3b8", textTransform: "uppercase" }}>Progress (Based on Status)</span>
+              <span style={{ fontSize: 14, fontWeight: 700, color: "#8b5cf6" }}>{getProgressFromStatus(selProject.status)}%</span>
             </div>
-            <ProgressBar value={calculateProjectProgress(selProject)} color={calculateProjectProgress(selProject) > 70 ? "#22c55e" : calculateProjectProgress(selProject) > 40 ? "#f59e0b" : "#ef4444"} />
-          </div>
-
-          {/* ── PROJECT TASKS SECTION ── */}
-          <div style={{ marginBottom: 14, padding: "11px 13px", background: "#fff", border: "1.5px solid #e5e7eb", borderRadius: 9 }}>
-            <div style={{ fontSize: 11, fontWeight: 600, color: "#374151", textTransform: "uppercase", marginBottom: 10 }}>📋 Tasks ({(selProject.tasks || []).filter(t => t.completed).length}/{(selProject.tasks || []).length})</div>
-
-            {/* Task List */}
-            {(selProject.tasks || []).length > 0 && (
-              <div style={{ marginBottom: 12, display: "flex", flexDirection: "column", gap: 7 }}>
-                {(selProject.tasks || []).map((task, idx) => (
-                  <div key={idx} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 10px", background: task.completed ? "#f0fdf4" : "#f8fafc", borderRadius: 7, border: `1px solid ${task.completed ? "#bbf7d0" : "#e2e8f0"}` }}>
-                    <input type="checkbox" checked={task.completed} onChange={async () => {
-                      const updatedTasks = [...(selProject.tasks || [])];
-                      updatedTasks[idx].completed = !updatedTasks[idx].completed;
-                      const updated = { ...selProject, tasks: updatedTasks, updated: new Date().toISOString() };
-                      try {
-                        await axios.put(`${PROJECTS_API}/${selProject.id}`, updated);
-                        setProjects(p => p.map(x => x.id === selProject.id ? { ...updated, updated: new Date(updated.updated) } : x));
-                        setSelProject(updated);
-                      } catch (e) { }
-                    }} style={{ width: 18, height: 18, cursor: "pointer" }} />
-                    <div style={{ flex: 1, fontSize: 13, fontWeight: 500, textDecoration: task.completed ? "line-through" : "none", color: task.completed ? "#94a3b8" : "#1f2937" }}>
-                      {task.title}
-                    </div>
-                    <button onClick={async () => {
-                      const updatedTasks = (selProject.tasks || []).filter((_, i) => i !== idx);
-                      const updated = { ...selProject, tasks: updatedTasks, updated: new Date().toISOString() };
-                      try {
-                        await axios.put(`${PROJECTS_API}/${selProject.id}`, updated);
-                        setProjects(p => p.map(x => x.id === selProject.id ? { ...updated, updated: new Date(updated.updated) } : x));
-                        setSelProject(updated);
-                      } catch (e) { }
-                    }} style={{ padding: "3px 8px", fontSize: 12, borderRadius: 5, border: "1px solid #fee2e2", background: "#fecaca", color: "#991b1b", cursor: "pointer", fontWeight: 600 }}>Delete</button>
-                  </div>
-                ))}
-              </div>
-            )}
-
-            {/* Add New Task */}
-            <div style={{ display: "flex", gap: 8 }}>
-              <input type="text" placeholder="Add a new task..." value={newProjectTask} onChange={e => setNewProjectTask(e.target.value)} onKeyPress={e => {
-                if (e.key === "Enter" && newProjectTask.trim()) {
-                  const updated = { ...selProject, tasks: [...(selProject.tasks || []), { title: newProjectTask.trim(), completed: false }], updated: new Date().toISOString() };
-                  axios.put(`${PROJECTS_API}/${selProject.id}`, updated).then(() => {
-                    setProjects(p => p.map(x => x.id === selProject.id ? { ...updated, updated: new Date(updated.updated) } : x));
-                    setSelProject(updated);
-                    setNewProjectTask("");
-                  }).catch(e => { });
-                }
-              }} style={{ ...iS, flex: 1, fontSize: 12 }} />
-              <button onClick={async () => {
-                if (!newProjectTask.trim()) return;
-                const updated = { ...selProject, tasks: [...(selProject.tasks || []), { title: newProjectTask.trim(), completed: false }], updated: new Date().toISOString() };
-                try {
-                  await axios.put(`${PROJECTS_API}/${selProject.id}`, updated);
-                  setProjects(p => p.map(x => x.id === selProject.id ? { ...updated, updated: new Date(updated.updated) } : x));
-                  setSelProject(updated);
-                  setNewProjectTask("");
-                } catch (e) { }
-              }} style={{ padding: "7px 13px", fontSize: 12, borderRadius: 6, border: "none", background: "#3b82f6", color: "#fff", cursor: "pointer", fontWeight: 600 }}>+ Add Task</button>
-            </div>
-
-            {(selProject.tasks || []).length === 0 && newProjectTask === "" && (
-              <div style={{ textAlign: "center", color: "#94a3b8", fontSize: 12, padding: "12px" }}>No tasks yet. Add one to get started!</div>
-            )}
+            <ProgressBar value={getProgressFromStatus(selProject.status)} color={getProgressFromStatus(selProject.status) > 70 ? "#22c55e" : getProgressFromStatus(selProject.status) > 40 ? "#f59e0b" : "#ef4444"} />
           </div>
           <p style={{ margin: "0 0 16px", color: "#64748b", fontSize: 14, lineHeight: 1.6 }}>{selProject.description}</p>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 9, marginBottom: 14 }}>

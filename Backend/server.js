@@ -150,6 +150,20 @@ const Department = sequelize.define("Department", {
     },
 }, { timestamps: true });
 
+// ✅ NEW: Location Model
+const Location = sequelize.define("Location", {
+    id: {
+        type: DataTypes.INTEGER,
+        primaryKey: true,
+        autoIncrement: true,
+    },
+    name: {
+        type: DataTypes.STRING,
+        allowNull: false,
+        unique: true,
+    },
+}, { timestamps: true });
+
 // ─── SERIALIZER (Matches your original fmt) ──────────────────────────────────
 const fmt = (doc) => {
     if (!doc) return null;
@@ -203,114 +217,113 @@ app.post("/api/users", async (req, res) => {
 
 app.put("/api/users/:id", async (req, res) => {
     try {
-        const { password, ...rest } = req.body;
-        if (password && !password.startsWith("$2")) rest.password = await bcrypt.hash(password, 10);
-        await User.update(rest, { where: { id: req.params.id } });
-        const updated = await User.findByPk(req.params.id);
-        res.json(fmt(updated));
+        const user = await User.findByPk(req.params.id);
+        if (!user) return res.status(404).json({ error: "User not found" });
+        if (req.body.password) req.body.password = await bcrypt.hash(req.body.password, 10);
+        await user.update(req.body);
+        res.json(fmt(user));
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
 app.delete("/api/users/:id", async (req, res) => {
-    try { await User.destroy({ where: { id: req.params.id } }); res.json({ success: true }); }
-    catch (err) { res.status(500).json({ error: err.message }); }
-});
-
-// ✅ NEW: Endpoint to validate sessions and mark inactive users as logged out
-// This checks which users are still active in sessions and updates their status
-app.post("/api/validate-sessions", async (req, res) => {
     try {
-        const { activeUsers } = req.body; // Array of user IDs who are currently logged in
-
-        // Mark all users as Logged-Out by default
-        await User.update({ status: "Logged-Out" }, { where: {} });
-
-        // Mark only the active users as Logged-In
-        if (activeUsers && activeUsers.length > 0) {
-            await User.update({ status: "Logged-In" }, { where: { id: { [Op.in]: activeUsers } } });
-        }
-
-        // Return updated users
-        const users = await User.findAll({ order: [['createdAt', 'ASC']] });
-        res.json(users.map(fmt));
+        const user = await User.findByPk(req.params.id);
+        if (!user) return res.status(404).json({ error: "User not found" });
+        await user.destroy();
+        res.json({ success: true });
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// Orgs
+app.post("/api/validate-sessions", async (req, res) => {
+    try {
+        const { emails } = req.body; // emails is array of current logged in emails
+        const users = await User.findAll({
+            where: { email: { [Op.in]: emails } }
+        });
+
+        const validUsers = new Set(users.map(u => u.email));
+        const inactive = emails.filter(e => !validUsers.has(e)); // emails no longer in DB
+
+        res.json({
+            active: users.map(u => u.email),
+            inactive: inactive,
+        });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 app.get("/api/orgs", async (req, res) => {
-    try { res.json((await Org.findAll()).map(fmt)); } catch (err) { res.status(500).json({ error: err.message }); }
-});
-app.post("/api/orgs", async (req, res) => {
-    try { res.status(201).json(fmt(await Org.create(req.body))); } catch (err) { res.status(500).json({ error: err.message }); }
-});
-app.delete("/api/orgs/:id", async (req, res) => {
-    try { await Org.destroy({ where: { id: req.params.id } }); res.json({ success: true }); }
+    try { res.json(await Org.findAll()); }
     catch (err) { res.status(500).json({ error: err.message }); }
 });
+app.post("/api/orgs", async (req, res) => {
+    try { res.status(201).json(await Org.create(req.body)); }
+    catch (err) { res.status(500).json({ error: err.message }); }
+});
+app.delete("/api/orgs/:id", async (req, res) => {
+    try {
+        const org = await Org.findByPk(req.params.id);
+        if (org) await org.destroy();
+        res.json({ success: true });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
 
-// Categories
 app.get("/api/categories", async (req, res) => {
-    try { res.json((await Category.findAll()).map(fmt)); } catch (err) { res.status(500).json({ error: err.message }); }
+    try {
+        const cats = await Category.findAll({ order: [['name', 'ASC']] });
+        res.json(cats.map(fmt));
+    } catch (err) { res.status(500).json({ error: err.message }); }
 });
-
 app.post("/api/categories", async (req, res) => {
-    try { res.status(201).json(fmt(await Category.create(req.body))); } catch (err) { res.status(500).json({ error: err.message }); }
+    try { res.status(201).json(await Category.create(req.body)); }
+    catch (err) { res.status(500).json({ error: err.message }); }
 });
-
-// ✅ MISSING ROUTE ADDED: Delete Category
 app.delete("/api/categories/:id", async (req, res) => {
     try {
-        await Category.destroy({ where: { id: req.params.id } });
+        const cat = await Category.findByPk(req.params.id);
+        if (cat) await cat.destroy();
         res.json({ success: true });
-    } catch (err) {
-        res.status(500).json({ error: err.message });
-    }
+    } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// Satsangs
 app.get("/api/satsangs", async (req, res) => {
-    try { res.json((await Satsang.findAll({ order: [['date', 'DESC']] })).map(fmt)); }
+    try { res.json(await Satsang.findAll({ order: [['date', 'DESC']] })); }
     catch (err) { res.status(500).json({ error: err.message }); }
 });
 
 app.post("/api/satsangs", async (req, res) => {
-    try {
-        const satsang = await Satsang.create(req.body);
-        res.status(201).json(fmt(satsang));
-    } catch (err) { res.status(400).json({ error: err.message }); }
+    try { res.status(201).json(await Satsang.create(req.body)); }
+    catch (err) { res.status(500).json({ error: err.message }); }
 });
 
 app.put("/api/satsangs/:id", async (req, res) => {
     try {
-        await Satsang.update(req.body, { where: { id: req.params.id } });
-        res.json(fmt(await Satsang.findByPk(req.params.id)));
-    } catch (err) { res.status(400).json({ error: err.message }); }
+        const s = await Satsang.findByPk(req.params.id);
+        if (s) await s.update(req.body);
+        res.json(fmt(s));
+    } catch (err) { res.status(500).json({ error: err.message }); }
 });
-
 app.delete("/api/satsangs/:id", async (req, res) => {
     try {
-        await Satsang.destroy({ where: { id: req.params.id } });
+        const s = await Satsang.findByPk(req.params.id);
+        if (s) await s.destroy();
         res.json({ success: true });
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// Custom Attributes
 app.get("/api/customAttrs", async (req, res) => {
-    try { res.json((await CustomAttr.findAll()).map(fmt)); } catch (err) { res.status(500).json({ error: err.message }); }
+    try { res.json(await CustomAttr.findAll()); }
+    catch (err) { res.status(500).json({ error: err.message }); }
 });
-
 app.post("/api/customAttrs", async (req, res) => {
-    try { res.status(201).json(fmt(await CustomAttr.create(req.body))); } catch (err) { res.status(500).json({ error: err.message }); }
+    try { res.status(201).json(await CustomAttr.create(req.body)); }
+    catch (err) { res.status(500).json({ error: err.message }); }
 });
-
-// ✅ MISSING ROUTE ADDED: Delete Custom Attribute
 app.delete("/api/customAttrs/:id", async (req, res) => {
     try {
-        await CustomAttr.destroy({ where: { id: req.params.id } });
+        const attr = await CustomAttr.findByPk(req.params.id);
+        if (attr) await attr.destroy();
         res.json({ success: true });
-    } catch (err) {
-        res.status(500).json({ error: err.message });
-    }
+    } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
 // ✅ NEW: Departments (Full CRUD)
@@ -359,62 +372,87 @@ app.delete("/api/departments/:id", async (req, res) => {
     }
 });
 
+// ✅ NEW: Locations (Full CRUD)
+app.get("/api/locations", async (req, res) => {
+    try {
+        const locations = await Location.findAll({ order: [['name', 'ASC']] });
+        res.json(locations.map(fmt));
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+app.post("/api/locations", async (req, res) => {
+    try {
+        const { name } = req.body;
+
+        if (!name || !name.trim()) {
+            return res.status(400).json({ error: "Location name is required" });
+        }
+
+        const existing = await Location.findOne({ where: { name: name.trim() } });
+        if (existing) {
+            return res.status(409).json({ error: "Location already exists" });
+        }
+
+        const loc = await Location.create({ name: name.trim() });
+        res.status(201).json(fmt(loc));
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+app.delete("/api/locations/:id", async (req, res) => {
+    try {
+        const { id } = req.params;
+
+        const loc = await Location.findByPk(id);
+        if (!loc) {
+            return res.status(404).json({ error: "Location not found" });
+        }
+
+        await loc.destroy();
+        res.json({ success: true, message: "Location deleted" });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
 // ─── 5. TICKETS (FULL LOGIC) ─────────────────────────────────────────────────
 
 app.get("/api/tickets", async (req, res) => {
     try {
         const tickets = await Ticket.findAll({ order: [['createdAt', 'DESC']] });
-        const webcasts = await Webcast.findAll({ order: [['createdAt', 'DESC']] });
-        res.json([...tickets, ...webcasts].map(fmt).sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt)));
-    }
-    catch (err) { res.status(500).json({ error: err.message }); }
+        res.json(tickets.map(fmt));
+    } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
 app.post("/api/tickets", async (req, res) => {
     try {
-        const isWebcast = req.body.category === "Webcast";
-        const Model = isWebcast ? Webcast : Ticket;
-        const prefix = isWebcast ? "WEB" : "TKT";
-
-        if (req.body.dueDate === "") req.body.dueDate = null;
-
-        if (!req.body.id) {
-            const count = await Model.count();
-            req.body.id = `${prefix}-${String(1001 + count).padStart(4, "0")}`;
-        }
-
-        const record = await Model.create(req.body);
-        res.status(201).json(fmt(record));
+        const ticket = await Ticket.create(req.body);
+        res.status(201).json(fmt(ticket));
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
 app.put("/api/tickets/:id", async (req, res) => {
     try {
-        // Check both tables
-        let record = await Ticket.findOne({ where: { id: req.params.id } });
-        let Model = Ticket;
-        if (!record) {
-            record = await Webcast.findOne({ where: { id: req.params.id } });
-            Model = Webcast;
-        }
-
-        if (!record) return res.status(404).json({ error: "Ticket not found" });
-
-        await record.update(req.body);
-        const updated = await Model.findOne({ where: { id: req.params.id } });
-        res.json(fmt(updated));
+        const ticket = await Ticket.findByPk(req.params.id);
+        if (!ticket) return res.status(404).json({ error: "Ticket not found" });
+        await ticket.update(req.body);
+        res.json(fmt(ticket));
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
 app.delete("/api/tickets/:id", async (req, res) => {
     try {
-        const deleted = await Ticket.destroy({ where: { id: req.params.id } });
-        if (!deleted) await Webcast.destroy({ where: { id: req.params.id } });
+        const ticket = await Ticket.findByPk(req.params.id);
+        if (ticket) await ticket.destroy();
         res.json({ success: true });
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// Projects
+// ─── 6. PROJECTS (FULL LOGIC) ────────────────────────────────────────────────
+
 app.get("/api/projects", async (req, res) => {
     try {
         const projects = await Project.findAll({ order: [['createdAt', 'DESC']] });
@@ -424,36 +462,34 @@ app.get("/api/projects", async (req, res) => {
 
 app.post("/api/projects", async (req, res) => {
     try {
-        if (!req.body.id) {
-            const count = await Project.count();
-            req.body.id = `PRJ-${String(1001 + count).padStart(4, "0")}`;
-        }
-        const record = await Project.create(req.body);
-        res.status(201).json(fmt(record));
+        const project = await Project.create(req.body);
+        res.status(201).json(fmt(project));
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
 app.put("/api/projects/:id", async (req, res) => {
     try {
-        await Project.update(req.body, { where: { id: req.params.id } });
-        res.json(fmt(await Project.findByPk(req.params.id)));
+        const project = await Project.findByPk(req.params.id);
+        if (!project) return res.status(404).json({ error: "Project not found" });
+        await project.update(req.body);
+        res.json(fmt(project));
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
 app.delete("/api/projects/:id", async (req, res) => {
     try {
-        await Project.destroy({ where: { id: req.params.id } });
+        const project = await Project.findByPk(req.params.id);
+        if (project) await project.destroy();
         res.json({ success: true });
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// ─── 6. ALL-DATA & IMPORT (THE DASHBOARD RELOAD) ─────────────────────────────
+// ─── 7. ALL-DATA ENDPOINT ────────────────────────────────────────────────────
 
-// Universal Export: Get all data for all tables (for full backups)
 app.get("/api/all-data", async (req, res) => {
     try {
-        const [users, orgs, categories, customAttrs, tickets, webcasts, satsangs, projects, departments] = await Promise.all([
-            User.findAll(), Org.findAll(), Category.findAll(), CustomAttr.findAll(), Ticket.findAll(), Webcast.findAll(), Satsang.findAll(), Project.findAll(), Department.findAll()
+        const [users, orgs, categories, customAttrs, tickets, webcasts, satsangs, projects, departments, locations] = await Promise.all([
+            User.findAll(), Org.findAll(), Category.findAll(), CustomAttr.findAll(), Ticket.findAll(), Webcast.findAll(), Satsang.findAll(), Project.findAll(), Department.findAll(), Location.findAll()
         ]);
         res.json({
             users: users.map(fmt),
@@ -465,6 +501,7 @@ app.get("/api/all-data", async (req, res) => {
             satsangs: satsangs.map(fmt),
             projects: projects.map(fmt),
             departments: departments.map(fmt),
+            locations: locations.map(fmt),
         });
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
@@ -484,7 +521,9 @@ app.post("/api/import/:table", async (req, res) => {
             categories: Category,
             customAttrs: CustomAttr,
             users: User,
-            projects: Project
+            projects: Project,
+            departments: Department,
+            locations: Location
         };
 
         const Model = models[table];
@@ -551,7 +590,7 @@ app.post("/api/import/:table", async (req, res) => {
                 await Model.create(cleanItem);
             }
         }
-        // ─── IMPORT LOGIC FOR USERS, ORGS, CATEGORIES, SATSANGS ────────────
+        // ─── IMPORT LOGIC FOR USERS, ORGS, CATEGORIES, SATSANGS, DEPARTMENTS, LOCATIONS ────────────
         else {
             const matchField = table === 'users' ? 'email' : 'name';
 
@@ -606,7 +645,7 @@ app.post("/api/import/:table", async (req, res) => {
 // Original "Full Bundle" Import (kept for backward compatibility with full backups)
 app.post("/api/all-data/import", async (req, res) => {
     try {
-        const { users = [], orgs = [], categories = [], customAttrs = [], tickets = [], webcasts = [], satsangs = [], projects = [] } = req.body;
+        const { users = [], orgs = [], categories = [], customAttrs = [], tickets = [], webcasts = [], satsangs = [], projects = [], departments = [], locations = [] } = req.body;
 
         const merge = async (model, data, field) => {
             for (const item of data) {
@@ -623,10 +662,16 @@ app.post("/api/all-data/import", async (req, res) => {
         if (webcasts.length) await merge(Webcast, webcasts, 'id');
         if (satsangs.length) await merge(Satsang, satsangs, 'name');
         if (projects.length) await merge(Project, projects, 'id');
+        if (departments.length) await merge(Department, departments, 'name');
+        if (locations.length) await merge(Location, locations, 'name');
 
         res.json({ success: true, message: "Full database merge complete" });
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
+
+// ─── HEALTH ───────────────────────────────────────────────────────────────────
+
+app.get("/", (req, res) => res.json({ msg: "🚀 DeskFlow API v1" }));
 
 // ─── START ────────────────────────────────────────────────────────────────────
 const PORT = process.env.PORT || 5000;
@@ -642,8 +687,8 @@ sequelize.sync({ alter: true }).then(async () => {
         console.error("⚠️ Status migration warning:", migErr.message);
     }
 
-    // ✅ NO HARDCODED DEPARTMENTS - Only add via frontend!
-    // Departments must be created manually through the Settings → Departments tab
+    // ✅ NO HARDCODED DEPARTMENTS & LOCATIONS - Only add via frontend!
+    // Departments and Locations must be created manually through Settings tabs
 
     app.listen(PORT, () => console.log(`🚀 DeskFlow API → http://localhost:${PORT}`));
 }).catch(err => {
