@@ -2822,10 +2822,10 @@ export default function HelpDesk() {
                     <SmartChart title="By Category" data={categoryDist} defaultColor="#8b5cf6" />
                   </div>
 
-                  {/* Admin/Manager: 2nd row (2 graphs) */}
+                  {/* Admin/Manager: 2nd row (2 graphs) - with SMALLER pie charts */}
                   <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 12 }}>
-                    <div style={{ background: "#fff", borderRadius: 12, padding: 18, boxShadow: "0 1px 4px rgba(0,0,0,0.06)", minHeight: 380 }}>
-                      <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 12, color: "#374151" }}>Ticket Status (w/ Unassigned)</div>
+                    <div style={{ background: "#fff", borderRadius: 12, padding: 14, boxShadow: "0 1px 4px rgba(0,0,0,0.06)", minHeight: 300 }}>
+                      <div style={{ fontSize: 11, fontWeight: 600, marginBottom: 10, color: "#374151" }}>Ticket Status (w/ Unassigned)</div>
                       <SmartChart data={dashboardStatusDist} defaultType="pie" />
                     </div>
                     <SmartChart title="People Closing Tickets" data={dashboardClosingUsers} defaultColor="#10b981" />
