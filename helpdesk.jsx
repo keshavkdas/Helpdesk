@@ -771,6 +771,8 @@ export default function HelpDesk() {
   const [form, setForm] = useState(emptyForm);
   const [ccInput, setCcInput] = useState("");
   const [assigneeSearch, setAssigneeSearch] = useState("");
+  const [showTicketAssigneeDD, setShowTicketAssigneeDD] = useState(false);
+  const [showProjAssigneeDD, setShowProjAssigneeDD] = useState(false);
   const [showAssigneeDD, setShowAssigneeDD] = useState(false);
 
   // ── Project form ──
@@ -2854,6 +2856,33 @@ export default function HelpDesk() {
 
           {/* ── PROJECTS ── */}
           {view === "projects" && <div style={{ background: "#fff", borderRadius: 12, boxShadow: "0 1px 4px rgba(0,0,0,0.06)", overflow: "hidden" }}>
+
+            {/* ✅ PROJECT STATS - Now in Projects View Only */}
+            <div style={{ padding: "18px 18px 0 18px" }}>
+              <div style={{ marginBottom: 6 }}>
+                <span style={{ fontSize: 14, fontWeight: 900, color: "#1e293b", textTransform: "uppercase", letterSpacing: "0.1em", marginLeft: 2 }}>📁 PROJECTS</span>
+              </div>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(6,1fr)", gap: 9, marginBottom: 20 }}>
+                {[
+                  { label: "Open", value: projStats.open, bg: "#fef3c7", accent: "#f59e0b", icon: "📂", action: () => { setPvFilter("open"); setProjStatusF("All"); setProjPriorityF("All"); } },
+                  { label: "Unassigned", value: dashboardProjects.filter(p => !p.assignees || p.assignees.length === 0).length, bg: "#f3e8ff", accent: "#a855f7", icon: "👤", action: () => { setPvFilter("unassigned"); } },
+                  { label: "In Progress", value: projStats.inProgress, bg: "#ede9fe", accent: "#6366f1", icon: "⚙️", action: () => { setPvFilter("inprogress"); setProjStatusF("All"); setProjPriorityF("All"); } },
+                  { label: "Critical", value: projStats.critical, bg: "#fee2e2", accent: "#ef4444", icon: "🔥", action: () => { setPvFilter("critical"); setProjStatusF("All"); setProjPriorityF("All"); } },
+                  { label: "Resolved", value: projStats.resolved, bg: "#dcfce7", accent: "#22c55e", icon: "✅", action: () => { setPvFilter("closed"); setProjStatusF("All"); setProjPriorityF("All"); } },
+                  { label: "Total", value: projStats.total, bg: "#ede9fe", accent: "#8b5cf6", icon: "📁", action: () => { setPvFilter("all"); setProjStatusF("All"); setProjPriorityF("All"); } },
+                ].map(s => (
+                  <div key={s.label} onClick={s.action} style={{ background: s.bg, borderRadius: 12, padding: "16px 16px", boxShadow: "0 2px 6px rgba(0,0,0,0.1)", borderLeft: `5px solid ${s.accent}`, cursor: "pointer", transition: "all 0.2s ease" }}
+                    onMouseEnter={e => { e.currentTarget.style.boxShadow = "0 6px 20px rgba(0,0,0,0.15)"; e.currentTarget.style.transform = "translateY(-2px)"; }}
+                    onMouseLeave={e => { e.currentTarget.style.boxShadow = "0 2px 6px rgba(0,0,0,0.1)"; e.currentTarget.style.transform = "translateY(0)"; }}>
+                    <div style={{ fontSize: 20, marginBottom: 6 }}>{s.icon}</div>
+                    <div style={{ fontSize: 32, fontWeight: 900, color: s.accent, lineHeight: 1 }}>{s.value}</div>
+                    <div style={{ fontSize: 12, fontWeight: 700, color: "#1e293b", marginTop: 4 }}>{s.label}</div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Project Filters */}
             <div style={{ padding: "11px 14px", borderBottom: "1px solid #f1f5f9", display: "flex", gap: 9, alignItems: "center", flexWrap: "wrap" }}>
               <input placeholder="Search projects…" value={projSearch} onChange={e => setProjSearch(e.target.value)} style={{ ...iS, width: 200, fontSize: 13, padding: "7px 10px" }} />
               <select value={projStatusF} onChange={e => setProjStatusF(e.target.value)} style={{ ...sS, width: 128, fontSize: 13, padding: "7px 10px" }}><option value="All">All Status</option>{PROJECT_STATUSES.map(s => <option key={s}>{s}</option>)}</select>
@@ -3835,14 +3864,20 @@ export default function HelpDesk() {
                   {!selTicket.assignees?.length && <span style={{ fontSize: 13, color: "#94a3b8" }}>Unassigned</span>}
                 </div>
                 <div style={{ position: "relative" }}>
-                  <input type="text" placeholder="Add assignee..." value={assigneeSearch} onChange={e => setAssigneeSearch(e.target.value)} onFocus={() => setAssigneeSearch(assigneeSearch || " ")} style={{ ...iS, width: "100%", fontSize: 12 }} />
-                  {assigneeSearch && <div style={{ position: "absolute", top: "calc(100% + 3px)", left: 0, right: 0, background: "#fff", border: "1.5px solid #e2e8f0", borderRadius: 8, zIndex: 200, boxShadow: "0 4px 12px rgba(0,0,0,0.1)", maxHeight: 200, overflowY: "auto" }}>
-                    {users.filter(u => u.active && (assigneeSearch.trim() === "" || u.name.toLowerCase().includes(assigneeSearch.toLowerCase())) && !selTicket.assignees?.find(a => a.id === u.id)).map(u => (
-                      <div key={u.id} onClick={async () => { const updated = { ...selTicket, assignees: [...(selTicket.assignees || []), u], updated: new Date().toISOString() }; try { await axios.put(`${TICKETS_API}/${selTicket.id}`, updated); setTickets(t => t.map(x => x.id === selTicket.id ? { ...updated, updated: new Date(updated.updated) } : x)); setSelTicket(updated); setAssigneeSearch(""); } catch (e) { alert("Failed to add assignee"); } }} style={{ display: "flex", alignItems: "center", gap: 9, padding: "8px 12px", cursor: "pointer", borderBottom: "1px solid #f1f5f9" }}>
-                        <Avatar name={u.name} size={24} /><div><div style={{ fontSize: 12, fontWeight: 600 }}>{u.name}</div><div style={{ fontSize: 11, color: "#94a3b8" }}>{u.role}</div></div>
+                  <input type="text" placeholder="Add assignee..." value={assigneeSearch} onChange={e => setAssigneeSearch(e.target.value)} onFocus={() => { setAssigneeSearch(""); setShowTicketAssigneeDD(true); }} style={{ ...iS, width: "100%", fontSize: 12 }} />
+                  {showTicketAssigneeDD && <><div style={{ position: "fixed", inset: 0, zIndex: 199 }} onClick={() => { setShowTicketAssigneeDD(false); setAssigneeSearch(""); }} />
+                    <div style={{ position: "absolute", top: "calc(100% + 3px)", left: 0, right: 0, background: "#fff", border: "1.5px solid #e2e8f0", borderRadius: 8, zIndex: 200, boxShadow: "0 4px 12px rgba(0,0,0,0.1)", maxHeight: 200, overflowY: "auto" }}>
+                      <div style={{ padding: 8, borderBottom: "1px solid #f1f5f9", position: "sticky", top: 0, background: "#fff" }}>
+                        <input type="text" placeholder="Search assignees..." value={assigneeSearch} onChange={e => setAssigneeSearch(e.target.value)} onClick={e => e.stopPropagation()} autoFocus style={{ ...iS, width: "100%", fontSize: 12 }} />
                       </div>
-                    ))}
-                  </div>}
+                      {users.filter(u => u.active && (assigneeSearch === "" || u.name.toLowerCase().includes(assigneeSearch.toLowerCase())) && !selTicket.assignees?.find(a => a.id === u.id)).map(u => (
+                        <div key={u.id} onClick={async () => { const updated = { ...selTicket, assignees: [...(selTicket.assignees || []), u], updated: new Date().toISOString() }; try { await axios.put(`${TICKETS_API}/${selTicket.id}`, updated); setTickets(t => t.map(x => x.id === selTicket.id ? { ...updated, updated: new Date(updated.updated) } : x)); setSelTicket(updated); setAssigneeSearch(""); setShowTicketAssigneeDD(false); } catch (e) { alert("Failed to add assignee"); } }} style={{ display: "flex", alignItems: "center", gap: 9, padding: "8px 12px", cursor: "pointer", borderBottom: "1px solid #f1f5f9" }}>
+                          <Avatar name={u.name} size={24} /><div><div style={{ fontSize: 12, fontWeight: 600 }}>{u.name}</div><div style={{ fontSize: 11, color: "#94a3b8" }}>{u.role}</div></div>
+                        </div>
+                      ))}
+                      {users.filter(u => u.active && (assigneeSearch === "" || u.name.toLowerCase().includes(assigneeSearch.toLowerCase())) && !selTicket.assignees?.find(a => a.id === u.id)).length === 0 && <div style={{ padding: "12px", textAlign: "center", fontSize: 12, color: "#94a3b8" }}>No available users</div>}
+                    </div>
+                  </>}
                 </div>
               </div>
             ) : (
@@ -4112,14 +4147,20 @@ export default function HelpDesk() {
                   {!selProject.assignees?.length && <span style={{ fontSize: 13, color: "#94a3b8" }}>Unassigned</span>}
                 </div>
                 <div style={{ position: "relative" }}>
-                  <input type="text" placeholder="Add assignee..." value={assigneeSearch} onChange={e => setAssigneeSearch(e.target.value)} style={{ ...iS, width: "100%", fontSize: 12 }} />
-                  {assigneeSearch && <div style={{ position: "absolute", top: "calc(100% + 3px)", left: 0, right: 0, background: "#fff", border: "1.5px solid #e2e8f0", borderRadius: 8, zIndex: 200, boxShadow: "0 4px 12px rgba(0,0,0,0.1)", maxHeight: 200, overflowY: "auto" }}>
-                    {users.filter(u => u.active && u.name.toLowerCase().includes(assigneeSearch.toLowerCase()) && !selProject.assignees?.find(a => a.id === u.id)).map(u => (
-                      <div key={u.id} onClick={async () => { const updated = { ...selProject, assignees: [...(selProject.assignees || []), u], updated: new Date().toISOString() }; try { await axios.put(`${PROJECTS_API}/${selProject.id}`, updated); setProjects(p => p.map(x => x.id === selProject.id ? { ...updated, updated: new Date(updated.updated) } : x)); setSelProject(updated); setAssigneeSearch(""); } catch (e) { alert("Failed to add assignee"); } }} style={{ display: "flex", alignItems: "center", gap: 9, padding: "8px 12px", cursor: "pointer", borderBottom: "1px solid #f1f5f9" }}>
-                        <Avatar name={u.name} size={24} /><div><div style={{ fontSize: 12, fontWeight: 600 }}>{u.name}</div><div style={{ fontSize: 11, color: "#94a3b8" }}>{u.role}</div></div>
+                  <input type="text" placeholder="Add assignee..." value={assigneeSearch} onChange={e => setAssigneeSearch(e.target.value)} onFocus={() => { setAssigneeSearch(""); setShowProjAssigneeDD(true); }} style={{ ...iS, width: "100%", fontSize: 12 }} />
+                  {showProjAssigneeDD && <><div style={{ position: "fixed", inset: 0, zIndex: 199 }} onClick={() => { setShowProjAssigneeDD(false); setAssigneeSearch(""); }} />
+                    <div style={{ position: "absolute", top: "calc(100% + 3px)", left: 0, right: 0, background: "#fff", border: "1.5px solid #e2e8f0", borderRadius: 8, zIndex: 200, boxShadow: "0 4px 12px rgba(0,0,0,0.1)", maxHeight: 200, overflowY: "auto" }}>
+                      <div style={{ padding: 8, borderBottom: "1px solid #f1f5f9", position: "sticky", top: 0, background: "#fff" }}>
+                        <input type="text" placeholder="Search assignees..." value={assigneeSearch} onChange={e => setAssigneeSearch(e.target.value)} onClick={e => e.stopPropagation()} autoFocus style={{ ...iS, width: "100%", fontSize: 12 }} />
                       </div>
-                    ))}
-                  </div>}
+                      {users.filter(u => u.active && (assigneeSearch === "" || u.name.toLowerCase().includes(assigneeSearch.toLowerCase())) && !selProject.assignees?.find(a => a.id === u.id)).map(u => (
+                        <div key={u.id} onClick={async () => { const updated = { ...selProject, assignees: [...(selProject.assignees || []), u], updated: new Date().toISOString() }; try { await axios.put(`${PROJECTS_API}/${selProject.id}`, updated); setProjects(p => p.map(x => x.id === selProject.id ? { ...updated, updated: new Date(updated.updated) } : x)); setSelProject(updated); setAssigneeSearch(""); setShowProjAssigneeDD(false); } catch (e) { alert("Failed to add assignee"); } }} style={{ display: "flex", alignItems: "center", gap: 9, padding: "8px 12px", cursor: "pointer", borderBottom: "1px solid #f1f5f9" }}>
+                          <Avatar name={u.name} size={24} /><div><div style={{ fontSize: 12, fontWeight: 600 }}>{u.name}</div><div style={{ fontSize: 11, color: "#94a3b8" }}>{u.role}</div></div>
+                        </div>
+                      ))}
+                      {users.filter(u => u.active && (assigneeSearch === "" || u.name.toLowerCase().includes(assigneeSearch.toLowerCase())) && !selProject.assignees?.find(a => a.id === u.id)).length === 0 && <div style={{ padding: "12px", textAlign: "center", fontSize: 12, color: "#94a3b8" }}>No available users</div>}
+                    </div>
+                  </>}
                 </div>
               </div>
             ) : (
