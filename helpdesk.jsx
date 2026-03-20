@@ -775,6 +775,16 @@ export default function HelpDesk() {
   const [showProjAssigneeDD, setShowProjAssigneeDD] = useState(false);
   const [showAssigneeDD, setShowAssigneeDD] = useState(false);
 
+  // ✅ NEW: Dropdown search states for department, category, location
+  const [departmentSearch, setDepartmentSearch] = useState("");
+  const [showDepartmentDD, setShowDepartmentDD] = useState(false);
+  const [categorySearch, setCategorySearch] = useState("");
+  const [showCategoryDD, setShowCategoryDD] = useState(false);
+  const [projCategorySearch, setProjCategorySearch] = useState("");
+  const [showProjCategoryDD, setShowProjCategoryDD] = useState(false);
+  const [locationSearch, setLocationSearch] = useState("");
+  const [showLocationDD, setShowLocationDD] = useState(false);
+
   // ── Project form ──
   const emptyProjectForm = { org: "", department: "", reportedBy: "", title: "", description: "", assignees: [], priority: "Medium", category: "", status: "Open", location: "", dueDate: "", isWebcast: false, satsangType: "", progress: 0, customAttrs: {}, satsangId: null };
   const [projForm, setProjForm] = useState(emptyProjectForm);
@@ -822,6 +832,8 @@ export default function HelpDesk() {
   const [fwdType, setFwdType] = useState("Agent");
   const [fwdReason, setFwdReason] = useState("");
   const [fwdTargetAgent, setFwdTargetAgent] = useState("");
+  const [forwardAgentSearch, setForwardAgentSearch] = useState("");
+  const [showForwardAgentDD, setShowForwardAgentDD] = useState(false);
   const [vendorName, setVendorName] = useState("");
   const [vendorEmail, setVendorEmail] = useState("");
   const [fwdVendorName, setFwdVendorName] = useState("");
@@ -3637,12 +3649,69 @@ export default function HelpDesk() {
       <Modal open={showNewTicket} onClose={() => { setShowNewTicket(false); setShowAssigneeDD(false); }} title="Create New Ticket" width={700}>
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0 18px" }}>
           <FF label="Organisation" required><select style={sS} value={form.org} onChange={e => setForm({ ...form, org: e.target.value })}><option value="">Select…</option>{orgs.map(o => <option key={o.id}>{o.name}</option>)}</select></FF>
-          <FF label="Department"><select style={sS} value={form.department} onChange={e => setForm({ ...form, department: e.target.value })}><option value="">Select…</option>{departments.map(d => <option key={d.id}>{d.name}</option>)}</select></FF>
+          <FF label="Department">
+            <div style={{ position: "relative" }}>
+              <input type="text" placeholder="Search department..." value={departmentSearch ? departmentSearch : (form.department ? departments.find(d => d.name === form.department)?.name || "" : "")} onChange={e => setDepartmentSearch(e.target.value)} onFocus={() => { setDepartmentSearch(""); setShowDepartmentDD(true); }} style={{ ...iS, width: "100%", fontSize: 12 }} />
+              {showDepartmentDD && <>
+                <div style={{ position: "fixed", inset: 0, zIndex: 199 }} onClick={() => { setShowDepartmentDD(false); setDepartmentSearch(""); }} />
+                <div style={{ position: "absolute", top: "calc(100% + 3px)", left: 0, right: 0, background: "#fff", border: "1.5px solid #e2e8f0", borderRadius: 8, zIndex: 200, boxShadow: "0 4px 12px rgba(0,0,0,0.1)", maxHeight: 200, overflowY: "auto" }}>
+                  <div style={{ padding: 8, borderBottom: "1px solid #f1f5f9", position: "sticky", top: 0, background: "#fff" }}>
+                    <input type="text" placeholder="Search departments..." value={departmentSearch} onChange={e => setDepartmentSearch(e.target.value)} onClick={e => e.stopPropagation()} autoFocus style={{ ...iS, width: "100%", fontSize: 12 }} />
+                  </div>
+                  {departments.filter(d => departmentSearch === "" || d.name.toLowerCase().includes(departmentSearch.toLowerCase())).map(d => (
+                    <div key={d.id} onClick={() => { setForm({ ...form, department: d.name }); setShowDepartmentDD(false); setDepartmentSearch(""); }} style={{ padding: "8px 12px", cursor: "pointer", borderBottom: "1px solid #f1f5f9" }}>
+                      <div style={{ fontSize: 12, fontWeight: 600 }}>{d.name}</div>
+                    </div>
+                  ))}
+                  {departments.filter(d => departmentSearch === "" || d.name.toLowerCase().includes(departmentSearch.toLowerCase())).length === 0 && <div style={{ padding: "12px", textAlign: "center", fontSize: 12, color: "#94a3b8" }}>No departments found</div>}
+                </div>
+              </>}
+            </div>
+          </FF>
           <FF label="Contact Name"><input style={iS} placeholder="Ticket Requestor" value={form.contact} onChange={e => setForm({ ...form, contact: e.target.value })} /></FF>
           <FF label="Reported By"><input style={iS} placeholder="Who is raising this ticket?" value={form.reportedBy} onChange={e => setForm({ ...form, reportedBy: e.target.value })} /></FF>
           <FF label="Priority"><select style={sS} value={form.priority} onChange={e => setForm({ ...form, priority: e.target.value })}>{PRIORITIES.map(p => <option key={p}>{p}</option>)}</select></FF>
-          <FF label="Category"><select style={sS} value={form.category} onChange={e => setForm({ ...form, category: e.target.value })}><option value="">Select…</option>{categories.map(c => <option key={c.id}>{c.name}</option>)}</select></FF>
-          <FF label="Location / Venue"><select style={sS} value={form.location} onChange={e => setForm({ ...form, location: e.target.value })}><option value="">Select venue…</option>{locations.map(l => <option key={l.id}>{l.name}</option>)}</select></FF>
+          <FF label="Category">
+            <div style={{ position: "relative" }}>
+              <input type="text" placeholder="Search category..." value={categorySearch ? categorySearch : (form.category ? categories.find(c => c.name === form.category)?.name || "" : "")} onChange={e => setCategorySearch(e.target.value)} onFocus={() => { setCategorySearch(""); setShowCategoryDD(true); }} style={{ ...iS, width: "100%", fontSize: 12 }} />
+              {showCategoryDD && <>
+                <div style={{ position: "fixed", inset: 0, zIndex: 199 }} onClick={() => { setShowCategoryDD(false); setCategorySearch(""); }} />
+                <div style={{ position: "absolute", top: "calc(100% + 3px)", left: 0, right: 0, background: "#fff", border: "1.5px solid #e2e8f0", borderRadius: 8, zIndex: 200, boxShadow: "0 4px 12px rgba(0,0,0,0.1)", maxHeight: 200, overflowY: "auto" }}>
+                  <div style={{ padding: 8, borderBottom: "1px solid #f1f5f9", position: "sticky", top: 0, background: "#fff" }}>
+                    <input type="text" placeholder="Search categories..." value={categorySearch} onChange={e => setCategorySearch(e.target.value)} onClick={e => e.stopPropagation()} autoFocus style={{ ...iS, width: "100%", fontSize: 12 }} />
+                  </div>
+                  {categories.filter(c => categorySearch === "" || c.name.toLowerCase().includes(categorySearch.toLowerCase())).map(c => (
+                    <div key={c.id} onClick={() => { setForm({ ...form, category: c.name }); setShowCategoryDD(false); setCategorySearch(""); }} style={{ padding: "8px 12px", cursor: "pointer", borderBottom: "1px solid #f1f5f9" }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                        <div style={{ width: 12, height: 12, borderRadius: 3, background: c.color }} />
+                        <div style={{ fontSize: 12, fontWeight: 600 }}>{c.name}</div>
+                      </div>
+                    </div>
+                  ))}
+                  {categories.filter(c => categorySearch === "" || c.name.toLowerCase().includes(categorySearch.toLowerCase())).length === 0 && <div style={{ padding: "12px", textAlign: "center", fontSize: 12, color: "#94a3b8" }}>No categories found</div>}
+                </div>
+              </>}
+            </div>
+          </FF>
+          <FF label="Location / Venue">
+            <div style={{ position: "relative" }}>
+              <input type="text" placeholder="Search location..." value={locationSearch ? locationSearch : (form.location ? locations.find(l => l.name === form.location)?.name || "" : "")} onChange={e => setLocationSearch(e.target.value)} onFocus={() => { setLocationSearch(""); setShowLocationDD(true); }} style={{ ...iS, width: "100%", fontSize: 12 }} />
+              {showLocationDD && <>
+                <div style={{ position: "fixed", inset: 0, zIndex: 199 }} onClick={() => { setShowLocationDD(false); setLocationSearch(""); }} />
+                <div style={{ position: "absolute", top: "calc(100% + 3px)", left: 0, right: 0, background: "#fff", border: "1.5px solid #e2e8f0", borderRadius: 8, zIndex: 200, boxShadow: "0 4px 12px rgba(0,0,0,0.1)", maxHeight: 200, overflowY: "auto" }}>
+                  <div style={{ padding: 8, borderBottom: "1px solid #f1f5f9", position: "sticky", top: 0, background: "#fff" }}>
+                    <input type="text" placeholder="Search locations..." value={locationSearch} onChange={e => setLocationSearch(e.target.value)} onClick={e => e.stopPropagation()} autoFocus style={{ ...iS, width: "100%", fontSize: 12 }} />
+                  </div>
+                  {locations.filter(l => locationSearch === "" || l.name.toLowerCase().includes(locationSearch.toLowerCase())).map(l => (
+                    <div key={l.id} onClick={() => { setForm({ ...form, location: l.name }); setShowLocationDD(false); setLocationSearch(""); }} style={{ padding: "8px 12px", cursor: "pointer", borderBottom: "1px solid #f1f5f9" }}>
+                      <div style={{ fontSize: 12, fontWeight: 600 }}>{l.name}</div>
+                    </div>
+                  ))}
+                  {locations.filter(l => locationSearch === "" || l.name.toLowerCase().includes(locationSearch.toLowerCase())).length === 0 && <div style={{ padding: "12px", textAlign: "center", fontSize: 12, color: "#94a3b8" }}>No locations found</div>}
+                </div>
+              </>}
+            </div>
+          </FF>
           <FF label="Due Date"><input type="date" style={iS} value={form.dueDate || ""} onChange={e => setForm({ ...form, dueDate: e.target.value })} /></FF>
         </div>
         <FF label="Assignees">
@@ -3695,11 +3764,68 @@ export default function HelpDesk() {
       <Modal open={showNewProject} onClose={() => setShowNewProject(false)} title="Create New Project" width={700}>
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0 18px" }}>
           <FF label="Organisation" required><select style={sS} value={projForm.org} onChange={e => setProjForm({ ...projForm, org: e.target.value })}><option value="">Select…</option>{orgs.map(o => <option key={o.id}>{o.name}</option>)}</select></FF>
-          <FF label="Department"><select style={sS} value={projForm.department} onChange={e => setProjForm({ ...projForm, department: e.target.value })}><option value="">Select…</option>{departments.map(d => <option key={d.id}>{d.name}</option>)}</select></FF>
+          <FF label="Department">
+            <div style={{ position: "relative" }}>
+              <input type="text" placeholder="Search department..." value={departmentSearch ? departmentSearch : (projForm.department ? departments.find(d => d.name === projForm.department)?.name || "" : "")} onChange={e => setDepartmentSearch(e.target.value)} onFocus={() => { setDepartmentSearch(""); setShowDepartmentDD(true); }} style={{ ...iS, width: "100%", fontSize: 12 }} />
+              {showDepartmentDD && <>
+                <div style={{ position: "fixed", inset: 0, zIndex: 199 }} onClick={() => { setShowDepartmentDD(false); setDepartmentSearch(""); }} />
+                <div style={{ position: "absolute", top: "calc(100% + 3px)", left: 0, right: 0, background: "#fff", border: "1.5px solid #e2e8f0", borderRadius: 8, zIndex: 200, boxShadow: "0 4px 12px rgba(0,0,0,0.1)", maxHeight: 200, overflowY: "auto" }}>
+                  <div style={{ padding: 8, borderBottom: "1px solid #f1f5f9", position: "sticky", top: 0, background: "#fff" }}>
+                    <input type="text" placeholder="Search departments..." value={departmentSearch} onChange={e => setDepartmentSearch(e.target.value)} onClick={e => e.stopPropagation()} autoFocus style={{ ...iS, width: "100%", fontSize: 12 }} />
+                  </div>
+                  {departments.filter(d => departmentSearch === "" || d.name.toLowerCase().includes(departmentSearch.toLowerCase())).map(d => (
+                    <div key={d.id} onClick={() => { setProjForm({ ...projForm, department: d.name }); setShowDepartmentDD(false); setDepartmentSearch(""); }} style={{ padding: "8px 12px", cursor: "pointer", borderBottom: "1px solid #f1f5f9" }}>
+                      <div style={{ fontSize: 12, fontWeight: 600 }}>{d.name}</div>
+                    </div>
+                  ))}
+                  {departments.filter(d => departmentSearch === "" || d.name.toLowerCase().includes(departmentSearch.toLowerCase())).length === 0 && <div style={{ padding: "12px", textAlign: "center", fontSize: 12, color: "#94a3b8" }}>No departments found</div>}
+                </div>
+              </>}
+            </div>
+          </FF>
           <FF label="Reported By"><input style={iS} value={projForm.reportedBy} onChange={e => setProjForm({ ...projForm, reportedBy: e.target.value })} /></FF>
           <FF label="Priority"><select style={sS} value={projForm.priority} onChange={e => setProjForm({ ...projForm, priority: e.target.value })}>{PROJECT_PRIORITIES.map(p => <option key={p}>{p}</option>)}</select></FF>
-          <FF label="Category"><select style={sS} value={projForm.category} onChange={e => setProjForm({ ...projForm, category: e.target.value })}><option value="">Select…</option>{projectCategories.map(c => <option key={c.id}>{c.name}</option>)}</select></FF>
-          <FF label="Location"><select style={sS} value={projForm.location} onChange={e => setProjForm({ ...projForm, location: e.target.value })}><option value="">Select…</option>{locations.map(l => <option key={l.id}>{l.name}</option>)}</select></FF>
+          <FF label="Category">
+            <div style={{ position: "relative" }}>
+              <input type="text" placeholder="Search category..." value={projCategorySearch ? projCategorySearch : (projForm.category ? projectCategories.find(c => c.name === projForm.category)?.name || "" : "")} onChange={e => setProjCategorySearch(e.target.value)} onFocus={() => { setProjCategorySearch(""); setShowProjCategoryDD(true); }} style={{ ...iS, width: "100%", fontSize: 12 }} />
+              {showProjCategoryDD && <>
+                <div style={{ position: "fixed", inset: 0, zIndex: 199 }} onClick={() => { setShowProjCategoryDD(false); setProjCategorySearch(""); }} />
+                <div style={{ position: "absolute", top: "calc(100% + 3px)", left: 0, right: 0, background: "#fff", border: "1.5px solid #e2e8f0", borderRadius: 8, zIndex: 200, boxShadow: "0 4px 12px rgba(0,0,0,0.1)", maxHeight: 200, overflowY: "auto" }}>
+                  <div style={{ padding: 8, borderBottom: "1px solid #f1f5f9", position: "sticky", top: 0, background: "#fff" }}>
+                    <input type="text" placeholder="Search categories..." value={projCategorySearch} onChange={e => setProjCategorySearch(e.target.value)} onClick={e => e.stopPropagation()} autoFocus style={{ ...iS, width: "100%", fontSize: 12 }} />
+                  </div>
+                  {projectCategories.filter(c => projCategorySearch === "" || c.name.toLowerCase().includes(projCategorySearch.toLowerCase())).map(c => (
+                    <div key={c.id} onClick={() => { setProjForm({ ...projForm, category: c.name }); setShowProjCategoryDD(false); setProjCategorySearch(""); }} style={{ padding: "8px 12px", cursor: "pointer", borderBottom: "1px solid #f1f5f9" }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                        <div style={{ width: 12, height: 12, borderRadius: 3, background: c.color }} />
+                        <div style={{ fontSize: 12, fontWeight: 600 }}>{c.name}</div>
+                      </div>
+                    </div>
+                  ))}
+                  {projectCategories.filter(c => projCategorySearch === "" || c.name.toLowerCase().includes(projCategorySearch.toLowerCase())).length === 0 && <div style={{ padding: "12px", textAlign: "center", fontSize: 12, color: "#94a3b8" }}>No categories found</div>}
+                </div>
+              </>}
+            </div>
+          </FF>
+          <FF label="Location">
+            <div style={{ position: "relative" }}>
+              <input type="text" placeholder="Search location..." value={locationSearch ? locationSearch : (projForm.location ? locations.find(l => l.name === projForm.location)?.name || "" : "")} onChange={e => setLocationSearch(e.target.value)} onFocus={() => { setLocationSearch(""); setShowLocationDD(true); }} style={{ ...iS, width: "100%", fontSize: 12 }} />
+              {showLocationDD && <>
+                <div style={{ position: "fixed", inset: 0, zIndex: 199 }} onClick={() => { setShowLocationDD(false); setLocationSearch(""); }} />
+                <div style={{ position: "absolute", top: "calc(100% + 3px)", left: 0, right: 0, background: "#fff", border: "1.5px solid #e2e8f0", borderRadius: 8, zIndex: 200, boxShadow: "0 4px 12px rgba(0,0,0,0.1)", maxHeight: 200, overflowY: "auto" }}>
+                  <div style={{ padding: 8, borderBottom: "1px solid #f1f5f9", position: "sticky", top: 0, background: "#fff" }}>
+                    <input type="text" placeholder="Search locations..." value={locationSearch} onChange={e => setLocationSearch(e.target.value)} onClick={e => e.stopPropagation()} autoFocus style={{ ...iS, width: "100%", fontSize: 12 }} />
+                  </div>
+                  {locations.filter(l => locationSearch === "" || l.name.toLowerCase().includes(locationSearch.toLowerCase())).map(l => (
+                    <div key={l.id} onClick={() => { setProjForm({ ...projForm, location: l.name }); setShowLocationDD(false); setLocationSearch(""); }} style={{ padding: "8px 12px", cursor: "pointer", borderBottom: "1px solid #f1f5f9" }}>
+                      <div style={{ fontSize: 12, fontWeight: 600 }}>{l.name}</div>
+                    </div>
+                  ))}
+                  {locations.filter(l => locationSearch === "" || l.name.toLowerCase().includes(locationSearch.toLowerCase())).length === 0 && <div style={{ padding: "12px", textAlign: "center", fontSize: 12, color: "#94a3b8" }}>No locations found</div>}
+                </div>
+              </>}
+            </div>
+          </FF>
           <FF label="Due Date"><input type="date" style={iS} value={projForm.dueDate} onChange={e => setProjForm({ ...projForm, dueDate: e.target.value })} /></FF>
         </div>
         {projForm.category === "Webcast" && <WebcastFields f={projForm} setF={setProjForm} />}
@@ -3917,17 +4043,38 @@ export default function HelpDesk() {
 
               {/* Filter out: currently assigned users */}
               <FF label="Select Agent (currently assigned excluded)" required>
-                <select
-                  style={sS}
-                  value={fwdTargetAgent}
-                  onChange={e => setFwdTargetAgent(e.target.value)}
-                >
-                  <option value="">Select...</option>
-                  {users.filter(u =>
-                    u.active &&
-                    !selTicket.assignees?.find(a => a.id === u.id)  // ✅ Exclude assigned users
-                  ).map(u => <option key={u.id} value={u.id}>{u.name} ({u.role})</option>)}
-                </select>
+                <div style={{ position: "relative" }}>
+                  <input
+                    type="text"
+                    placeholder="Search agent..."
+                    value={fwdTargetAgent ? users.find(u => u.id === fwdTargetAgent)?.name || "" : forwardAgentSearch}
+                    onChange={e => setForwardAgentSearch(e.target.value)}
+                    onFocus={() => { setForwardAgentSearch(""); setShowForwardAgentDD(true); }}
+                    style={{ ...iS, width: "100%", fontSize: 12 }}
+                  />
+                  {showForwardAgentDD && <>
+                    <div style={{ position: "fixed", inset: 0, zIndex: 199 }} onClick={() => { setShowForwardAgentDD(false); setForwardAgentSearch(""); }} />
+                    <div style={{ position: "absolute", top: "calc(100% + 3px)", left: 0, right: 0, background: "#fff", border: "1.5px solid #e2e8f0", borderRadius: 8, zIndex: 200, boxShadow: "0 4px 12px rgba(0,0,0,0.1)", maxHeight: 200, overflowY: "auto" }}>
+                      <div style={{ padding: 8, borderBottom: "1px solid #f1f5f9", position: "sticky", top: 0, background: "#fff" }}>
+                        <input type="text" placeholder="Search agents..." value={forwardAgentSearch} onChange={e => setForwardAgentSearch(e.target.value)} onClick={e => e.stopPropagation()} autoFocus style={{ ...iS, width: "100%", fontSize: 12 }} />
+                      </div>
+                      {users.filter(u =>
+                        u.active &&
+                        !selTicket.assignees?.find(a => a.id === u.id) &&
+                        (forwardAgentSearch === "" || u.name.toLowerCase().includes(forwardAgentSearch.toLowerCase()))
+                      ).map(u => (
+                        <div key={u.id} onClick={() => { setFwdTargetAgent(u.id); setShowForwardAgentDD(false); setForwardAgentSearch(""); }} style={{ display: "flex", alignItems: "center", gap: 9, padding: "8px 12px", cursor: "pointer", borderBottom: "1px solid #f1f5f9" }}>
+                          <Avatar name={u.name} size={24} /><div><div style={{ fontSize: 12, fontWeight: 600 }}>{u.name}</div><div style={{ fontSize: 11, color: "#94a3b8" }}>{u.role}</div></div>
+                        </div>
+                      ))}
+                      {users.filter(u =>
+                        u.active &&
+                        !selTicket.assignees?.find(a => a.id === u.id) &&
+                        (forwardAgentSearch === "" || u.name.toLowerCase().includes(forwardAgentSearch.toLowerCase()))
+                      ).length === 0 && <div style={{ padding: "12px", textAlign: "center", fontSize: 12, color: "#94a3b8" }}>No available agents</div>}
+                    </div>
+                  </>}
+                </div>
               </FF>
 
               <FF label="Reason for Forwarding" required>
