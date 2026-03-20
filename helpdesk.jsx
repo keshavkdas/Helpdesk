@@ -622,7 +622,20 @@ export default function HelpDesk() {
   // ── v2 projects (local state – no API for projects) ──
   const [projects, setProjects] = useState([]);
 
-  // ── Navigation ──
+  // ── Project Tasks ──
+  const [newProjectTask, setNewProjectTask] = useState("");
+
+  // Calculate project progress based on tasks and status
+  const calculateProjectProgress = (proj) => {
+    if (!proj.tasks || proj.tasks.length === 0) {
+      return getProgressFromStatus(proj.status);
+    }
+    const completedTasks = proj.tasks.filter(t => t.completed).length;
+    const taskProgress = Math.round((completedTasks / proj.tasks.length) * 100);
+    const statusProgress = getProgressFromStatus(proj.status);
+    // Average of task progress and status progress
+    return Math.round((taskProgress + statusProgress) / 2);
+  };
   const [view, setView] = useState(() => {
     try {
       return localStorage.getItem("deskflow_view") || "dashboard";
@@ -722,7 +735,7 @@ export default function HelpDesk() {
   const [showAssigneeDD, setShowAssigneeDD] = useState(false);
 
   // ── Project form ──
-  const emptyProjectForm = { org: "", department: "", reportedBy: "", title: "", description: "", assignees: [], priority: "Medium", category: "", status: "Open", location: "", dueDate: "", isWebcast: false, satsangType: "", progress: 0, customAttrs: {}, satsangId: null };
+  const emptyProjectForm = { org: "", department: "", reportedBy: "", title: "", description: "", assignees: [], priority: "Medium", category: "", status: "Open", location: "", dueDate: "", isWebcast: false, satsangType: "", progress: 0, customAttrs: {}, satsangId: null, tasks: [] };
   const [projForm, setProjForm] = useState(emptyProjectForm);
   const [projCcInput, setProjCcInput] = useState("");
 
@@ -3608,10 +3621,75 @@ export default function HelpDesk() {
           <h2 style={{ margin: "0 0 9px", fontSize: 17, fontWeight: 700 }}>{selProject.title}</h2>
           <div style={{ marginBottom: 14, padding: "11px 14px", background: "#f8fafc", borderRadius: 9 }}>
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
-              <span style={{ fontSize: 11, fontWeight: 600, color: "#94a3b8", textTransform: "uppercase" }}>Progress (Based on Status)</span>
-              <span style={{ fontSize: 14, fontWeight: 700, color: "#8b5cf6" }}>{getProgressFromStatus(selProject.status)}%</span>
+              <span style={{ fontSize: 11, fontWeight: 600, color: "#94a3b8", textTransform: "uppercase" }}>Progress (Status + Tasks)</span>
+              <span style={{ fontSize: 14, fontWeight: 700, color: "#8b5cf6" }}>{calculateProjectProgress(selProject)}%</span>
             </div>
-            <ProgressBar value={getProgressFromStatus(selProject.status)} color={getProgressFromStatus(selProject.status) > 70 ? "#22c55e" : getProgressFromStatus(selProject.status) > 40 ? "#f59e0b" : "#ef4444"} />
+            <ProgressBar value={calculateProjectProgress(selProject)} color={calculateProjectProgress(selProject) > 70 ? "#22c55e" : calculateProjectProgress(selProject) > 40 ? "#f59e0b" : "#ef4444"} />
+          </div>
+
+          {/* ── PROJECT TASKS SECTION ── */}
+          <div style={{ marginBottom: 14, padding: "11px 13px", background: "#fff", border: "1.5px solid #e5e7eb", borderRadius: 9 }}>
+            <div style={{ fontSize: 11, fontWeight: 600, color: "#374151", textTransform: "uppercase", marginBottom: 10 }}>📋 Tasks ({(selProject.tasks || []).filter(t => t.completed).length}/{(selProject.tasks || []).length})</div>
+
+            {/* Task List */}
+            {(selProject.tasks || []).length > 0 && (
+              <div style={{ marginBottom: 12, display: "flex", flexDirection: "column", gap: 7 }}>
+                {(selProject.tasks || []).map((task, idx) => (
+                  <div key={idx} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 10px", background: task.completed ? "#f0fdf4" : "#f8fafc", borderRadius: 7, border: `1px solid ${task.completed ? "#bbf7d0" : "#e2e8f0"}` }}>
+                    <input type="checkbox" checked={task.completed} onChange={async () => {
+                      const updatedTasks = [...(selProject.tasks || [])];
+                      updatedTasks[idx].completed = !updatedTasks[idx].completed;
+                      const updated = { ...selProject, tasks: updatedTasks, updated: new Date().toISOString() };
+                      try {
+                        await axios.put(`${PROJECTS_API}/${selProject.id}`, updated);
+                        setProjects(p => p.map(x => x.id === selProject.id ? { ...updated, updated: new Date(updated.updated) } : x));
+                        setSelProject(updated);
+                      } catch (e) { }
+                    }} style={{ width: 18, height: 18, cursor: "pointer" }} />
+                    <div style={{ flex: 1, fontSize: 13, fontWeight: 500, textDecoration: task.completed ? "line-through" : "none", color: task.completed ? "#94a3b8" : "#1f2937" }}>
+                      {task.title}
+                    </div>
+                    <button onClick={async () => {
+                      const updatedTasks = (selProject.tasks || []).filter((_, i) => i !== idx);
+                      const updated = { ...selProject, tasks: updatedTasks, updated: new Date().toISOString() };
+                      try {
+                        await axios.put(`${PROJECTS_API}/${selProject.id}`, updated);
+                        setProjects(p => p.map(x => x.id === selProject.id ? { ...updated, updated: new Date(updated.updated) } : x));
+                        setSelProject(updated);
+                      } catch (e) { }
+                    }} style={{ padding: "3px 8px", fontSize: 12, borderRadius: 5, border: "1px solid #fee2e2", background: "#fecaca", color: "#991b1b", cursor: "pointer", fontWeight: 600 }}>Delete</button>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* Add New Task */}
+            <div style={{ display: "flex", gap: 8 }}>
+              <input type="text" placeholder="Add a new task..." value={newProjectTask} onChange={e => setNewProjectTask(e.target.value)} onKeyPress={e => {
+                if (e.key === "Enter" && newProjectTask.trim()) {
+                  const updated = { ...selProject, tasks: [...(selProject.tasks || []), { title: newProjectTask.trim(), completed: false }], updated: new Date().toISOString() };
+                  axios.put(`${PROJECTS_API}/${selProject.id}`, updated).then(() => {
+                    setProjects(p => p.map(x => x.id === selProject.id ? { ...updated, updated: new Date(updated.updated) } : x));
+                    setSelProject(updated);
+                    setNewProjectTask("");
+                  }).catch(e => { });
+                }
+              }} style={{ ...iS, flex: 1, fontSize: 12 }} />
+              <button onClick={async () => {
+                if (!newProjectTask.trim()) return;
+                const updated = { ...selProject, tasks: [...(selProject.tasks || []), { title: newProjectTask.trim(), completed: false }], updated: new Date().toISOString() };
+                try {
+                  await axios.put(`${PROJECTS_API}/${selProject.id}`, updated);
+                  setProjects(p => p.map(x => x.id === selProject.id ? { ...updated, updated: new Date(updated.updated) } : x));
+                  setSelProject(updated);
+                  setNewProjectTask("");
+                } catch (e) { }
+              }} style={{ padding: "7px 13px", fontSize: 12, borderRadius: 6, border: "none", background: "#3b82f6", color: "#fff", cursor: "pointer", fontWeight: 600 }}>+ Add Task</button>
+            </div>
+
+            {(selProject.tasks || []).length === 0 && newProjectTask === "" && (
+              <div style={{ textAlign: "center", color: "#94a3b8", fontSize: 12, padding: "12px" }}>No tasks yet. Add one to get started!</div>
+            )}
           </div>
           <p style={{ margin: "0 0 16px", color: "#64748b", fontSize: 14, lineHeight: 1.6 }}>{selProject.description}</p>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 9, marginBottom: 14 }}>
