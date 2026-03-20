@@ -405,48 +405,136 @@ const BarChart = ({ data, color = "#3b82f6" }) => {
   </div>;
 };
 
-const DonutChart = ({ data }) => {
+// ─── SHARED PIE PALETTE — 12 visually distinct colours ───────────────────────
+const PIE_COLORS = [
+  "#3b82f6", "#f97316", "#22c55e", "#ef4444", "#a855f7",
+  "#14b8a6", "#eab308", "#ec4899", "#6366f1", "#84cc16",
+  "#0ea5e9", "#f43f5e"
+];
+const pieCo = (i, override) => override || PIE_COLORS[i % PIE_COLORS.length];
+
+// ─── UNIFIED PIE / DONUT COMPONENT ───────────────────────────────────────────
+// Rules:
+//  • r = 60, viewBox 140×140, cx = cy = 70
+//  • Container split 50/50: left = circle centred, right = legends centred
+//  • Equal padding on all sides so the circle never touches any edge
+//  • On hover → black pill with the count appears on the slice itself (not centre)
+//  • 12-colour distinct palette; data.color overrides if provided
+const PieChart = ({ data, donut = false }) => {
   const [hov, setHov] = useState(null);
-  const total = data.reduce((s, d) => s + d.value, 0); let offset = 0;
-  const r = 36, circ = 2 * Math.PI * r;
-  const segs = data.map(d => { const p = total ? d.value / total : 0; const dash = p * circ; const s = { ...d, dash, gap: circ - dash, offset: offset * circ, pct: Math.round(p * 100), startAngle: offset * Math.PI * 2, endAngle: (offset + p) * Math.PI * 2 }; offset += p; return s; });
-  const getLabelPos = (s) => { const mid = s.startAngle + (s.endAngle - s.startAngle) / 2; const labelR = r * 0.62; return { lx: 45 + labelR * Math.sin(mid), ly: 45 - labelR * Math.cos(mid) }; };
-  return <div style={{ display: "flex", alignItems: "stretch", width: "100%" }}>
-    <div style={{ flex: "0 0 auto", display: "flex", alignItems: "center", justifyContent: "center" }}>
-      <svg width={90} height={90} viewBox="0 0 90 90" style={{ display: "block", overflow: "visible" }}>
-        <circle cx={45} cy={45} r={r} fill="none" stroke="#f1f5f9" strokeWidth={12} />
-        {segs.map((s, i) => {
-          const isH = hov === i; const { lx, ly } = getLabelPos(s);
-          return (
-            <g key={i}>
-              <circle cx={45} cy={45} r={r} fill="none" stroke={s.color} strokeWidth={isH ? 16 : 12}
-                strokeDasharray={`${s.dash} ${s.gap}`} strokeDashoffset={-s.offset + circ / 4}
-                style={{ cursor: "pointer", transition: "stroke-width 0.15s", filter: isH ? `drop-shadow(0 0 5px ${s.color}99)` : "none" }}
-                onMouseEnter={() => setHov(i)} onMouseLeave={() => setHov(null)} />
-              {isH && s.dash > 8 && (
-                <g>
-                  <rect x={lx - 12} y={ly - 8} width={24} height={13} rx={3} fill="#0f172a" opacity={0.88} />
-                  <text x={lx} y={ly + 3} textAnchor="middle" fontSize={8} fontWeight={700} fill="#ffffff">{s.value}</text>
-                </g>
-              )}
-            </g>
-          );
-        })}
-        <text x={45} y={49} textAnchor="middle" fontSize={9} fill="#94a3b8" fontFamily="DM Sans,sans-serif">{total}</text>
-      </svg>
+  const VB = 140, cx = 70, cy = 70, r = 60;
+  const total = data.reduce((s, d) => s + d.value, 0);
+
+  /* full-pie slices */
+  let off = 0;
+  const segs = data.map((d, i) => {
+    const p = total ? d.value / total : 0;
+    const a = p * Math.PI * 2;
+    const seg = { ...d, color: d.color || pieCo(i), start: off, end: off + a, pct: Math.round(p * 100) };
+    off += a;
+    return seg;
+  });
+  const arcPath = (s) => {
+    const large = s.end - s.start > Math.PI ? 1 : 0;
+    const x1 = cx + r * Math.sin(s.start), y1 = cy - r * Math.cos(s.start);
+    const x2 = cx + r * Math.sin(s.end), y2 = cy - r * Math.cos(s.end);
+    return `M ${cx} ${cy} L ${x1} ${y1} A ${r} ${r} 0 ${large} 1 ${x2} ${y2} Z`;
+  };
+  const sliceLabelPos = (s) => {
+    const mid = s.start + (s.end - s.start) / 2;
+    return { lx: cx + r * 0.58 * Math.sin(mid), ly: cy - r * 0.58 * Math.cos(mid) };
+  };
+
+  /* donut ring */
+  const circ = 2 * Math.PI * r;
+  let dOff = 0;
+  const dSegs = donut ? data.map((d, i) => {
+    const p = total ? d.value / total : 0;
+    const dash = p * circ;
+    const sA = dOff * Math.PI * 2, eA = (dOff + p) * Math.PI * 2;
+    const seg = { ...d, color: d.color || pieCo(i), dash, gap: circ - dash, offset: dOff * circ, pct: Math.round(p * 100), startAngle: sA, endAngle: eA };
+    dOff += p;
+    return seg;
+  }) : [];
+  const ringLabelPos = (s) => {
+    const mid = s.startAngle + (s.endAngle - s.startAngle) / 2;
+    return { lx: cx + r * 0.58 * Math.sin(mid), ly: cy - r * 0.58 * Math.cos(mid) };
+  };
+
+  const displaySegs = donut ? dSegs : segs;
+
+  return (
+    <div style={{ display: "flex", alignItems: "center", width: "100%", minHeight: VB + 16 }}>
+      {/* LEFT 50%: circle with equal padding */}
+      <div style={{ flex: "0 0 50%", display: "flex", alignItems: "center", justifyContent: "center", padding: 8 }}>
+        <svg width={VB} height={VB} viewBox={`0 0 ${VB} ${VB}`} style={{ display: "block", overflow: "visible" }}>
+          {donut ? (
+            <>
+              <circle cx={cx} cy={cy} r={r} fill="none" stroke="#f1f5f9" strokeWidth={18} />
+              {dSegs.map((s, i) => {
+                const isH = hov === i;
+                const { lx, ly } = ringLabelPos(s);
+                return (
+                  <g key={i}>
+                    <circle cx={cx} cy={cy} r={r} fill="none" stroke={s.color}
+                      strokeWidth={isH ? 22 : 18}
+                      strokeDasharray={`${s.dash} ${s.gap}`}
+                      strokeDashoffset={-s.offset + circ / 4}
+                      style={{ cursor: "pointer", transition: "stroke-width 0.15s", filter: isH ? `drop-shadow(0 0 8px ${s.color}bb)` : "none" }}
+                      onMouseEnter={() => setHov(i)} onMouseLeave={() => setHov(null)} />
+                    {isH && s.dash > 12 && (
+                      <g>
+                        <rect x={lx - 18} y={ly - 11} width={36} height={18} rx={4} fill="#0f172a" opacity={0.92} />
+                        <text x={lx} y={ly + 5} textAnchor="middle" fontSize={11} fontWeight={700} fill="#fff" fontFamily="DM Sans,sans-serif">{s.value}</text>
+                      </g>
+                    )}
+                  </g>
+                );
+              })}
+              <text x={cx} y={cy - 8} textAnchor="middle" fontSize={20} fontWeight={700} fill="#1e293b" fontFamily="DM Sans,sans-serif">{total}</text>
+              <text x={cx} y={cy + 13} textAnchor="middle" fontSize={10} fill="#94a3b8" fontFamily="DM Sans,sans-serif">total</text>
+            </>
+          ) : (
+            <>
+              {segs.map((s, i) => {
+                const isH = hov === i;
+                const { lx, ly } = sliceLabelPos(s);
+                return (
+                  <g key={i} style={{ cursor: "pointer" }} onMouseEnter={() => setHov(i)} onMouseLeave={() => setHov(null)}>
+                    <path d={arcPath(s)} fill={s.color} stroke="#fff" strokeWidth={isH ? 3 : 1.5}
+                      style={{ filter: isH ? `drop-shadow(0 3px 10px ${s.color}99)` : "none", opacity: isH ? 1 : 0.88, transition: "all 0.15s" }} />
+                    {isH && (s.end - s.start) > 0.18 && (
+                      <g>
+                        <rect x={lx - 18} y={ly - 11} width={36} height={18} rx={4} fill="#0f172a" opacity={0.92} />
+                        <text x={lx} y={ly + 5} textAnchor="middle" fontSize={11} fontWeight={700} fill="#fff" fontFamily="DM Sans,sans-serif">{s.value}</text>
+                      </g>
+                    )}
+                  </g>
+                );
+              })}
+              <text x={cx} y={cy - 8} textAnchor="middle" fontSize={16} fontWeight={700} fill="#1e293b" fontFamily="DM Sans,sans-serif">{total}</text>
+              <text x={cx} y={cy + 12} textAnchor="middle" fontSize={10} fill="#94a3b8" fontFamily="DM Sans,sans-serif">total</text>
+            </>
+          )}
+        </svg>
+      </div>
+      {/* RIGHT 50%: legends centred vertically */}
+      <div style={{ flex: "0 0 50%", display: "flex", flexDirection: "column", justifyContent: "center", gap: 7, padding: "8px 12px 8px 4px" }}>
+        {displaySegs.map((s, i) => (
+          <div key={i}
+            style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer", padding: "4px 8px", borderRadius: 6, background: hov === i ? `${s.color}18` : "transparent", transition: "background 0.15s" }}
+            onMouseEnter={() => setHov(i)} onMouseLeave={() => setHov(null)}>
+            <div style={{ width: 11, height: 11, borderRadius: 3, background: s.color, flexShrink: 0, transform: hov === i ? "scale(1.35)" : "scale(1)", transition: "transform 0.15s" }} />
+            <span style={{ fontSize: 11.5, color: "#374151", flex: 1, fontWeight: hov === i ? 700 : 400, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{s.label}</span>
+            <span style={{ fontSize: 11.5, fontWeight: 700, color: hov === i ? s.color : "#64748b", minWidth: 24, textAlign: "right", flexShrink: 0 }}>{s.value}</span>
+          </div>
+        ))}
+      </div>
     </div>
-    <div style={{ flex: 1, display: "flex", flexDirection: "column", justifyContent: "center", gap: 5, paddingLeft: 8 }}>
-      {segs.map((s, i) => (
-        <div key={i} style={{ display: "flex", alignItems: "center", gap: 7, cursor: "pointer", padding: "3px 6px", borderRadius: 5, background: hov === i ? `${s.color}15` : "transparent", transition: "background 0.15s" }}
-          onMouseEnter={() => setHov(i)} onMouseLeave={() => setHov(null)}>
-          <div style={{ width: 9, height: 9, borderRadius: 2, background: s.color, flexShrink: 0, transform: hov === i ? "scale(1.4)" : "scale(1)", transition: "transform 0.15s" }} />
-          <span style={{ fontSize: 11, color: "#374151", flex: 1, fontWeight: hov === i ? 700 : 400 }}>{s.label}</span>
-          <span style={{ fontSize: 11, fontWeight: 700, color: hov === i ? s.color : "#64748b" }}>{s.value}</span>
-        </div>
-      ))}
-    </div>
-  </div>;
+  );
 };
+
+const DonutChart = ({ data }) => <PieChart data={data} donut={true} />;
 
 const ProgressBar = ({ value, color = "#3b82f6" }) => (
   <div style={{ width: "100%", height: 6, background: "#f1f5f9", borderRadius: 3, overflow: "hidden" }}>
@@ -473,8 +561,8 @@ const SmartChart = ({ title, data, defaultType = "bar", defaultColor = "#3b82f6"
   const IW = W - PL - PR, IH = H - PT - PB;
   const max = Math.max(...data.map(d => d.value), 1);
   const total = data.reduce((s, d) => s + d.value, 0);
-  const COLORS = ["#3b82f6", "#f97316", "#22c55e", "#ef4444", "#8b5cf6", "#ec4899", "#14b8a6", "#f59e0b", "#6366f1"];
-  const col = (i, base) => (data[i]?.color) || base || COLORS[i % COLORS.length];
+  const COLORS = PIE_COLORS;
+  const col = (i, base) => (data[i]?.color) || (base && base !== "#3b82f6" ? base : COLORS[i % COLORS.length]);
   const toX = i => PL + i * (IW / (data.length - 1 || 1));
   const toXb = i => PL + i * (IW / data.length) + (IW / data.length) * 0.1;
   const bw = IW / data.length * 0.8;
@@ -512,41 +600,9 @@ const SmartChart = ({ title, data, defaultType = "bar", defaultColor = "#3b82f6"
       </svg>);
     }
     if (type === "pie") {
-      let off = 0; const r = size === "small" ? 44 : 55, cx = 50, cy = 50;
-      const segs = data.map(d => { const p = total ? d.value / total : 0; const a = p * Math.PI * 2; const s = { ...d, start: off, end: off + a, pct: Math.round(p * 100) }; off += a; return s; });
-      const arc = (s, large) => { const x1 = cx + r * Math.sin(s.start), y1 = cy - r * Math.cos(s.start), x2 = cx + r * Math.sin(s.end), y2 = cy - r * Math.cos(s.end); return `M ${cx} ${cy} L ${x1} ${y1} A ${r} ${r} 0 ${large} 1 ${x2} ${y2} Z`; };
-      const svgSize = size === "small" ? 130 : 160;
-      const getLabelPos = (s) => { const mid = s.start + (s.end - s.start) / 2; const labelR = r * 0.62; return { lx: cx + labelR * Math.sin(mid), ly: cy - labelR * Math.cos(mid) }; };
-      return (<div style={{ display: "flex", alignItems: "stretch", width: "100%" }}>
-        <div style={{ flex: "0 0 auto", display: "flex", alignItems: "center", justifyContent: "center" }}>
-          <svg width={svgSize} height={svgSize} viewBox="0 0 100 100" style={{ overflow: "visible", display: "block" }}>
-            {segs.map((s, i) => {
-              const large = s.end - s.start > Math.PI ? 1 : 0; const isH = hov === i;
-              const { lx, ly } = getLabelPos(s);
-              return (
-                <g key={i} style={{ cursor: "pointer" }} onMouseEnter={() => setHov(i)} onMouseLeave={() => setHov(null)}>
-                  <path d={arc(s, large)} fill={col(i, defaultColor)} stroke="#fff" strokeWidth={isH ? 2 : 1.5}
-                    style={{ filter: isH ? `drop-shadow(0 2px 8px ${col(i, defaultColor)}aa)` : "none", opacity: isH ? 1 : 0.88, transition: "all 0.15s" }} />
-                  {isH && s.end - s.start > 0.15 && (
-                    <g>
-                      <rect x={lx - 14} y={ly - 9} width={28} height={14} rx={4} fill="#0f172a" opacity={0.88} />
-                      <text x={lx} y={ly + 4} textAnchor="middle" fontSize={9} fontWeight={700} fill="#ffffff">{s.value}</text>
-                    </g>
-                  )}
-                </g>);
-            })}
-            <text x={50} y={51} textAnchor="middle" fontSize={8} fill="#94a3b8" fontFamily="DM Sans,sans-serif">{total}</text>
-          </svg>
-        </div>
-        <div style={{ flex: 1, display: "flex", flexDirection: "column", justifyContent: "center", gap: 5, paddingLeft: 8 }}>
-          {segs.map((s, i) => (<div key={i} style={{ display: "flex", alignItems: "center", gap: 7, cursor: "pointer", padding: "3px 6px", borderRadius: 4, background: hov === i ? `${col(i, defaultColor)}18` : "transparent", transition: "background 0.12s", whiteSpace: "nowrap" }}
-            onMouseEnter={() => setHov(i)} onMouseLeave={() => setHov(null)}>
-            <div style={{ width: 10, height: 10, borderRadius: 2, background: col(i, defaultColor), flexShrink: 0 }} />
-            <span style={{ fontSize: 11, color: "#374151", fontWeight: hov === i ? 700 : 500, flex: 1 }}>{s.label}</span>
-            <span style={{ fontSize: 11, fontWeight: 700, color: hov === i ? col(i, defaultColor) : "#64748b", minWidth: 24, textAlign: "right" }}>{s.value}</span>
-          </div>))}
-        </div>
-      </div>);
+      // Delegate entirely to the unified PieChart component
+      const pieData = data.map((d, i) => ({ ...d, color: d.color || pieCo(i, defaultColor === "#3b82f6" ? null : defaultColor) }));
+      return <PieChart data={pieData} donut={false} />;
     }
     if (type === "scatter") return (<svg width="100%" viewBox={`0 0 ${W} ${H}`} style={{ overflow: "visible" }}>
       {[0, 0.5, 1].map(p => <line key={p} x1={PL} y1={PT + IH * (1 - p)} x2={W - PR} y2={PT + IH * (1 - p)} stroke="#f1f5f9" strokeWidth={1} />)}
@@ -1293,7 +1349,7 @@ export default function HelpDesk() {
     return Object.entries(userClosures)
       .sort((a, b) => b[1] - a[1])
       .slice(0, 6)
-      .map(([name, count]) => ({ label: name, value: count }));
+      .map(([name, count], i) => ({ label: name, value: count, color: PIE_COLORS[i % PIE_COLORS.length] }));
   }, [dashboardData]);
 
   // ✅ NEW: Yearly data for reports (30+ days)
@@ -2855,17 +2911,17 @@ export default function HelpDesk() {
                   {/* Admin/Manager: 3-column grid with BIGGER pie charts */}
                   <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12, marginBottom: 12 }}>
                     <SmartChart title="Tickets Over Time (Weekly)" data={dashboardDailyData} defaultColor="#3b82f6" />
-                    <div style={{ background: "#fff", borderRadius: 12, padding: 18, boxShadow: "0 1px 4px rgba(0,0,0,0.06)", minHeight: 380 }}>
-                      <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 12, color: "#374151" }}>Ticket Priority</div>
+                    <div style={{ background: "#fff", borderRadius: 12, padding: 18, boxShadow: "0 1px 4px rgba(0,0,0,0.06)", minHeight: 220 }}>
+                      <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 12, color: "#374151" }}>Ticket Priority</div>
                       <SmartChart data={priorityDist} defaultType="pie" />
                     </div>
                     <SmartChart title="By Category" data={categoryDist} defaultColor="#8b5cf6" />
                   </div>
 
-                  {/* Admin/Manager: 2nd row (2 graphs) - with SMALLER pie charts */}
+                  {/* Admin/Manager: 2nd row (2 graphs) */}
                   <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 12 }}>
-                    <div style={{ background: "#fff", borderRadius: 12, padding: 14, boxShadow: "0 1px 4px rgba(0,0,0,0.06)", minHeight: 300 }}>
-                      <div style={{ fontSize: 11, fontWeight: 600, marginBottom: 10, color: "#374151" }}>Ticket Status (w/ Unassigned)</div>
+                    <div style={{ background: "#fff", borderRadius: 12, padding: 14, boxShadow: "0 1px 4px rgba(0,0,0,0.06)", minHeight: 220 }}>
+                      <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 10, color: "#374151" }}>Ticket Status (w/ Unassigned)</div>
                       <SmartChart data={dashboardStatusDist} defaultType="pie" />
                     </div>
                     <SmartChart title="People Closing Tickets" data={dashboardClosingUsers} defaultColor="#10b981" />
@@ -2887,23 +2943,23 @@ export default function HelpDesk() {
                 </>
               ) : (
                 <>
-                  {/* Viewer/Agent: 2-column grid with SMALLER containers - NO Recent Tickets */}
+                  {/* Viewer/Agent: 2-column grid - NO Recent Tickets */}
                   <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 12 }}>
-                    <div style={{ background: "#fff", borderRadius: 12, padding: 12, boxShadow: "0 1px 4px rgba(0,0,0,0.06)", minHeight: 180 }}>
+                    <div style={{ background: "#fff", borderRadius: 12, padding: 12, boxShadow: "0 1px 4px rgba(0,0,0,0.06)", minHeight: 200 }}>
                       <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 10, color: "#374151" }}>Tickets Over Time (Weekly)</div>
                       <SmartChart data={dashboardDailyData} defaultColor="#3b82f6" size="small" />
                     </div>
-                    <div style={{ background: "#fff", borderRadius: 12, padding: 12, boxShadow: "0 1px 4px rgba(0,0,0,0.06)", minHeight: 280 }}>
+                    <div style={{ background: "#fff", borderRadius: 12, padding: 12, boxShadow: "0 1px 4px rgba(0,0,0,0.06)", minHeight: 220 }}>
                       <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 10, color: "#374151" }}>Ticket Priority</div>
                       <SmartChart data={priorityDist} defaultType="pie" size="small" />
                     </div>
                   </div>
                   <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 12 }}>
-                    <div style={{ background: "#fff", borderRadius: 12, padding: 12, boxShadow: "0 1px 4px rgba(0,0,0,0.06)", minHeight: 180 }}>
+                    <div style={{ background: "#fff", borderRadius: 12, padding: 12, boxShadow: "0 1px 4px rgba(0,0,0,0.06)", minHeight: 200 }}>
                       <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 10, color: "#374151" }}>By Category</div>
                       <SmartChart data={categoryDist} defaultColor="#8b5cf6" size="small" />
                     </div>
-                    <div style={{ background: "#fff", borderRadius: 12, padding: 12, boxShadow: "0 1px 4px rgba(0,0,0,0.06)", minHeight: 280 }}>
+                    <div style={{ background: "#fff", borderRadius: 12, padding: 12, boxShadow: "0 1px 4px rgba(0,0,0,0.06)", minHeight: 220 }}>
                       <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 10, color: "#374151" }}>Ticket Status (w/ Unassigned)</div>
                       <SmartChart data={dashboardStatusDist} defaultType="pie" size="small" />
                     </div>
