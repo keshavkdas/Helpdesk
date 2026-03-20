@@ -190,7 +190,7 @@ const Modal = ({ open, onClose, title, width = 640, children }) => {
 };
 
 // ✅ NEW: Custom Alert Component with beautiful CSS
-const CustomAlert = ({ show, message, type }) => {
+const CustomAlert = ({ show, message, type, onDismiss }) => {
   if (!show) return null;
 
   const bgColor = type === "success" ? "#dcfce7" : "#fee2e2";
@@ -199,28 +199,56 @@ const CustomAlert = ({ show, message, type }) => {
   const icon = type === "success" ? "✓" : "✕";
 
   return (
-    <div style={{
-      position: "fixed",
-      top: 20,
-      right: 20,
-      background: bgColor,
-      border: `2px solid ${borderColor}`,
-      color: textColor,
-      padding: "14px 18px",
-      borderRadius: 8,
-      fontSize: 13,
-      fontWeight: 600,
-      display: "flex",
-      alignItems: "center",
-      gap: 10,
-      boxShadow: "0 4px 12px rgba(0,0,0,0.15)",
-      zIndex: 10002,
-      maxWidth: "400px",
-      wordBreak: "break-word"
-    }}>
-      <span style={{ fontSize: 16, fontWeight: 700 }}>{icon}</span>
-      <span>{message}</span>
-    </div>
+    <>
+      <style>{`
+        @keyframes slideInFade {
+          0% {
+            opacity: 0;
+            transform: translateX(30px);
+          }
+          5% {
+            opacity: 1;
+            transform: translateX(0);
+          }
+          95% {
+            opacity: 1;
+            transform: translateX(0);
+          }
+          100% {
+            opacity: 0;
+            transform: translateX(30px);
+          }
+        }
+        .custom-alert {
+          animation: slideInFade 3.5s ease-in-out forwards;
+        }
+      `}</style>
+      <div
+        className="custom-alert"
+        onAnimationEnd={onDismiss}
+        style={{
+          position: "fixed",
+          top: 20,
+          right: 20,
+          background: bgColor,
+          border: `2px solid ${borderColor}`,
+          color: textColor,
+          padding: "14px 18px",
+          borderRadius: 8,
+          fontSize: 13,
+          fontWeight: 600,
+          display: "flex",
+          alignItems: "center",
+          gap: 10,
+          boxShadow: "0 4px 12px rgba(0,0,0,0.15)",
+          zIndex: 10002,
+          maxWidth: "400px",
+          wordBreak: "break-word"
+        }}>
+        <span style={{ fontSize: 16, fontWeight: 700 }}>{icon}</span>
+        <span>{message}</span>
+      </div>
+    </>
   );
 };
 
@@ -1294,7 +1322,7 @@ export default function HelpDesk() {
   };
 
   const handleSubmit = async () => {
-    if (!form.summary || !form.org) return alert("Organisation and Summary are required");
+    if (!form.summary || !form.org) return setCustomAlert({ show: true, message: "Organisation and Summary are required", type: "error" });
     const newT = {
       ...form,
       dueDate: form.dueDate || null,
@@ -1307,14 +1335,21 @@ export default function HelpDesk() {
     try {
       const res = await axios.post(TICKETS_API, newT);
       const created = res.data;
-      setTickets(prev => [{
+      const ticketWithDates = {
         ...created,
         created: new Date(created.createdAt || created.created || new Date()),
         updated: new Date(created.updatedAt || created.updated || new Date())
-      }, ...prev]);
-      setShowNewTicket(false); setForm(emptyForm); setAssigneeSearch(""); setShowAssigneeDD(false);
+      };
+      setTickets(prev => [ticketWithDates, ...prev]);
+      setSelTicket(ticketWithDates);  // ✅ Auto-open ticket details
+      setShowNewTicket(false);
+      setForm(emptyForm);
+      setAssigneeSearch("");
+      setShowAssigneeDD(false);
+      setCustomAlert({ show: true, message: "✅ Ticket created successfully!", type: "success" });
+      // ✅ Animation handles fade-out automatically (3.5s)
     } catch (e) {
-      alert("Failed to save ticket: " + (e.response?.data?.error || e.message));
+      setCustomAlert({ show: true, message: "Failed to save ticket: " + (e.response?.data?.error || e.message), type: "error" });
     }
   };
 
@@ -1330,7 +1365,6 @@ export default function HelpDesk() {
           setSelTicket(null);
           setCustomAlert({ show: true, message: "Ticket deleted successfully", type: "success" });
           setConfirmModal({ show: false, title: "", message: "", onConfirm: null, onCancel: null });
-          setTimeout(() => setCustomAlert({ show: false, message: "", type: "success" }), 3000);
         } catch (e) {
           setCustomAlert({ show: true, message: "Failed to delete ticket: " + (e.response?.data?.error || e.message), type: "error" });
           setConfirmModal({ show: false, title: "", message: "", onConfirm: null, onCancel: null });
@@ -1441,7 +1475,6 @@ export default function HelpDesk() {
       setNewUser({ name: "", email: "", password: "", role: "Viewer" });
 
       // Auto-hide success alert after 3 seconds
-      setTimeout(() => setCustomAlert({ show: false, message: "", type: "success" }), 3000);
     } catch (err) {
       console.error("Error adding user:", err);
       setCustomAlert({ show: true, message: err.message || "Failed to add user", type: "error" });
@@ -1484,7 +1517,6 @@ export default function HelpDesk() {
           setConfirmModal({ show: false, title: "", message: "", onConfirm: null, onCancel: null });
 
           // Auto-hide success alert after 3 seconds
-          setTimeout(() => setCustomAlert({ show: false, message: "", type: "success" }), 3000);
         } catch (err) {
           console.error("Error changing password:", err);
           setCustomAlert({ show: true, message: err.message || "Failed to change password", type: "error" });
@@ -1508,7 +1540,6 @@ export default function HelpDesk() {
           setOrgs(prev => prev.filter(o => o.id !== id));
           setCustomAlert({ show: true, message: "Organization deleted successfully", type: "success" });
           setConfirmModal({ show: false, title: "", message: "", onConfirm: null, onCancel: null });
-          setTimeout(() => setCustomAlert({ show: false, message: "", type: "success" }), 3000);
         } catch (err) {
           console.error("Error deleting organization:", err);
           setCustomAlert({ show: true, message: "Failed to delete organization", type: "error" });
@@ -1539,7 +1570,6 @@ export default function HelpDesk() {
           setTicketCategories(prev => prev.filter(c => c.id !== id && c._id !== id));
           setCustomAlert({ show: true, message: "Category deleted successfully", type: "success" });
           setConfirmModal({ show: false, title: "", message: "", onConfirm: null, onCancel: null });
-          setTimeout(() => setCustomAlert({ show: false, message: "", type: "success" }), 3000);
         } catch (err) {
           console.error("Error deleting category:", err);
           setCustomAlert({ show: true, message: "Failed to delete category", type: "error" });
@@ -1565,7 +1595,6 @@ export default function HelpDesk() {
           setUsers(prev => prev.filter(u => u.id !== id));
           setCustomAlert({ show: true, message: `${user?.name} deleted successfully`, type: "success" });
           setConfirmModal({ show: false, title: "", message: "", onConfirm: null, onCancel: null });
-          setTimeout(() => setCustomAlert({ show: false, message: "", type: "success" }), 3000);
         } catch (err) {
           console.error("Error deleting user:", err);
           setCustomAlert({ show: true, message: "Failed to delete user", type: "error" });
@@ -1648,7 +1677,7 @@ export default function HelpDesk() {
 
   // ─── PROJECT HANDLERS (v1 API) ────────────────────────────────────────────
   const handleProjectSubmit = async () => {
-    if (!projForm.title || !projForm.org) return alert("Organisation and Title are required");
+    if (!projForm.title || !projForm.org) return setCustomAlert({ show: true, message: "Organisation and Title are required", type: "error" });
     const newP = {
       ...projForm,
       status: projForm.status || "Open",
@@ -1657,13 +1686,21 @@ export default function HelpDesk() {
       dueDate: projForm.dueDate || null,
       comments: [],
       progress: projForm.progress || 0,
+      tasks: projForm.tasks || []
     };
     try {
       const res = await axios.post(PROJECTS_API, newP);
       const created = res.data;
-      setProjects(prev => [{ ...created, created: new Date(created.created), updated: new Date(created.updated), dueDate: created.dueDate ? new Date(created.dueDate) : null }, ...prev]);
-      setShowNewProject(false); setProjForm(emptyProjectForm);
-    } catch (e) { alert("Failed to save project"); }
+      const projectWithDates = { ...created, created: new Date(created.created), updated: new Date(created.updated), dueDate: created.dueDate ? new Date(created.dueDate) : null };
+      setProjects(prev => [projectWithDates, ...prev]);
+      setSelProject(projectWithDates);  // ✅ Auto-open project details
+      setShowNewProject(false);
+      setProjForm(emptyProjectForm);
+      setCustomAlert({ show: true, message: "✅ Project created successfully!", type: "success" });
+      // ✅ Animation handles fade-out automatically (3.5s)
+    } catch (e) {
+      setCustomAlert({ show: true, message: "Failed to save project", type: "error" });
+    }
   };
   const addProjCC = () => { if (projCcInput && !projForm.cc.includes(projCcInput)) { setProjForm({ ...projForm, cc: [...projForm.cc, projCcInput] }); setProjCcInput(""); } };
   const updateProjectStatus = async (id, status) => {
@@ -2094,7 +2131,12 @@ export default function HelpDesk() {
       <style>{`@import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=DM+Mono:wght@400;500&display=swap');*{box-sizing:border-box}::-webkit-scrollbar{width:5px;height:5px}::-webkit-scrollbar-thumb{background:#cbd5e1;border-radius:3px}input:focus,select:focus,textarea:focus{border-color:#3b82f6!important;outline:none;background:#fff!important}.rh:hover td{background:#f8fafc!important}@keyframes pulse{0%,100%{opacity:1}50%{opacity:0.5}}`}</style>
 
       {/* ✅ NEW: Custom Alert */}
-      <CustomAlert show={customAlert.show} message={customAlert.message} type={customAlert.type} />
+      <CustomAlert
+        show={customAlert.show}
+        message={customAlert.message}
+        type={customAlert.type}
+        onDismiss={() => setCustomAlert({ show: false, message: "", type: "success" })}
+      />
 
       {/* ✅ NEW: Confirmation Modal */}
       <ConfirmationModal
@@ -3182,7 +3224,6 @@ export default function HelpDesk() {
                                   setCustomAlert({ show: true, message: `${u.name}'s role has been changed to ${newRole}.`, type: "success" });
                                 }
                                 setConfirmModal({ show: false, title: "", message: "", onConfirm: null, onCancel: null });
-                                setTimeout(() => setCustomAlert({ show: false, message: "", type: "success" }), 3000);
                               } catch (err) {
                                 setCustomAlert({ show: true, message: "Failed to update role", type: "error" });
                                 setConfirmModal({ show: false, title: "", message: "", onConfirm: null, onCancel: null });
