@@ -499,11 +499,11 @@ const SmartChart = ({ title, data, defaultType = "bar", defaultColor = "#3b82f6"
       </svg>);
     }
     if (type === "pie") {
-      let off = 0; const r = 100, cx = 50, cy = 50;
+      let off = 0; const r = 62, cx = 50, cy = 50;
       const segs = data.map(d => { const p = total ? d.value / total : 0; const a = p * Math.PI * 2; const s = { ...d, start: off, end: off + a, pct: Math.round(p * 100) }; off += a; return s; });
       const arc = (s, large) => { const x1 = cx + r * Math.sin(s.start), y1 = cy - r * Math.cos(s.start), x2 = cx + r * Math.sin(s.end), y2 = cy - r * Math.cos(s.end); return `M ${cx} ${cy} L ${x1} ${y1} A ${r} ${r} 0 ${large} 1 ${x2} ${y2} Z`; };
-      return (<div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-        <svg width={110} height={110} viewBox="0 0 100 100" style={{ flexShrink: 0, overflow: "visible" }}>
+      return (<div style={{ display: "flex", alignItems: "center", gap: 16 }}>
+        <svg width={160} height={160} viewBox="0 0 100 100" style={{ flexShrink: 0, overflow: "visible" }}>
           {segs.map((s, i) => {
             const large = s.end - s.start > Math.PI ? 1 : 0; const isH = hov === i; return (
               <g key={i} style={{ cursor: "pointer" }} onMouseEnter={() => setHov(i)} onMouseLeave={() => setHov(null)}>
@@ -514,12 +514,12 @@ const SmartChart = ({ title, data, defaultType = "bar", defaultColor = "#3b82f6"
           <text x={50} y={47} textAnchor="middle" fontSize={12} fontWeight={700} fill={hov !== null ? col(hov, defaultColor) : "#1e293b"}>{hov !== null ? `${segs[hov]?.pct}%` : total}</text>
           <text x={50} y={58} textAnchor="middle" fontSize={7} fill="#94a3b8">{hov !== null ? segs[hov]?.label : "total"}</text>
         </svg>
-        <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: 4 }}>
-          {segs.map((s, i) => (<div key={i} style={{ display: "flex", alignItems: "center", gap: 5, cursor: "pointer", padding: "2px 4px", borderRadius: 4, background: hov === i ? `${col(i, defaultColor)}15` : "transparent", transition: "background 0.12s" }}
+        <div style={{ display: "flex", flexDirection: "column", gap: 6, minWidth: 120 }}>
+          {segs.map((s, i) => (<div key={i} style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer", padding: "4px 8px", borderRadius: 4, background: hov === i ? `${col(i, defaultColor)}15` : "transparent", transition: "background 0.12s", whiteSpace: "nowrap" }}
             onMouseEnter={() => setHov(i)} onMouseLeave={() => setHov(null)}>
-            <div style={{ width: 8, height: 8, borderRadius: 2, background: col(i, defaultColor), flexShrink: 0 }} />
-            <span style={{ fontSize: 10, flex: 1, color: "#374151", fontWeight: hov === i ? 700 : 400 }}>{s.label}</span>
-            <span style={{ fontSize: 10, fontWeight: 700, color: hov === i ? col(i, defaultColor) : "#64748b" }}>{s.value}</span>
+            <div style={{ width: 10, height: 10, borderRadius: 2, background: col(i, defaultColor), flexShrink: 0 }} />
+            <span style={{ fontSize: 11, color: "#374151", fontWeight: hov === i ? 700 : 500, flex: 1 }}>{s.label}</span>
+            <span style={{ fontSize: 11, fontWeight: 700, color: hov === i ? col(i, defaultColor) : "#64748b", minWidth: 24, textAlign: "right" }}>{s.value}</span>
           </div>))}
         </div>
       </div>);
