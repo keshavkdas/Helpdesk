@@ -2808,15 +2808,37 @@ export default function HelpDesk() {
               {/* ✅ REMOVED: Separate Unassigned Card - Now integrated above */}
 
               {/* ✅ REMOVED: Projects stats section - Now shown only in Projects view */}
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12, marginBottom: 12 }}>
-                <SmartChart title="Tickets Over Time (Weekly)" data={dashboardDailyData} defaultColor="#3b82f6" />
-                <SmartChart title="Ticket Priority" data={priorityDist} defaultType="pie" />
-                <SmartChart title="By Category" data={categoryDist} defaultColor="#8b5cf6" />
-              </div>
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12, marginBottom: 12 }}>
-                <SmartChart title="Ticket Status (w/ Unassigned)" data={dashboardStatusDist} defaultType="pie" />
-                {(currentUser?.role === "Admin" || currentUser?.role === "Manager") && <SmartChart title="People Closing Tickets" data={dashboardClosingUsers} defaultColor="#10b981" />}
-              </div>
+
+              {/* Dashboard Graphs - Different layouts for different roles */}
+              {(currentUser?.role === "Admin" || currentUser?.role === "Manager") ? (
+                <>
+                  {/* Admin/Manager: 3-column grid (3 graphs) */}
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12, marginBottom: 12 }}>
+                    <SmartChart title="Tickets Over Time (Weekly)" data={dashboardDailyData} defaultColor="#3b82f6" />
+                    <SmartChart title="Ticket Priority" data={priorityDist} defaultType="pie" />
+                    <SmartChart title="By Category" data={categoryDist} defaultColor="#8b5cf6" />
+                  </div>
+                  {/* Admin/Manager: 2nd row (2 graphs) */}
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 12 }}>
+                    <SmartChart title="Ticket Status (w/ Unassigned)" data={dashboardStatusDist} defaultType="pie" />
+                    <SmartChart title="People Closing Tickets" data={dashboardClosingUsers} defaultColor="#10b981" />
+                  </div>
+                </>
+              ) : (
+                <>
+                  {/* Viewer/Agent: 2-column grid (4 graphs total - 2 per row) */}
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 12 }}>
+                    <SmartChart title="Tickets Over Time (Weekly)" data={dashboardDailyData} defaultColor="#3b82f6" />
+                    <SmartChart title="Ticket Priority" data={priorityDist} defaultType="pie" />
+                  </div>
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 12 }}>
+                    <SmartChart title="By Category" data={categoryDist} defaultColor="#8b5cf6" />
+                    <SmartChart title="Ticket Status (w/ Unassigned)" data={dashboardStatusDist} defaultType="pie" />
+                  </div>
+                </>
+              )}
+
+              {/* Recent Tickets */}
               <div style={{ display: "grid", gridTemplateColumns: "1fr", gap: 12 }}>
                 <div style={{ background: "#fff", borderRadius: 12, padding: 16, boxShadow: "0 1px 4px rgba(0,0,0,0.06)" }}>
                   <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 10, color: "#374151" }}>Recent Tickets</div>
@@ -3117,6 +3139,7 @@ export default function HelpDesk() {
 
           {/* ── WEBCAST ── */}
           {view === "webcast" && <>
+            {/* Webcast Stats Cards */}
             <div style={{ display: "grid", gridTemplateColumns: "repeat(5,1fr)", gap: 9, marginBottom: 16 }}>
               {[
                 { label: "Total Webcasts", value: tickets.filter(t => t.isWebcast || (t.category && t.category.toLowerCase().includes("webcast"))).length, color: "#f97316", icon: "📡" },
@@ -3132,8 +3155,10 @@ export default function HelpDesk() {
                 </div>
               ))}
             </div>
+
+            {/* Webcast Table - Only show tickets assigned to current user (or all for Admin) */}
             <div style={{ background: "#fff", borderRadius: 12, padding: 22, boxShadow: "0 1px 4px rgba(0,0,0,0.06)" }}>
-              <h3 style={{ margin: "0 0 14px", fontSize: 15, fontWeight: 700 }}>Webcast Tickets</h3>
+              <h3 style={{ margin: "0 0 14px", fontSize: 15, fontWeight: 700 }}>My Webcast Tickets</h3>
               <div style={{ overflowX: "auto" }}>
                 <table style={{ width: "100%", borderCollapse: "collapse" }}>
                   <thead><tr style={{ background: "#f8fafc" }}>{["ID", "Summary", "Location", "Satsang Type", "Priority", "Status"].map(h => <th key={h} style={thStyle}>{h}</th>)}</tr></thead>
