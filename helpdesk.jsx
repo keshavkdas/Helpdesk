@@ -46,7 +46,7 @@ const ITEM_COLORS = [
 // ✅ Function to get consistent color for an item based on its ID or name
 const getItemColor = (item) => {
   if (!item) return ITEM_COLORS[0];
-  const id = item.id || item.name || "";
+  const id = String(item.id || item.name || "");
   const hash = id.split("").reduce((acc, char) => acc + char.charCodeAt(0), 0);
   return ITEM_COLORS[hash % ITEM_COLORS.length];
 };
@@ -693,6 +693,7 @@ export default function HelpDesk() {
   // ✅ NEW: Departments and filters
   const [departments, setDepartments] = useState([]);
   const [deptFilter, setDeptFilter] = useState("all");
+  const [categoryFilter, setCategoryFilter] = useState("all");
   const [orgFilter, setOrgFilter] = useState("all");
   const [orgClassifyType, setOrgClassifyType] = useState("all");
   const [newDept, setNewDept] = useState({ name: "" });
@@ -1082,6 +1083,7 @@ export default function HelpDesk() {
     // ✅ NEW: Apply org and dept filters
     if (orgFilter !== "all" && t.org !== orgFilter) return false;
     if (deptFilter !== "all" && t.department !== deptFilter) return false;
+    if (categoryFilter !== "all" && t.category !== categoryFilter) return false;
     if (search) {
       if (search.startsWith("event:")) {
         const id = search.split(":")[1];
@@ -1090,7 +1092,7 @@ export default function HelpDesk() {
       if (!t.summary.toLowerCase().includes(search.toLowerCase()) && !t.id.toLowerCase().includes(search.toLowerCase()) && !t.org.toLowerCase().includes(search.toLowerCase())) return false;
     }
     return true;
-  }), [tickets, cvd, currentUser, statusF, priorityF, search, orgFilter, deptFilter]);
+  }), [tickets, cvd, currentUser, statusF, priorityF, search, orgFilter, deptFilter, categoryFilter]);
 
   const totalPages = Math.ceil(filtered.length / TICKETS_PER_PAGE);
 
@@ -2592,6 +2594,14 @@ export default function HelpDesk() {
                 <option value="all">All Departments</option>
                 {departments.map(d => (
                   <option key={d.id} value={d.name}>{d.name}</option>
+                ))}
+              </select>
+
+              {/* ✅ NEW: Category filter */}
+              <select value={categoryFilter} onChange={(e) => setCategoryFilter(e.target.value)} style={{ ...sS, width: 140, fontSize: 13, padding: "7px 10px" }}>
+                <option value="all">All Categories</option>
+                {ticketCategories.map(c => (
+                  <option key={c.id} value={c.name}>{c.name}</option>
                 ))}
               </select>
 
