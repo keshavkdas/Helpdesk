@@ -12,6 +12,7 @@ const CATEGORIES_API = `${BASE_URL}/categories`;
 const CUSTOM_ATTRS_API = `${BASE_URL}/customAttrs`;
 const USERS_API = `${BASE_URL}/users`;
 const LOCATIONS_API = `${BASE_URL}/locations`;
+const VENDORS_API = `${BASE_URL}/vendors`;
 const DB_API = `${BASE_URL}/all-data`;
 const AUTH_API = `${BASE_URL}/auth/login`;
 const IMPORT_API = `${BASE_URL}/import`;
@@ -686,6 +687,10 @@ export default function HelpDesk() {
   const [locations, setLocations] = useState([]);
   const [newLocation, setNewLocation] = useState({ name: "" });
 
+  // ✅ NEW: Vendor Management
+  const [vendors, setVendors] = useState([]);
+  const [newVendor, setNewVendor] = useState({ name: "", email: "", phone: "", address: "" });
+
   // ✅ NEW: Save current view and filters to localStorage
   useEffect(() => {
     try {
@@ -873,6 +878,15 @@ export default function HelpDesk() {
       } catch (e) {
         console.log("Locations loading from API:", e.message);
         setLocations([]);
+      }
+
+      // ✅ NEW: Load vendors from database
+      try {
+        const vendResponse = await axios.get(VENDORS_API);
+        setVendors(vendResponse.data || []);
+      } catch (e) {
+        console.log("Vendors loading from API:", e.message);
+        setVendors([]);
       }
 
       const parsedTickets = [
@@ -1882,6 +1896,34 @@ export default function HelpDesk() {
       setCustomAlert({ show: true, message: "Failed to delete location", type: "error" });
     }
   };
+
+  // ✅ NEW: Vendor Management Functions
+  const addVendor = async () => {
+    if (!newVendor?.name?.trim()) {
+      setCustomAlert({ show: true, message: "Vendor name required", type: "error" });
+      return;
+    }
+    try {
+      const vend = await axios.post(VENDORS_API, newVendor);
+      setVendors([...vendors, vend.data]);
+      setNewVendor({ name: "", email: "", phone: "", address: "" });
+      setCustomAlert({ show: true, message: "✅ Vendor added!", type: "success" });
+    } catch (e) {
+      setCustomAlert({ show: true, message: "Failed to add vendor", type: "error" });
+    }
+  };
+
+  const deleteVendor = async (id) => {
+    if (!window.confirm("Delete this vendor?")) return;
+    try {
+      await axios.delete(`${VENDORS_API}/${id}`);
+      setVendors(vendors.filter(v => v.id !== id));
+      setCustomAlert({ show: true, message: "✅ Vendor deleted!", type: "success" });
+    } catch (e) {
+      setCustomAlert({ show: true, message: "Failed to delete vendor", type: "error" });
+    }
+  };
+
   const toggleProjSel = id => { const s = new Set(selectedProjIds); s.has(id) ? s.delete(id) : s.add(id); setSelectedProjIds(s); };
   const toggleAllProj = () => selectedProjIds.size === filteredProjects.length && filteredProjects.length > 0 ? setSelectedProjIds(new Set()) : setSelectedProjIds(new Set(filteredProjects.map(p => p.id)));
   const selProjects = filteredProjects.filter(p => selectedProjIds.has(p.id));
@@ -2061,6 +2103,7 @@ export default function HelpDesk() {
     { id: "categories", label: "Categories", icon: "🏷" },
     { id: "departments", label: "Departments", icon: "🏛" },
     { id: "locations", label: "Locations", icon: "📍" },
+    { id: "vendors", label: "Vendors", icon: "🏭" },
     { id: "usermgmt", label: "User Management", icon: "👥" },
     { id: "customattrs", label: "Custom Attributes", icon: "✏️" },
     { id: "dbmgmt", label: "Database Mgmt", icon: "💾" },
@@ -2071,6 +2114,7 @@ export default function HelpDesk() {
     { id: "categories", label: "Categories", icon: "🏷" },
     { id: "departments", label: "Departments", icon: "🏛" },
     { id: "locations", label: "Locations", icon: "📍" },
+    { id: "vendors", label: "Vendors", icon: "🏭" },
     { id: "usermgmt", label: "User Management", icon: "👥" },
     { id: "customattrs", label: "Custom Attributes", icon: "✏️" },
   ] : [
@@ -3272,6 +3316,62 @@ export default function HelpDesk() {
                 </div>
                 {locations.length === 0 && <div style={{ textAlign: "center", color: "#94a3b8", padding: 28 }}>No locations yet. Add one to get started.</div>}
               </div>}
+
+              {/* ✅ NEW: Vendors Settings Section */}
+              {settingsTab === "vendors" && <div style={{ background: "#fff", borderRadius: 12, padding: 22, boxShadow: "0 1px 4px rgba(0,0,0,0.06)" }}>
+                <h3 style={{ margin: "0 0 4px", fontSize: 15, fontWeight: 700 }}>🏭 Vendors ({vendors.length})</h3>
+                <p style={{ margin: "0 0 18px", fontSize: 12, color: "#64748b" }}>Manage vendors with contact information for sending tickets.</p>
+                {currentUser?.role === "Admin" || currentUser?.role === "Manager" ? (
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr auto", gap: 9, marginBottom: 18, padding: 14, background: "#f8fafc", borderRadius: 9 }}>
+                    <input
+                      style={iS}
+                      placeholder="Vendor name *"
+                      value={newVendor?.name || ""}
+                      onChange={e => setNewVendor({ ...newVendor, name: e.target.value })}
+                    />
+                    <input
+                      type="email"
+                      style={iS}
+                      placeholder="Email"
+                      value={newVendor?.email || ""}
+                      onChange={e => setNewVendor({ ...newVendor, email: e.target.value })}
+                    />
+                    <input
+                      style={iS}
+                      placeholder="Phone"
+                      value={newVendor?.phone || ""}
+                      onChange={e => setNewVendor({ ...newVendor, phone: e.target.value })}
+                    />
+                    <input
+                      style={iS}
+                      placeholder="Address"
+                      value={newVendor?.address || ""}
+                      onChange={e => setNewVendor({ ...newVendor, address: e.target.value })}
+                    />
+                    <button onClick={addVendor} style={bP}>Add</button>
+                  </div>
+                ) : <div style={{ marginBottom: 18, padding: "10px 14px", background: "#fef3c7", color: "#92400e", borderRadius: 8, fontSize: 13, fontWeight: 500 }}>Read Only: Vendor management is restricted to Admins and Managers.</div>}
+
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(280px,1fr))", gap: 12 }}>
+                  {vendors.map(v => (
+                    <div key={v.id} style={{ padding: "14px", borderRadius: 10, border: "1.5px solid #fed7aa", background: "#fef3c7", display: "flex", flexDirection: "column", gap: 8 }}>
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+                        <div style={{ flex: 1 }}>
+                          <div style={{ fontSize: 13, fontWeight: 700, color: "#ea580c" }}>🏭 {v.name}</div>
+                          {v.email && <div style={{ fontSize: 11, color: "#92400e", marginTop: 3 }}>✉️ {v.email}</div>}
+                          {v.phone && <div style={{ fontSize: 11, color: "#92400e" }}>📞 {v.phone}</div>}
+                          {v.address && <div style={{ fontSize: 11, color: "#92400e", marginTop: 3, maxHeight: "40px", overflow: "hidden" }}>📍 {v.address}</div>}
+                        </div>
+                        {(currentUser?.role === "Admin" || currentUser?.role === "Manager") && (
+                          <button onClick={() => deleteVendor(v.id)} style={{ border: "none", background: "#fee2e2", color: "#ef4444", borderRadius: 6, padding: "4px 10px", cursor: "pointer", fontSize: 12, fontWeight: 600, marginLeft: 8 }}>Delete</button>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+                {vendors.length === 0 && <div style={{ textAlign: "center", color: "#94a3b8", padding: 28 }}>No vendors yet. Add one to get started.</div>}
+              </div>}
+
               {settingsTab === "usermgmt" && <div style={{ background: "#fff", borderRadius: 12, padding: 22, boxShadow: "0 1px 4px rgba(0,0,0,0.06)" }}>
                 <h3 style={{ margin: "0 0 14px", fontSize: 15, fontWeight: 700 }}>User Management ({users.length} users)</h3>
                 {currentUser?.role === "Super Admin" || currentUser?.role === "Admin" ? (
@@ -3786,12 +3886,48 @@ export default function HelpDesk() {
           {/* Send to Vendor Modal */}
           {showVendor && (
             <div style={{ marginBottom: 14, padding: "14px", background: "#fff7ed", borderRadius: 9, border: "1px solid #fed7aa" }}>
-              <div style={{ fontSize: 12, fontWeight: 700, color: "#ea580c", marginBottom: 10 }}>Send to Vendor</div>
+              <div style={{ fontSize: 12, fontWeight: 700, color: "#ea580c", marginBottom: 10 }}>🏭 Send to Vendor</div>
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0 10px" }}>
-                <FF label="Vendor Name" required><input style={iS} value={vendorName} onChange={e => setVendorName(e.target.value)} placeholder="e.g. Dell Support" /></FF>
-                <FF label="Vendor Email" required><input type="email" style={iS} value={vendorEmail} onChange={e => setVendorEmail(e.target.value)} placeholder="vendor@example.com" /></FF>
+                {/* Vendor Dropdown - Auto-fill email on select */}
+                <FF label="Select Vendor" required>
+                  <select
+                    style={iS}
+                    value={vendorName}
+                    onChange={e => {
+                      setVendorName(e.target.value);
+                      // ✅ Auto-fill email when vendor selected
+                      const selectedVendor = vendors.find(v => v.name === e.target.value);
+                      if (selectedVendor) {
+                        setVendorEmail(selectedVendor.email || "");
+                      } else {
+                        setVendorEmail("");
+                      }
+                    }}
+                  >
+                    <option value="">Select vendor…</option>
+                    {vendors.map(v => <option key={v.id} value={v.name}>{v.name}</option>)}
+                  </select>
+                </FF>
+                {/* Email auto-filled from vendor */}
+                <FF label="Vendor Email (auto-filled)">
+                  <input
+                    type="email"
+                    style={iS}
+                    value={vendorEmail}
+                    onChange={e => setVendorEmail(e.target.value)}
+                    placeholder="Auto-filled from vendor details"
+                    readOnly
+                  />
+                </FF>
               </div>
-              <FF label="Reason for Sending to Vendor" required><textarea style={{ ...iS, height: 50, resize: "none" }} value={fwdReason} onChange={e => setFwdReason(e.target.value)} placeholder="Why is this ticket being sent to vendor?" /></FF>
+              <FF label="Reason for Sending to Vendor" required>
+                <textarea
+                  style={{ ...iS, height: 50, resize: "none" }}
+                  value={fwdReason}
+                  onChange={e => setFwdReason(e.target.value)}
+                  placeholder="Why is this ticket being sent to vendor?"
+                />
+              </FF>
               <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 8 }}>
                 <button onClick={() => { setShowVendor(false); setVendorName(""); setVendorEmail(""); setFwdReason(""); }} style={bG}>Cancel</button>
                 <button onClick={() => { handleSendForRepair(vendorName, vendorEmail); setShowVendor(false); setVendorName(""); setVendorEmail(""); setFwdReason(""); }} style={{ ...bP, background: "#ea580c", boxShadow: "0 2px 6px rgba(234,88,12,0.3)" }}>Confirm Send</button>
@@ -3813,23 +3949,6 @@ export default function HelpDesk() {
               💾 Save Changes
             </button>
           </div>
-
-          {/* Timeline (v1) */}
-          {selTicket.timeline && selTicket.timeline.length > 0 && (
-            <div style={{ marginBottom: 14, borderTop: "1px solid #f1f5f9", paddingTop: 13 }}>
-              <div style={{ fontSize: 11, fontWeight: 600, color: "#374151", marginBottom: 10 }}>TICKET TIMELINE</div>
-              <div style={{ display: "flex", flexDirection: "column", gap: 12, paddingLeft: 8, borderLeft: "2px solid #e2e8f0", marginLeft: 6 }}>
-                {selTicket.timeline.map((ev, i) => (
-                  <div key={i} style={{ position: "relative" }}>
-                    <span style={{ position: "absolute", left: -13, top: 4, width: 8, height: 8, borderRadius: "50%", background: "#94a3b8", border: "2px solid #fff" }} />
-                    <div style={{ fontSize: 13, fontWeight: 600, color: "#1e293b" }}>{ev.action} <span style={{ fontWeight: 400, color: "#64748b", fontSize: 11 }}>by {ev.by}</span></div>
-                    {ev.note && <div style={{ fontSize: 12, color: "#475569", marginTop: 2, background: "#f8fafc", padding: "4px 8px", borderRadius: 4 }}>{ev.note}</div>}
-                    <div style={{ fontSize: 10, color: "#94a3b8", marginTop: 3 }}>{new Date(ev.date).toLocaleString()}</div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
 
           {/* Comment */}
           <div style={{ borderTop: "1px solid #f1f5f9", paddingTop: 13 }}>

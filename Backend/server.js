@@ -48,6 +48,14 @@ const Org = sequelize.define("Org", {
     phone: { type: DataTypes.STRING, defaultValue: "" },
 }, { timestamps: true });
 
+// ✅ NEW: Vendor Model
+const Vendor = sequelize.define("Vendor", {
+    name: { type: DataTypes.STRING, allowNull: false, unique: true },
+    email: { type: DataTypes.STRING, defaultValue: "" },
+    phone: { type: DataTypes.STRING, defaultValue: "" },
+    address: { type: DataTypes.TEXT, defaultValue: "" },
+}, { timestamps: true });
+
 const Category = sequelize.define("Category", {
     name: { type: DataTypes.STRING, allowNull: false },
     color: { type: DataTypes.STRING, defaultValue: "#3b82f6" },
@@ -290,6 +298,38 @@ app.delete("/api/orgs/:id", async (req, res) => {
     try {
         const org = await Org.findByPk(req.params.id);
         if (org) await org.destroy();
+        res.json({ success: true });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ✅ NEW: Vendor Endpoints
+app.get("/api/vendors", async (req, res) => {
+    try {
+        const vendors = await Vendor.findAll({ order: [['name', 'ASC']] });
+        res.json(vendors);
+    }
+    catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.post("/api/vendors", async (req, res) => {
+    try {
+        if (!req.body.name || !req.body.name.trim()) {
+            return res.status(400).json({ error: "Vendor name is required" });
+        }
+        res.status(201).json(await Vendor.create({
+            name: req.body.name.trim(),
+            email: req.body.email || "",
+            phone: req.body.phone || "",
+            address: req.body.address || ""
+        }));
+    }
+    catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.delete("/api/vendors/:id", async (req, res) => {
+    try {
+        const vendor = await Vendor.findByPk(req.params.id);
+        if (vendor) await vendor.destroy();
         res.json({ success: true });
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
@@ -603,8 +643,8 @@ app.delete("/api/projects/:id", async (req, res) => {
 
 app.get("/api/all-data", async (req, res) => {
     try {
-        const [users, orgs, categories, customAttrs, tickets, webcasts, satsangs, projects, departments, locations] = await Promise.all([
-            User.findAll(), Org.findAll(), Category.findAll(), CustomAttr.findAll(), Ticket.findAll(), Webcast.findAll(), Satsang.findAll(), Project.findAll(), Department.findAll(), Location.findAll()
+        const [users, orgs, categories, customAttrs, tickets, webcasts, satsangs, projects, departments, locations, vendors] = await Promise.all([
+            User.findAll(), Org.findAll(), Category.findAll(), CustomAttr.findAll(), Ticket.findAll(), Webcast.findAll(), Satsang.findAll(), Project.findAll(), Department.findAll(), Location.findAll(), Vendor.findAll()
         ]);
         res.json({
             users: users.map(fmt),
@@ -617,6 +657,7 @@ app.get("/api/all-data", async (req, res) => {
             projects: projects.map(fmt),
             departments: departments.map(fmt),
             locations: locations.map(fmt),
+            vendors: vendors.map(fmt),
         });
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
@@ -638,7 +679,8 @@ app.post("/api/import/:table", async (req, res) => {
             users: User,
             projects: Project,
             departments: Department,
-            locations: Location
+            locations: Location,
+            vendors: Vendor
         };
 
         const Model = models[table];
