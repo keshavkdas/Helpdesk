@@ -452,11 +452,14 @@ const CHART_TYPES = [
   { id: "treemap", icon: "▦", label: "Treemap" }, { id: "bubble", icon: "⬤", label: "Bubble" },
 ];
 
-const SmartChart = ({ title, data, defaultType = "bar", defaultColor = "#3b82f6" }) => {
+const SmartChart = ({ title, data, defaultType = "bar", defaultColor = "#3b82f6", size = "normal" }) => {
   const [type, setType] = useState(defaultType);
   const [showPicker, setShowPicker] = useState(false);
   const [hov, setHov] = useState(null);
-  const W = 280, H = 130, PL = 28, PR = 8, PT = 10, PB = 22;
+  const baseW = 280, baseH = 130;
+  const W = size === "small" ? 240 : baseW;
+  const H = size === "small" ? 100 : baseH;
+  const PL = 28, PR = 8, PT = 10, PB = 22;
   const IW = W - PL - PR, IH = H - PT - PB;
   const max = Math.max(...data.map(d => d.value), 1);
   const total = data.reduce((s, d) => s + d.value, 0);
@@ -499,11 +502,12 @@ const SmartChart = ({ title, data, defaultType = "bar", defaultColor = "#3b82f6"
       </svg>);
     }
     if (type === "pie") {
-      let off = 0; const r = 62, cx = 50, cy = 50;
+      let off = 0; const r = size === "small" ? 50 : 62, cx = 50, cy = 50;
       const segs = data.map(d => { const p = total ? d.value / total : 0; const a = p * Math.PI * 2; const s = { ...d, start: off, end: off + a, pct: Math.round(p * 100) }; off += a; return s; });
       const arc = (s, large) => { const x1 = cx + r * Math.sin(s.start), y1 = cy - r * Math.cos(s.start), x2 = cx + r * Math.sin(s.end), y2 = cy - r * Math.cos(s.end); return `M ${cx} ${cy} L ${x1} ${y1} A ${r} ${r} 0 ${large} 1 ${x2} ${y2} Z`; };
+      const svgSize = size === "small" ? 130 : 160;
       return (<div style={{ display: "flex", alignItems: "flex-start", gap: 20, justifyContent: "space-between", width: "100%" }}>
-        <svg width={160} height={160} viewBox="0 0 100 100" style={{ flexShrink: 0, overflow: "visible" }}>
+        <svg width={svgSize} height={svgSize} viewBox="0 0 100 100" style={{ flexShrink: 0, overflow: "visible" }}>
           {segs.map((s, i) => {
             const large = s.end - s.start > Math.PI ? 1 : 0; const isH = hov === i; return (
               <g key={i} style={{ cursor: "pointer" }} onMouseEnter={() => setHov(i)} onMouseLeave={() => setHov(null)}>
@@ -2851,21 +2855,21 @@ export default function HelpDesk() {
                   <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 12 }}>
                     <div style={{ background: "#fff", borderRadius: 12, padding: 10, boxShadow: "0 1px 4px rgba(0,0,0,0.06)", minHeight: 220 }}>
                       <div style={{ fontSize: 10, fontWeight: 600, marginBottom: 8, color: "#374151" }}>Tickets Over Time (Weekly)</div>
-                      <SmartChart data={dashboardDailyData} defaultColor="#3b82f6" />
+                      <SmartChart data={dashboardDailyData} defaultColor="#3b82f6" size="small" />
                     </div>
                     <div style={{ background: "#fff", borderRadius: 12, padding: 10, boxShadow: "0 1px 4px rgba(0,0,0,0.06)", minHeight: 220 }}>
                       <div style={{ fontSize: 10, fontWeight: 600, marginBottom: 8, color: "#374151" }}>Ticket Priority</div>
-                      <SmartChart data={priorityDist} defaultType="pie" />
+                      <SmartChart data={priorityDist} defaultType="pie" size="small" />
                     </div>
                   </div>
                   <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 12 }}>
                     <div style={{ background: "#fff", borderRadius: 12, padding: 10, boxShadow: "0 1px 4px rgba(0,0,0,0.06)", minHeight: 220 }}>
                       <div style={{ fontSize: 10, fontWeight: 600, marginBottom: 8, color: "#374151" }}>By Category</div>
-                      <SmartChart data={categoryDist} defaultColor="#8b5cf6" />
+                      <SmartChart data={categoryDist} defaultColor="#8b5cf6" size="small" />
                     </div>
                     <div style={{ background: "#fff", borderRadius: 12, padding: 10, boxShadow: "0 1px 4px rgba(0,0,0,0.06)", minHeight: 220 }}>
                       <div style={{ fontSize: 10, fontWeight: 600, marginBottom: 8, color: "#374151" }}>Ticket Status (w/ Unassigned)</div>
-                      <SmartChart data={dashboardStatusDist} defaultType="pie" />
+                      <SmartChart data={dashboardStatusDist} defaultType="pie" size="small" />
                     </div>
                   </div>
                   {/* NO Recent Tickets for Viewer/Agent */}
