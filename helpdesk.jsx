@@ -37,6 +37,20 @@ const STATUS_COLOR = {
   Closed: { bg: "#f1f5f9", text: "#64748b" },
 };
 
+// ✅ NEW: Color palette for departments and locations (random allocation)
+const ITEM_COLORS = [
+  "#3b82f6", "#8b5cf6", "#ec4899", "#f59e0b", "#10b981", "#06b6d4",
+  "#f97316", "#6366f1", "#d946ef", "#ea580c", "#14b8a6", "#0891b2"
+];
+
+// ✅ Function to get consistent color for an item based on its ID or name
+const getItemColor = (item) => {
+  if (!item) return ITEM_COLORS[0];
+  const id = item.id || item.name || "";
+  const hash = id.split("").reduce((acc, char) => acc + char.charCodeAt(0), 0);
+  return ITEM_COLORS[hash % ITEM_COLORS.length];
+};
+
 const TICKET_VIEWS = [
   { id: "open", label: "Open Tickets", icon: "📬", desc: "All open tickets", filter: t => t.status === "Open" },
   { id: "inprogress", label: "In Progress", icon: "⚙️", desc: "Tickets being worked on", filter: t => t.status === "In Progress" },
@@ -3282,12 +3296,16 @@ export default function HelpDesk() {
                   </div>
                 ) : <div style={{ marginBottom: 18, padding: "10px 14px", background: "#fef3c7", color: "#92400e", borderRadius: 8, fontSize: 13, fontWeight: 500 }}>Read Only: Department management is restricted to Admins.</div>}
                 <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(160px,1fr))", gap: 9 }}>
-                  {departments.map(d => (
-                    <div key={d.id} style={{ display: "flex", alignItems: "center", gap: 9, padding: "11px 13px", borderRadius: 9, border: "1.5px solid #e2e8f0", background: "#fafafa" }}>
-                      <span style={{ flex: 1, fontSize: 13, fontWeight: 600 }}>{d.name}</span>
-                      {currentUser?.role === "Admin" && <button onClick={() => deleteDept(d.id)} style={{ border: "none", background: "#fee2e2", color: "#ef4444", borderRadius: 6, padding: "4px 10px", cursor: "pointer", fontSize: 12, fontWeight: 600 }}>Delete</button>}
-                    </div>
-                  ))}
+                  {departments.map(d => {
+                    const color = getItemColor(d);
+                    return (
+                      <div key={d.id} style={{ display: "flex", alignItems: "center", gap: 9, padding: "11px 13px", borderRadius: 9, border: `1.5px solid ${color}33`, background: `${color}0d` }}>
+                        <div style={{ width: 11, height: 11, borderRadius: 3, background: color, flexShrink: 0 }} />
+                        <span style={{ flex: 1, fontSize: 13, fontWeight: 600 }}>{d.name}</span>
+                        {currentUser?.role === "Admin" && <button onClick={() => deleteDept(d.id)} style={{ border: "none", background: "#fee2e2", color: "#ef4444", borderRadius: 6, padding: "4px 10px", cursor: "pointer", fontSize: 12, fontWeight: 600 }}>Delete</button>}
+                      </div>
+                    );
+                  })}
                 </div>
                 {departments.length === 0 && <div style={{ textAlign: "center", color: "#94a3b8", padding: 28 }}>No departments yet. Add one to get started.</div>}
               </div>}
@@ -3307,12 +3325,16 @@ export default function HelpDesk() {
                   </div>
                 ) : <div style={{ marginBottom: 18, padding: "10px 14px", background: "#fef3c7", color: "#92400e", borderRadius: 8, fontSize: 13, fontWeight: 500 }}>Read Only: Location management is restricted to Admins and Managers.</div>}
                 <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(160px,1fr))", gap: 9 }}>
-                  {locations.map(l => (
-                    <div key={l.id} style={{ display: "flex", alignItems: "center", gap: 9, padding: "11px 13px", borderRadius: 9, border: "1.5px solid #e2e8f0", background: "#fafafa" }}>
-                      <span style={{ flex: 1, fontSize: 13, fontWeight: 600 }}>📍 {l.name}</span>
-                      {(currentUser?.role === "Admin" || currentUser?.role === "Manager") && <button onClick={() => deleteLocation(l.id)} style={{ border: "none", background: "#fee2e2", color: "#ef4444", borderRadius: 6, padding: "4px 10px", cursor: "pointer", fontSize: 12, fontWeight: 600 }}>Delete</button>}
-                    </div>
-                  ))}
+                  {locations.map(l => {
+                    const color = getItemColor(l);
+                    return (
+                      <div key={l.id} style={{ display: "flex", alignItems: "center", gap: 9, padding: "11px 13px", borderRadius: 9, border: `1.5px solid ${color}33`, background: `${color}0d` }}>
+                        <div style={{ width: 11, height: 11, borderRadius: 3, background: color, flexShrink: 0 }} />
+                        <span style={{ flex: 1, fontSize: 13, fontWeight: 600 }}>📍 {l.name}</span>
+                        {(currentUser?.role === "Admin" || currentUser?.role === "Manager") && <button onClick={() => deleteLocation(l.id)} style={{ border: "none", background: "#fee2e2", color: "#ef4444", borderRadius: 6, padding: "4px 10px", cursor: "pointer", fontSize: 12, fontWeight: 600 }}>Delete</button>}
+                      </div>
+                    );
+                  })}
                 </div>
                 {locations.length === 0 && <div style={{ textAlign: "center", color: "#94a3b8", padding: 28 }}>No locations yet. Add one to get started.</div>}
               </div>}
