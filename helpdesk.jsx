@@ -2857,64 +2857,8 @@ export default function HelpDesk() {
                     </div>
                   </>}
                 </div>
-
-                <button onClick={() => setShowManageTicket(showManageTicket === "customattrs" ? null : "customattrs")} style={{ ...bG, padding: "7px 12px", fontSize: 12, background: showManageTicket === "customattrs" ? "#eff6ff" : "#fff", color: showManageTicket === "customattrs" ? "#3b82f6" : "#374151" }}>✏️ Fields</button>
-                <div style={{ position: "relative" }}>
-                  <button onClick={() => setShowExport(!showExport)} style={{ ...bG, display: "flex", alignItems: "center", gap: 6, padding: "7px 13px" }}>⬇ Export <span style={{ fontSize: 10 }}>▾</span></button>
-                  {showExport && <><div style={{ position: "fixed", inset: 0, zIndex: 149 }} onClick={() => setShowExport(false)} />
-                    <div style={{ position: "absolute", right: 0, top: "calc(100% + 4px)", background: "#fff", border: "1.5px solid #e2e8f0", borderRadius: 10, zIndex: 150, boxShadow: "0 8px 24px rgba(0,0,0,0.12)", minWidth: 220, overflow: "hidden" }}>
-                      <div style={{ padding: "10px 12px", borderBottom: "1px solid #f1f5f9" }}>
-                        <select
-                          value={exportFormat}
-                          onChange={(e) => setExportFormat(e.target.value)}
-                          style={{ ...sS, fontSize: 12, padding: "6px 8px", width: "100%" }}
-                        >
-                          <option value="csv">📄 Export as CSV</option>
-                          <option value="json">📋 Export as JSON</option>
-                          <option value="pdf">🖨 Export as PDF / Print</option>
-                        </select>
-                      </div>
-                      <button
-                        onClick={() => {
-                          const data = selectedIds.size > 0 ? selTickets : filtered;
-                          if (exportFormat === "csv") exportCSV(data, "tickets");
-                          else if (exportFormat === "json") exportJSON(data);
-                          else exportPrint(data, "tickets");
-                          setShowExport(false);
-                        }}
-                        style={{ display: "block", width: "100%", padding: "10px 14px", border: "none", background: "#fff", cursor: "pointer", fontSize: 13, textAlign: "left", fontFamily: "'DM Sans',sans-serif", fontWeight: 600, color: "#3b82f6" }}>
-                        ⬇️ Export
-                      </button>
-                    </div>
-                  </>}
-                </div>
               </div>
             </div>
-
-            {/* Inline Ticket Custom Attrs Manager */}
-            {showManageTicket === "customattrs" && <div style={{ borderBottom: "1px solid #f1f5f9", padding: "16px 18px", background: "#f8fafc" }}>
-              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
-                <span style={{ fontSize: 13, fontWeight: 700, color: "#0f172a" }}>✏️ Ticket Custom Fields</span>
-                <button onClick={() => setShowManageTicket(null)} style={{ border: "none", background: "#e2e8f0", borderRadius: 6, width: 24, height: 24, cursor: "pointer", fontSize: 14, color: "#64748b" }}>×</button>
-              </div>
-              <div style={{ display: "flex", gap: 9, marginBottom: 14, alignItems: "flex-end", flexWrap: "wrap" }}>
-                <input style={{ ...iS, flex: 1, minWidth: 130, fontSize: 13, padding: "7px 10px" }} placeholder="Field name *" value={newTicketAttr.name} onChange={e => setNewTicketAttr({ ...newTicketAttr, name: e.target.value })} />
-                <select style={{ ...sS, width: 100, fontSize: 13, padding: "7px 9px" }} value={newTicketAttr.type} onChange={e => setNewTicketAttr({ ...newTicketAttr, type: e.target.value })}>{["text", "number", "select", "date", "checkbox"].map(t => <option key={t}>{t}</option>)}</select>
-                {newTicketAttr.type === "select" && <input style={{ ...iS, width: 160, fontSize: 13, padding: "7px 10px" }} placeholder="Options (comma-sep)" value={newTicketAttr.options} onChange={e => setNewTicketAttr({ ...newTicketAttr, options: e.target.value })} />}
-                <label style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 12, color: "#374151", whiteSpace: "nowrap" }}><input type="checkbox" checked={newTicketAttr.required} onChange={e => setNewTicketAttr({ ...newTicketAttr, required: e.target.checked })} />Required</label>
-                <button onClick={addTicketAttr} style={{ ...bP, padding: "7px 16px", fontSize: 12 }}>+ Add</button>
-              </div>
-              <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
-                {ticketCustomAttrs.map(a => (
-                  <div key={a.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "9px 12px", borderRadius: 8, border: "1.5px solid #e2e8f0", background: "#fff" }}>
-                    <div style={{ width: 28, height: 28, background: "#eff6ff", borderRadius: 6, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13, flexShrink: 0 }}>{a.type === "text" ? "Aa" : a.type === "number" ? "#" : a.type === "select" ? "≡" : a.type === "date" ? "📅" : "☑"}</div>
-                    <div style={{ flex: 1 }}><span style={{ fontSize: 12, fontWeight: 600 }}>{a.name}</span>{a.required && <span style={{ color: "#ef4444", marginLeft: 3 }}>*</span>}<span style={{ fontSize: 11, color: "#94a3b8", marginLeft: 7 }}>({a.type}{a.options?.length ? ` · ${a.options.join(", ")}` : ""}) </span></div>
-                    <button onClick={() => setTicketCustomAttrs(ticketCustomAttrs.filter(x => x.id !== a.id))} style={{ border: "none", background: "#fee2e2", color: "#ef4444", borderRadius: 5, padding: "3px 9px", cursor: "pointer", fontSize: 12, fontWeight: 600 }}>Delete</button>
-                  </div>
-                ))}
-                {ticketCustomAttrs.length === 0 && <span style={{ fontSize: 12, color: "#94a3b8" }}>No custom fields yet.</span>}
-              </div>
-            </div>}
 
             <div style={{ overflowX: "auto" }}>
               <table style={{ width: "100%", borderCollapse: "collapse" }}>
@@ -3006,65 +2950,10 @@ export default function HelpDesk() {
               <span style={{ fontSize: 12, color: "#64748b" }}>{filteredProjects.length} projects</span>
               <div style={{ marginLeft: "auto", display: "flex", gap: 8, alignItems: "center" }}>
                 {selectedProjIds.size > 0 && <span style={{ fontSize: 12, color: "#3b82f6", fontWeight: 600, background: "#eff6ff", padding: "4px 10px", borderRadius: 99 }}>{selectedProjIds.size} selected</span>}
-                <button onClick={() => setShowManageProject(showManageProject === "customattrs" ? null : "customattrs")} style={{ ...bG, padding: "7px 12px", fontSize: 12 }}>✏️ Fields</button>
-                <div style={{ position: "relative" }}>
-                  <button onClick={() => setShowProjExport(!showProjExport)} style={{ ...bG, display: "flex", alignItems: "center", gap: 6, padding: "7px 13px" }}>⬇ Export <span style={{ fontSize: 10 }}>▾</span></button>
-                  {showProjExport && <><div style={{ position: "fixed", inset: 0, zIndex: 149 }} onClick={() => setShowProjExport(false)} />
-                    <div style={{ position: "absolute", right: 0, top: "calc(100% + 4px)", background: "#fff", border: "1.5px solid #e2e8f0", borderRadius: 10, zIndex: 150, boxShadow: "0 8px 24px rgba(0,0,0,0.12)", minWidth: 220, overflow: "hidden" }}>
-                      <div style={{ padding: "10px 12px", borderBottom: "1px solid #f1f5f9" }}>
-                        <select
-                          value={exportFormat}
-                          onChange={(e) => setExportFormat(e.target.value)}
-                          style={{ ...sS, fontSize: 12, padding: "6px 8px", width: "100%" }}
-                        >
-                          <option value="csv">📄 Export as CSV</option>
-                          <option value="json">📋 Export as JSON</option>
-                          <option value="pdf">🖨 Export as PDF / Print</option>
-                        </select>
-                      </div>
-                      <button
-                        onClick={() => {
-                          const data = selectedProjIds.size > 0 ? selProjects : filteredProjects;
-                          if (exportFormat === "csv") exportCSV(data, "projects");
-                          else if (exportFormat === "json") exportJSON(data);
-                          else exportPrint(data, "projects");
-                          setShowProjExport(false);
-                        }}
-                        style={{ display: "block", width: "100%", padding: "10px 14px", border: "none", background: "#fff", cursor: "pointer", fontSize: 13, textAlign: "left", fontFamily: "'DM Sans',sans-serif", fontWeight: 600, color: "#8b5cf6" }}>
-                        ⬇️ Export
-                      </button>
-                    </div>
-                  </>}
-                </div>
                 <button onClick={() => setShowNewProject(true)} style={{ ...bP, padding: "7px 13px", fontSize: 13, background: "linear-gradient(135deg,#8b5cf6,#6366f1)", display: (currentUser?.role === "Admin" || currentUser?.role === "Manager") ? "block" : "none" }}>+ New Project</button>
               </div>
             </div>
 
-
-            {/* Inline Project Custom Attrs */}
-            {showManageProject === "customattrs" && <div style={{ borderBottom: "1px solid #f1f5f9", padding: "16px 18px", background: "#faf5ff" }}>
-              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
-                <span style={{ fontSize: 13, fontWeight: 700, color: "#0f172a" }}>✏️ Project Custom Fields</span>
-                <button onClick={() => setShowManageProject(null)} style={{ border: "none", background: "#e2e8f0", borderRadius: 6, width: 24, height: 24, cursor: "pointer", fontSize: 14, color: "#64748b" }}>×</button>
-              </div>
-              <div style={{ display: "flex", gap: 9, marginBottom: 14, alignItems: "flex-end", flexWrap: "wrap" }}>
-                <input style={{ ...iS, flex: 1, minWidth: 130, fontSize: 13, padding: "7px 10px" }} placeholder="Field name *" value={newProjAttr.name} onChange={e => setNewProjAttr({ ...newProjAttr, name: e.target.value })} />
-                <select style={{ ...sS, width: 100, fontSize: 13, padding: "7px 9px" }} value={newProjAttr.type} onChange={e => setNewProjAttr({ ...newProjAttr, type: e.target.value })}>{["text", "number", "select", "date", "checkbox"].map(t => <option key={t}>{t}</option>)}</select>
-                {newProjAttr.type === "select" && <input style={{ ...iS, width: 160, fontSize: 13, padding: "7px 10px" }} placeholder="Options (comma-sep)" value={newProjAttr.options} onChange={e => setNewProjAttr({ ...newProjAttr, options: e.target.value })} />}
-                <label style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 12, color: "#374151", whiteSpace: "nowrap" }}><input type="checkbox" checked={newProjAttr.required} onChange={e => setNewProjAttr({ ...newProjAttr, required: e.target.checked })} />Required</label>
-                <button onClick={addProjAttr} style={{ ...bP, padding: "7px 16px", fontSize: 12, background: "linear-gradient(135deg,#8b5cf6,#6366f1)" }}>+ Add</button>
-              </div>
-              <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
-                {projectCustomAttrs.map(a => (
-                  <div key={a.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "9px 12px", borderRadius: 8, border: "1.5px solid #e2e8f0", background: "#fff" }}>
-                    <div style={{ width: 28, height: 28, background: "#f5f3ff", borderRadius: 6, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13, flexShrink: 0 }}>{a.type === "text" ? "Aa" : a.type === "number" ? "#" : a.type === "select" ? "≡" : a.type === "date" ? "📅" : "☑"}</div>
-                    <div style={{ flex: 1 }}><span style={{ fontSize: 12, fontWeight: 600 }}>{a.name}</span>{a.required && <span style={{ color: "#ef4444", marginLeft: 3 }}>*</span>}<span style={{ fontSize: 11, color: "#94a3b8", marginLeft: 7 }}>({a.type}{a.options?.length ? ` · ${a.options.join(", ")}` : ""}) </span></div>
-                    <button onClick={() => setProjectCustomAttrs(projectCustomAttrs.filter(x => x.id !== a.id))} style={{ border: "none", background: "#fee2e2", color: "#ef4444", borderRadius: 5, padding: "3px 9px", cursor: "pointer", fontSize: 12, fontWeight: 600 }}>Delete</button>
-                  </div>
-                ))}
-                {projectCustomAttrs.length === 0 && <span style={{ fontSize: 12, color: "#94a3b8" }}>No custom fields yet.</span>}
-              </div>
-            </div>}
 
             <div style={{ overflowX: "auto" }}>
               <table style={{ width: "100%", borderCollapse: "collapse" }}>
@@ -3124,7 +3013,7 @@ export default function HelpDesk() {
               <div style={{ overflowX: "auto" }}>
                 <table style={{ width: "100%", borderCollapse: "collapse" }}>
                   <thead><tr style={{ background: "#f8fafc" }}>{["ID", "Summary", "Location", "Satsang Type", "Priority", "Status"].map(h => <th key={h} style={thStyle}>{h}</th>)}</tr></thead>
-                  <tbody>{tickets.filter(t => t.isWebcast || (t.category && t.category.toLowerCase().includes("webcast"))).slice(0, 10).map((t, i) => (
+                  <tbody>{tickets.filter(t => (t.isWebcast || (t.category && t.category.toLowerCase().includes("webcast"))) && (t.assignees?.some(a => a.id === currentUser?.id) || currentUser?.role === "Admin")).slice(0, 10).map((t, i) => (
                     <tr key={t.id + i} className="rh" onClick={() => setSelTicket(t)} style={{ cursor: "pointer" }}>
                       <td style={tdStyle}><span style={{ fontFamily: "'DM Mono',monospace", fontSize: 11.5, color: "#3b82f6" }}>{t.id}</span></td>
                       <td style={{ ...tdStyle, maxWidth: 200 }}><div style={{ whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{t.summary}</div></td>
@@ -3134,7 +3023,7 @@ export default function HelpDesk() {
                       <td style={tdStyle}><Badge label={t.status} style={{ ...STATUS_COLOR[t.status] }} /></td>
                     </tr>
                   ))}
-                    {tickets.filter(t => t.isWebcast || (t.category && t.category.toLowerCase().includes("webcast"))).length === 0 && <tr><td colSpan={6} style={{ padding: 24, textAlign: "center", color: "#94a3b8", fontSize: 13 }}>No webcast tickets yet. Mark a ticket as Webcast when creating it.</td></tr>}
+                    {tickets.filter(t => (t.isWebcast || (t.category && t.category.toLowerCase().includes("webcast"))) && (t.assignees?.some(a => a.id === currentUser?.id) || currentUser?.role === "Admin")).length === 0 && <tr><td colSpan={6} style={{ padding: 24, textAlign: "center", color: "#94a3b8", fontSize: 13 }}>No webcast tickets assigned to you yet.</td></tr>}
                   </tbody>
                 </table>
               </div>
