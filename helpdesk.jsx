@@ -409,43 +409,23 @@ const DonutChart = ({ data }) => {
   const [hov, setHov] = useState(null);
   const total = data.reduce((s, d) => s + d.value, 0); let offset = 0;
   const r = 36, circ = 2 * Math.PI * r;
-  const segs = data.map(d => { const p = total ? d.value / total : 0; const dash = p * circ; const s = { ...d, dash, gap: circ - dash, offset: offset * circ, pct: Math.round(p * 100), startAngle: offset * Math.PI * 2, endAngle: (offset + p) * Math.PI * 2 }; offset += p; return s; });
-  // Get mid-angle label position for hover value
-  const getLabelPos = (s) => {
-    const mid = s.startAngle + (s.endAngle - s.startAngle) / 2;
-    const labelR = r * 0.62;
-    return { lx: 45 + labelR * Math.sin(mid), ly: 45 - labelR * Math.cos(mid) };
-  };
-  return <div style={{ display: "flex", alignItems: "stretch", width: "100%" }}>
-    {/* Left half: donut chart centered */}
-    <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center" }}>
-      <div style={{ position: "relative" }}>
-        <svg width={90} height={90} viewBox="0 0 90 90">
-          <circle cx={45} cy={45} r={r} fill="none" stroke="#f1f5f9" strokeWidth={12} />
-          {segs.map((s, i) => {
-            const isH = hov === i;
-            const { lx, ly } = getLabelPos(s);
-            return (
-              <g key={i}>
-                <circle cx={45} cy={45} r={r} fill="none" stroke={s.color} strokeWidth={isH ? 16 : 12}
-                  strokeDasharray={`${s.dash} ${s.gap}`} strokeDashoffset={-s.offset + circ / 4}
-                  style={{ cursor: "pointer", transition: "stroke-width 0.15s", filter: isH ? `drop-shadow(0 0 5px ${s.color}99)` : "none" }}
-                  onMouseEnter={() => setHov(i)} onMouseLeave={() => setHov(null)} />
-                {isH && s.dash > 8 && (
-                  <g>
-                    <rect x={lx - 12} y={ly - 8} width={24} height={13} rx={3} fill="#0f172a" opacity={0.88} />
-                    <text x={lx} y={ly + 3} textAnchor="middle" fontSize={8} fontWeight={700} fill="#ffffff">{s.value}</text>
-                  </g>
-                )}
-              </g>
-            );
-          })}
-          <text x={45} y={49} textAnchor="middle" fontSize={9} fill="#94a3b8" fontFamily="DM Sans,sans-serif">{total}</text>
-        </svg>
-      </div>
+  const segs = data.map(d => { const p = total ? d.value / total : 0; const dash = p * circ; const s = { ...d, dash, gap: circ - dash, offset: offset * circ, pct: Math.round(p * 100) }; offset += p; return s; });
+  const hovSeg = hov !== null ? segs[hov] : null;
+  return <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
+    <div style={{ position: "relative", flexShrink: 0 }}>
+      <svg width={90} height={90} viewBox="0 0 90 90">
+        <circle cx={45} cy={45} r={r} fill="none" stroke="#f1f5f9" strokeWidth={12} />
+        {segs.map((s, i) => (
+          <circle key={i} cx={45} cy={45} r={r} fill="none" stroke={s.color} strokeWidth={hov === i ? 16 : 12}
+            strokeDasharray={`${s.dash} ${s.gap}`} strokeDashoffset={-s.offset + circ / 4}
+            style={{ cursor: "pointer", transition: "stroke-width 0.15s", filter: hov === i ? `drop-shadow(0 0 5px ${s.color}99)` : "none" }}
+            onMouseEnter={() => setHov(i)} onMouseLeave={() => setHov(null)} />
+        ))}
+        <text x={45} y={41} textAnchor="middle" fontSize={hovSeg ? 13 : 12} fontWeight={700} fill={hovSeg ? hovSeg.color : "#1e293b"} fontFamily="DM Sans,sans-serif">{hovSeg ? `${hovSeg.pct}%` : total}</text>
+        <text x={45} y={54} textAnchor="middle" fontSize={9} fill="#94a3b8" fontFamily="DM Sans,sans-serif">{hovSeg ? hovSeg.label : "total"}</text>
+      </svg>
     </div>
-    {/* Right half: legends centered */}
-    <div style={{ flex: 1, display: "flex", flexDirection: "column", justifyContent: "center", gap: 5 }}>
+    <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
       {segs.map((s, i) => (
         <div key={i} style={{ display: "flex", alignItems: "center", gap: 7, cursor: "pointer", padding: "3px 6px", borderRadius: 5, background: hov === i ? `${s.color}15` : "transparent", transition: "background 0.15s" }}
           onMouseEnter={() => setHov(i)} onMouseLeave={() => setHov(null)}>
@@ -522,46 +502,28 @@ const SmartChart = ({ title, data, defaultType = "bar", defaultColor = "#3b82f6"
       </svg>);
     }
     if (type === "pie") {
-      let off = 0; const r = size === "small" ? 44 : 55, cx = 50, cy = 50;
+      let off = 0; const r = size === "small" ? 50 : 62, cx = 50, cy = 50;
       const segs = data.map(d => { const p = total ? d.value / total : 0; const a = p * Math.PI * 2; const s = { ...d, start: off, end: off + a, pct: Math.round(p * 100) }; off += a; return s; });
       const arc = (s, large) => { const x1 = cx + r * Math.sin(s.start), y1 = cy - r * Math.cos(s.start), x2 = cx + r * Math.sin(s.end), y2 = cy - r * Math.cos(s.end); return `M ${cx} ${cy} L ${x1} ${y1} A ${r} ${r} 0 ${large} 1 ${x2} ${y2} Z`; };
       const svgSize = size === "small" ? 130 : 160;
-      // Compute label position (midpoint of arc, slightly inside the segment)
-      const getLabelPos = (s) => {
-        const mid = s.start + (s.end - s.start) / 2;
-        const labelR = r * 0.62;
-        return { lx: cx + labelR * Math.sin(mid), ly: cy - labelR * Math.cos(mid) };
-      };
-      return (<div style={{ display: "flex", alignItems: "stretch", width: "100%" }}>
-        {/* Left half: pie chart centered */}
-        <div style={{ flex: "0 0 auto", display: "flex", alignItems: "center", justifyContent: "center" }}>
-          <svg width={svgSize} height={svgSize} viewBox="0 0 100 100" style={{ overflow: "visible", display: "block" }}>
-            {segs.map((s, i) => {
-              const large = s.end - s.start > Math.PI ? 1 : 0; const isH = hov === i;
-              const { lx, ly } = getLabelPos(s);
-              return (
-                <g key={i} style={{ cursor: "pointer" }} onMouseEnter={() => setHov(i)} onMouseLeave={() => setHov(null)}>
-                  <path d={arc(s, large)} fill={col(i, defaultColor)} stroke="#fff" strokeWidth={isH ? 2 : 1.5}
-                    style={{ filter: isH ? `drop-shadow(0 2px 8px ${col(i, defaultColor)}aa)` : "none", opacity: isH ? 1 : 0.88, transform: isH ? `translate(${(lx - cx) * 0.06}px, ${(ly - cy) * 0.06}px)` : "none", transition: "all 0.15s" }} />
-                  {isH && s.end - s.start > 0.15 && (
-                    <g>
-                      <rect x={lx - 14} y={ly - 9} width={28} height={14} rx={4} fill="#0f172a" opacity={0.88} />
-                      <text x={lx} y={ly + 4} textAnchor="middle" fontSize={9} fontWeight={700} fill="#ffffff">{s.value}</text>
-                    </g>
-                  )}
-                </g>);
-            })}
-            {/* tiny total in center always */}
-            <text x={50} y={51} textAnchor="middle" fontSize={8} fill="#94a3b8" fontFamily="DM Sans,sans-serif">{total}</text>
-          </svg>
-        </div>
-        {/* Right half: legends centered */}
-        <div style={{ flex: 1, display: "flex", flexDirection: "column", justifyContent: "center", gap: 5, paddingLeft: 8 }}>
-          {segs.map((s, i) => (<div key={i} style={{ display: "flex", alignItems: "center", gap: 7, cursor: "pointer", padding: "3px 6px", borderRadius: 4, background: hov === i ? `${col(i, defaultColor)}18` : "transparent", transition: "background 0.12s", whiteSpace: "nowrap" }}
+      return (<div style={{ display: "flex", alignItems: "flex-start", gap: 20, justifyContent: "space-between", width: "100%" }}>
+        <svg width={svgSize} height={svgSize} viewBox="0 0 100 100" style={{ flexShrink: 0, overflow: "visible" }}>
+          {segs.map((s, i) => {
+            const large = s.end - s.start > Math.PI ? 1 : 0; const isH = hov === i; return (
+              <g key={i} style={{ cursor: "pointer" }} onMouseEnter={() => setHov(i)} onMouseLeave={() => setHov(null)}>
+                <path d={arc(s, large)} fill={col(i, defaultColor)} stroke="#fff" strokeWidth={1.5}
+                  style={{ filter: isH ? `drop-shadow(0 2px 6px ${col(i, defaultColor)}88)` : "none", opacity: isH ? 1 : 0.88 }} />
+              </g>);
+          })}
+          <text x={50} y={47} textAnchor="middle" fontSize={12} fontWeight={700} fill={hov !== null ? col(hov, defaultColor) : "#1e293b"}>{hov !== null ? `${segs[hov]?.pct}%` : total}</text>
+          <text x={50} y={58} textAnchor="middle" fontSize={7} fill="#94a3b8">{hov !== null ? segs[hov]?.label : "total"}</text>
+        </svg>
+        <div style={{ display: "flex", flexDirection: "column", gap: 6, minWidth: 140, marginTop: 10 }}>
+          {segs.map((s, i) => (<div key={i} style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer", padding: "4px 8px", borderRadius: 4, background: hov === i ? `${col(i, defaultColor)}15` : "transparent", transition: "background 0.12s", whiteSpace: "nowrap" }}
             onMouseEnter={() => setHov(i)} onMouseLeave={() => setHov(null)}>
             <div style={{ width: 10, height: 10, borderRadius: 2, background: col(i, defaultColor), flexShrink: 0 }} />
             <span style={{ fontSize: 11, color: "#374151", fontWeight: hov === i ? 700 : 500, flex: 1 }}>{s.label}</span>
-            <span style={{ fontSize: 11, fontWeight: 700, color: hov === i ? col(i, defaultColor) : "#64748b", minWidth: 24, textAlign: "right" }}>{s.value}</span>
+            <span style={{ fontSize: 11, fontWeight: 700, color: hov === i ? col(i, defaultColor) : "#64748b", minWidth: 30, textAlign: "right" }}>{s.value}</span>
           </div>))}
         </div>
       </div>);
@@ -968,17 +930,18 @@ export default function HelpDesk() {
         setVendors([]);
       }
 
-      const parsedTickets = [
-        ...(data.tickets || []),
-        ...(data.webcasts || [])
-      ].map(t => ({
-        ...t,
-        created: new Date(t.createdAt || t.created),
-        updated: new Date(t.updatedAt || t.updated),
-        isWebcast: t.isWebcast || false,
-        satsangType: t.satsangType || "",
-        location: t.location || ""
-      })).sort((a, b) => b.created - a.created);
+      const allRaw = [...(data.tickets || []), ...(data.webcasts || [])];
+      const seenIds = new Set();
+      const parsedTickets = allRaw
+        .filter(t => { if (seenIds.has(t.id)) return false; seenIds.add(t.id); return true; })
+        .map(t => ({
+          ...t,
+          created: new Date(t.createdAt || t.created),
+          updated: new Date(t.updatedAt || t.updated),
+          isWebcast: t.isWebcast || false,
+          satsangType: t.satsangType || "",
+          location: t.location || ""
+        })).sort((a, b) => b.created - a.created);
 
       setTickets(parsedTickets);
       setSatsangs(data.satsangs || []);
@@ -1142,8 +1105,11 @@ export default function HelpDesk() {
     return data;
   }, [fbr, exportFilterType, exportFilterValue]);
 
-  // Report filtered data uses the same top-bar range filter as the dashboard
-  const reportFilteredData = fbr;
+  // ✅ NEW: Report time-range filtered data - used for all report graphs
+  const reportTimeRangeMs = reportTimeRange === "all" ? Infinity : parseInt(reportTimeRange) * dayMs;
+  const reportFilteredData = useMemo(() => {
+    return reportTimeRange === "all" ? tickets : tickets.filter(t => now - t.created.getTime() <= reportTimeRangeMs);
+  }, [tickets, reportTimeRange, reportTimeRangeMs, now, dayMs]);
 
   const prbr = useMemo(() => range === "all" ? projects : projects.filter(p => now - p.created.getTime() <= rangeMs), [projects, rangeMs, range, now]);
 
@@ -1242,39 +1208,20 @@ export default function HelpDesk() {
   const projStats = useMemo(() => ({ total: dashboardProjects.length, open: dashboardProjects.filter(x => x.status === "Open").length, inProgress: dashboardProjects.filter(x => x.status === "In Progress").length, resolved: dashboardProjects.filter(x => x.status === "Resolved" || x.status === "Closed").length, critical: dashboardProjects.filter(x => x.priority === "Critical").length }), [dashboardProjects]);
   const agentStats = useMemo(() => users.map(u => ({ ...u, assigned: fbr.filter(t => t.assignees?.some(a => a.id === u.id)).length, resolved: fbr.filter(t => t.assignees?.some(a => a.id === u.id) && (t.status === "Resolved" || t.status === "Closed")).length, projAssigned: prbr.filter(p => p.assignees?.some(a => a.id === u.id)).length })), [fbr, prbr, users]);
   const dailyData = useMemo(() => { const days = parseInt(range) <= 7 ? parseInt(range) : 7; return Array.from({ length: days }, (_, i) => { const d = new Date(now - (days - 1 - i) * dayMs); return { label: d.toLocaleDateString("en", { weekday: "short" }), value: fbr.filter(t => t.created.getDate() === d.getDate() && t.created.getMonth() === d.getMonth()).length }; }); }, [fbr, range, now, dayMs]);
-  const priorityDist = useMemo(() => PRIORITIES.map(p => ({ label: p, value: dashboardData.filter(t => t.priority === p).length, color: PRIORITY_COLOR[p] })), [dashboardData]);
-  const categoryDist = useMemo(() => categories.slice(0, 6).map(c => ({ label: c.name, value: dashboardData.filter(t => t.category === c.name).length, color: c.color })), [dashboardData, categories]);
+  const priorityDist = useMemo(() => PRIORITIES.map(p => ({ label: p, value: fbr.filter(t => t.priority === p).length, color: PRIORITY_COLOR[p] })), [fbr]);
+  const categoryDist = useMemo(() => categories.slice(0, 6).map(c => ({ label: c.name, value: fbr.filter(t => t.category === c.name).length, color: c.color })), [fbr, categories]);
 
   // ✅ NEW: Dashboard-specific chart data (with org filter)
   const dashboardDailyData = useMemo(() => {
-    if (range === "1") {
-      // Today: show 6 time buckets (0-4, 4-8, 8-12, 12-16, 16-20, 20-24)
-      const todayStart = new Date(); todayStart.setHours(0, 0, 0, 0);
-      const slots = [
-        { label: "12am", start: 0, end: 4 }, { label: "4am", start: 4, end: 8 },
-        { label: "8am", start: 8, end: 12 }, { label: "12pm", start: 12, end: 16 },
-        { label: "4pm", start: 16, end: 20 }, { label: "8pm", start: 20, end: 24 },
-      ];
-      return slots.map(slot => ({
-        label: slot.label,
-        value: dashboardData.filter(t => {
-          const d = t.created instanceof Date ? t.created : new Date(t.created);
-          return d >= todayStart && d.getHours() >= slot.start && d.getHours() < slot.end;
-        }).length
-      }));
-    }
     const days = 7;
     return Array.from({ length: days }, (_, i) => {
       const d = new Date(now - (days - 1 - i) * dayMs);
       return {
         label: d.toLocaleDateString("en", { weekday: "short" }),
-        value: dashboardData.filter(t => {
-          const td = t.created instanceof Date ? t.created : new Date(t.created);
-          return td.getDate() === d.getDate() && td.getMonth() === d.getMonth() && td.getFullYear() === d.getFullYear();
-        }).length
+        value: dashboardData.filter(t => t.created.getDate() === d.getDate() && t.created.getMonth() === d.getMonth()).length
       };
     });
-  }, [dashboardData, range, now, dayMs]);
+  }, [dashboardData, now, dayMs]);
 
   const dashboardStatusDist = useMemo(() => {
     const statusCounts = {};
@@ -2908,21 +2855,21 @@ export default function HelpDesk() {
                   {/* Viewer/Agent: 2-column grid with SMALLER containers - NO Recent Tickets */}
                   <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 12 }}>
                     <div style={{ background: "#fff", borderRadius: 12, padding: 12, boxShadow: "0 1px 4px rgba(0,0,0,0.06)", minHeight: 180 }}>
-                      <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 10, color: "#374151" }}>Tickets Over Time (Weekly)</div>
+                      <div style={{ fontSize: 11, fontWeight: 600, marginBottom: 10, color: "#374151" }}>Tickets Over Time (Weekly)</div>
                       <SmartChart data={dashboardDailyData} defaultColor="#3b82f6" size="small" />
                     </div>
                     <div style={{ background: "#fff", borderRadius: 12, padding: 12, boxShadow: "0 1px 4px rgba(0,0,0,0.06)", minHeight: 280 }}>
-                      <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 10, color: "#374151" }}>Ticket Priority</div>
+                      <div style={{ fontSize: 11, fontWeight: 600, marginBottom: 10, color: "#374151" }}>Ticket Priority</div>
                       <SmartChart data={priorityDist} defaultType="pie" size="small" />
                     </div>
                   </div>
                   <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 12 }}>
                     <div style={{ background: "#fff", borderRadius: 12, padding: 12, boxShadow: "0 1px 4px rgba(0,0,0,0.06)", minHeight: 180 }}>
-                      <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 10, color: "#374151" }}>By Category</div>
+                      <div style={{ fontSize: 11, fontWeight: 600, marginBottom: 10, color: "#374151" }}>By Category</div>
                       <SmartChart data={categoryDist} defaultColor="#8b5cf6" size="small" />
                     </div>
                     <div style={{ background: "#fff", borderRadius: 12, padding: 12, boxShadow: "0 1px 4px rgba(0,0,0,0.06)", minHeight: 280 }}>
-                      <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 10, color: "#374151" }}>Ticket Status (w/ Unassigned)</div>
+                      <div style={{ fontSize: 11, fontWeight: 600, marginBottom: 10, color: "#374151" }}>Ticket Status (w/ Unassigned)</div>
                       <SmartChart data={dashboardStatusDist} defaultType="pie" size="small" />
                     </div>
                   </div>
@@ -3218,21 +3165,29 @@ export default function HelpDesk() {
           {/* ── WEBCAST ── */}
           {view === "webcast" && <>
             {/* Webcast Stats Cards */}
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(5,1fr)", gap: 9, marginBottom: 16 }}>
-              {[
-                { label: "Total Webcasts", value: tickets.filter(t => t.isWebcast || (t.category && t.category.toLowerCase().includes("webcast"))).length, color: "#f97316", icon: "📡" },
-                { label: "Open", value: tickets.filter(t => (t.isWebcast || (t.category && t.category.toLowerCase().includes("webcast"))) && t.status === "Open").length, color: "#3b82f6", icon: "📂" },
-                { label: "In Progress", value: tickets.filter(t => (t.isWebcast || (t.category && t.category.toLowerCase().includes("webcast"))) && t.status === "In Progress").length, color: "#eab308", icon: "⚙️" },
-                { label: "Closed", value: tickets.filter(t => (t.isWebcast || (t.category && t.category.toLowerCase().includes("webcast"))) && t.status === "Closed").length, color: "#64748b", icon: "✅" },
-                { label: "Critical", value: tickets.filter(t => (t.isWebcast || (t.category && t.category.toLowerCase().includes("webcast"))) && t.priority === "Critical").length, color: "#ef4444", icon: "🔥" },
-              ].map(s => (
-                <div key={s.label} style={{ background: "#fff", borderRadius: 12, padding: "14px 16px", boxShadow: "0 1px 4px rgba(0,0,0,0.06)", borderTop: `3px solid ${s.color}` }}>
-                  <div style={{ fontSize: 20, marginBottom: 5 }}>{s.icon}</div>
-                  <div style={{ fontSize: 24, fontWeight: 700, color: s.color }}>{s.value}</div>
-                  <div style={{ fontSize: 11, color: "#64748b" }}>{s.label}</div>
+            {(() => {
+              const isAdminOrManager = currentUser?.role === "Admin" || currentUser?.role === "Manager";
+              const allWebcasts = tickets.filter(t => t.isWebcast || (t.category && t.category.toLowerCase().includes("webcast")));
+              const myWebcasts = allWebcasts.filter(t => t.assignees?.some(a => a.id === currentUser?.id));
+              const webcastBase = isAdminOrManager ? allWebcasts : myWebcasts;
+              return (
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(5,1fr)", gap: 9, marginBottom: 16 }}>
+                  {[
+                    { label: isAdminOrManager ? "Total Webcasts" : "My Webcasts", value: webcastBase.length, color: "#f97316", icon: "📡" },
+                    { label: "Open", value: webcastBase.filter(t => t.status === "Open").length, color: "#3b82f6", icon: "📂" },
+                    { label: "In Progress", value: webcastBase.filter(t => t.status === "In Progress").length, color: "#eab308", icon: "⚙️" },
+                    { label: "Closed", value: webcastBase.filter(t => t.status === "Closed").length, color: "#64748b", icon: "✅" },
+                    { label: "Critical", value: webcastBase.filter(t => t.priority === "Critical").length, color: "#ef4444", icon: "🔥" },
+                  ].map(s => (
+                    <div key={s.label} style={{ background: "#fff", borderRadius: 12, padding: "14px 16px", boxShadow: "0 1px 4px rgba(0,0,0,0.06)", borderTop: `3px solid ${s.color}` }}>
+                      <div style={{ fontSize: 20, marginBottom: 5 }}>{s.icon}</div>
+                      <div style={{ fontSize: 24, fontWeight: 700, color: s.color }}>{s.value}</div>
+                      <div style={{ fontSize: 11, color: "#64748b" }}>{s.label}</div>
+                    </div>
+                  ))}
                 </div>
-              ))}
-            </div>
+              );
+            })()}
 
             {/* Webcast Table - Only show tickets assigned to current user (or all for Admin) */}
             <div style={{ background: "#fff", borderRadius: 12, padding: 22, boxShadow: "0 1px 4px rgba(0,0,0,0.06)" }}>
@@ -3259,8 +3214,21 @@ export default function HelpDesk() {
 
           {/* ── REPORTS (v1 charts) ── */}
           {view === "reports" && <>
-            {/* Advanced Export Button */}
+            {/* Time Range Filter & Advanced Export Button */}
             <div style={{ display: "flex", gap: 12, marginBottom: 16, alignItems: "center", flexWrap: "wrap" }}>
+              <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                <span style={{ fontSize: 13, fontWeight: 600, color: "#374151" }}>Time Range:</span>
+                <select
+                  value={reportTimeRange}
+                  onChange={e => setReportTimeRange(e.target.value)}
+                  style={{ ...sS, width: 140, fontSize: 13, padding: "7px 10px" }}>
+                  <option value="all">All Time</option>
+                  <option value="1">Today</option>
+                  <option value="7">Last 7 Days</option>
+                  <option value="30">Last 30 Days</option>
+                </select>
+              </div>
+
               <button
                 onClick={() => setShowAdvancedExportModal(true)}
                 style={{ ...bP, padding: "7px 16px", fontSize: 13, background: "#3b82f6", color: "#fff", marginLeft: "auto" }}>
@@ -3281,62 +3249,7 @@ export default function HelpDesk() {
               </div>
               <div style={{ background: "#fff", borderRadius: 12, padding: 18, boxShadow: "0 1px 4px rgba(0,0,0,0.06)" }}>
                 <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 12 }}>Ticket Volume</div>
-                <BarChart data={(() => {
-                  if (range === "1") {
-                    // Today: 6 hourly buckets
-                    const todayStart = new Date(); todayStart.setHours(0, 0, 0, 0);
-                    return [
-                      { label: "12am", start: 0, end: 4 }, { label: "4am", start: 4, end: 8 },
-                      { label: "8am", start: 8, end: 12 }, { label: "12pm", start: 12, end: 16 },
-                      { label: "4pm", start: 16, end: 20 }, { label: "8pm", start: 20, end: 24 },
-                    ].map(slot => ({
-                      label: slot.label,
-                      value: reportFilteredData.filter(t => {
-                        const d = t.created instanceof Date ? t.created : new Date(t.created);
-                        return d >= todayStart && d.getHours() >= slot.start && d.getHours() < slot.end;
-                      }).length
-                    }));
-                  } else if (range === "7") {
-                    // Last 7 days: daily
-                    return Array.from({ length: 7 }, (_, i) => {
-                      const d = new Date(now - (6 - i) * dayMs);
-                      return {
-                        label: d.toLocaleDateString("en", { weekday: "short" }),
-                        value: reportFilteredData.filter(t => {
-                          const td = t.created instanceof Date ? t.created : new Date(t.created);
-                          return td.getDate() === d.getDate() && td.getMonth() === d.getMonth() && td.getFullYear() === d.getFullYear();
-                        }).length
-                      };
-                    });
-                  } else if (range === "30") {
-                    // Last 30 days: 4 weekly buckets
-                    return Array.from({ length: 4 }, (_, i) => {
-                      const wStart = new Date(now - (3 - i + 1) * 7 * dayMs);
-                      const wEnd = new Date(now - (3 - i) * 7 * dayMs);
-                      return {
-                        label: `W${i + 1}`,
-                        value: reportFilteredData.filter(t => {
-                          const td = t.created instanceof Date ? t.created : new Date(t.created);
-                          return td >= wStart && td < wEnd;
-                        }).length
-                      };
-                    });
-                  } else {
-                    // All time: last 12 months
-                    return Array.from({ length: 12 }, (_, i) => {
-                      const d = new Date(now);
-                      d.setMonth(d.getMonth() - (11 - i));
-                      const yr = d.getFullYear(), mo = d.getMonth();
-                      return {
-                        label: d.toLocaleDateString("en", { month: "short" }),
-                        value: reportFilteredData.filter(t => {
-                          const td = t.created instanceof Date ? t.created : new Date(t.created);
-                          return td.getFullYear() === yr && td.getMonth() === mo;
-                        }).length
-                      };
-                    });
-                  }
-                })()} />
+                <BarChart data={Array.from({ length: parseInt(reportTimeRange || "30") <= 7 ? parseInt(reportTimeRange || "30") : 7 }, (_, i) => { const d = new Date(now - (parseInt(reportTimeRange || "30") - 1 - i) * dayMs); return { label: d.toLocaleDateString("en", { weekday: "short" }), value: reportFilteredData.filter(t => t.created.getDate() === d.getDate() && t.created.getMonth() === d.getMonth()).length }; })} />
               </div>
               <div style={{ background: "#fff", borderRadius: 12, padding: 18, boxShadow: "0 1px 4px rgba(0,0,0,0.06)" }}>
                 <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 12 }}>By Category</div>
