@@ -502,7 +502,7 @@ const SmartChart = ({ title, data, defaultType = "bar", defaultColor = "#3b82f6"
       let off = 0; const r = 62, cx = 50, cy = 50;
       const segs = data.map(d => { const p = total ? d.value / total : 0; const a = p * Math.PI * 2; const s = { ...d, start: off, end: off + a, pct: Math.round(p * 100) }; off += a; return s; });
       const arc = (s, large) => { const x1 = cx + r * Math.sin(s.start), y1 = cy - r * Math.cos(s.start), x2 = cx + r * Math.sin(s.end), y2 = cy - r * Math.cos(s.end); return `M ${cx} ${cy} L ${x1} ${y1} A ${r} ${r} 0 ${large} 1 ${x2} ${y2} Z`; };
-      return (<div style={{ display: "flex", alignItems: "center", gap: 16 }}>
+      return (<div style={{ display: "flex", alignItems: "flex-start", gap: 20, justifyContent: "space-between", width: "100%" }}>
         <svg width={160} height={160} viewBox="0 0 100 100" style={{ flexShrink: 0, overflow: "visible" }}>
           {segs.map((s, i) => {
             const large = s.end - s.start > Math.PI ? 1 : 0; const isH = hov === i; return (
@@ -514,12 +514,12 @@ const SmartChart = ({ title, data, defaultType = "bar", defaultColor = "#3b82f6"
           <text x={50} y={47} textAnchor="middle" fontSize={12} fontWeight={700} fill={hov !== null ? col(hov, defaultColor) : "#1e293b"}>{hov !== null ? `${segs[hov]?.pct}%` : total}</text>
           <text x={50} y={58} textAnchor="middle" fontSize={7} fill="#94a3b8">{hov !== null ? segs[hov]?.label : "total"}</text>
         </svg>
-        <div style={{ display: "flex", flexDirection: "column", gap: 6, minWidth: 120 }}>
+        <div style={{ display: "flex", flexDirection: "column", gap: 6, minWidth: 140, marginTop: 10 }}>
           {segs.map((s, i) => (<div key={i} style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer", padding: "4px 8px", borderRadius: 4, background: hov === i ? `${col(i, defaultColor)}15` : "transparent", transition: "background 0.12s", whiteSpace: "nowrap" }}
             onMouseEnter={() => setHov(i)} onMouseLeave={() => setHov(null)}>
             <div style={{ width: 10, height: 10, borderRadius: 2, background: col(i, defaultColor), flexShrink: 0 }} />
             <span style={{ fontSize: 11, color: "#374151", fontWeight: hov === i ? 700 : 500, flex: 1 }}>{s.label}</span>
-            <span style={{ fontSize: 11, fontWeight: 700, color: hov === i ? col(i, defaultColor) : "#64748b", minWidth: 24, textAlign: "right" }}>{s.value}</span>
+            <span style={{ fontSize: 11, fontWeight: 700, color: hov === i ? col(i, defaultColor) : "#64748b", minWidth: 30, textAlign: "right" }}>{s.value}</span>
           </div>))}
         </div>
       </div>);
@@ -2849,22 +2849,22 @@ export default function HelpDesk() {
                 <>
                   {/* Viewer/Agent: 2-column grid with EQUAL SMALL graphs - NO Recent Tickets */}
                   <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 12 }}>
-                    <div style={{ background: "#fff", borderRadius: 12, padding: 12, boxShadow: "0 1px 4px rgba(0,0,0,0.06)", minHeight: 260 }}>
-                      <div style={{ fontSize: 11, fontWeight: 600, marginBottom: 10, color: "#374151" }}>Tickets Over Time (Weekly)</div>
+                    <div style={{ background: "#fff", borderRadius: 12, padding: 10, boxShadow: "0 1px 4px rgba(0,0,0,0.06)", minHeight: 220 }}>
+                      <div style={{ fontSize: 10, fontWeight: 600, marginBottom: 8, color: "#374151" }}>Tickets Over Time (Weekly)</div>
                       <SmartChart data={dashboardDailyData} defaultColor="#3b82f6" />
                     </div>
-                    <div style={{ background: "#fff", borderRadius: 12, padding: 12, boxShadow: "0 1px 4px rgba(0,0,0,0.06)", minHeight: 260 }}>
-                      <div style={{ fontSize: 11, fontWeight: 600, marginBottom: 10, color: "#374151" }}>Ticket Priority</div>
+                    <div style={{ background: "#fff", borderRadius: 12, padding: 10, boxShadow: "0 1px 4px rgba(0,0,0,0.06)", minHeight: 220 }}>
+                      <div style={{ fontSize: 10, fontWeight: 600, marginBottom: 8, color: "#374151" }}>Ticket Priority</div>
                       <SmartChart data={priorityDist} defaultType="pie" />
                     </div>
                   </div>
                   <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 12 }}>
-                    <div style={{ background: "#fff", borderRadius: 12, padding: 12, boxShadow: "0 1px 4px rgba(0,0,0,0.06)", minHeight: 260 }}>
-                      <div style={{ fontSize: 11, fontWeight: 600, marginBottom: 10, color: "#374151" }}>By Category</div>
+                    <div style={{ background: "#fff", borderRadius: 12, padding: 10, boxShadow: "0 1px 4px rgba(0,0,0,0.06)", minHeight: 220 }}>
+                      <div style={{ fontSize: 10, fontWeight: 600, marginBottom: 8, color: "#374151" }}>By Category</div>
                       <SmartChart data={categoryDist} defaultColor="#8b5cf6" />
                     </div>
-                    <div style={{ background: "#fff", borderRadius: 12, padding: 12, boxShadow: "0 1px 4px rgba(0,0,0,0.06)", minHeight: 260 }}>
-                      <div style={{ fontSize: 11, fontWeight: 600, marginBottom: 10, color: "#374151" }}>Ticket Status (w/ Unassigned)</div>
+                    <div style={{ background: "#fff", borderRadius: 12, padding: 10, boxShadow: "0 1px 4px rgba(0,0,0,0.06)", minHeight: 220 }}>
+                      <div style={{ fontSize: 10, fontWeight: 600, marginBottom: 8, color: "#374151" }}>Ticket Status (w/ Unassigned)</div>
                       <SmartChart data={dashboardStatusDist} defaultType="pie" />
                     </div>
                   </div>
