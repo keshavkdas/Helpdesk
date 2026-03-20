@@ -3285,7 +3285,7 @@ export default function HelpDesk() {
                       <div style={{ width: 11, height: 11, borderRadius: 3, background: c.color, flexShrink: 0 }} />
                       <span style={{ flex: 1, fontSize: 13, fontWeight: 600 }}>{c.name}</span>
                       <span style={{ fontSize: 11, color: "#94a3b8" }}>{tickets.filter(t => t.category === c.name).length}</span>
-                      {currentUser?.role === "Admin" && <button onClick={() => deleteCat(c.id)} style={{ border: "none", background: "#fee2e2", color: "#ef4444", borderRadius: 6, padding: "4px 10px", cursor: "pointer", fontSize: 12, fontWeight: 600 }}>Delete</button>}
+                      {currentUser?.role === "Admin" && <button onClick={() => deleteCat(c.id)} style={{ border: "none", background: "#fee2e2", color: "#ef4444", borderRadius: 6, padding: "4px 10px", cursor: "pointer", fontSize: 12, fontWeight: 600 }}>x</button>}
                     </div>
                   ))}
                 </div>
@@ -3312,7 +3312,7 @@ export default function HelpDesk() {
                       <div key={d.id} style={{ display: "flex", alignItems: "center", gap: 9, padding: "11px 13px", borderRadius: 9, border: `1.5px solid ${color}33`, background: `${color}0d` }}>
                         <div style={{ width: 11, height: 11, borderRadius: 3, background: color, flexShrink: 0 }} />
                         <span style={{ flex: 1, fontSize: 13, fontWeight: 600 }}>{d.name}</span>
-                        {currentUser?.role === "Admin" && <button onClick={() => deleteDept(d.id)} style={{ border: "none", background: "#fee2e2", color: "#ef4444", borderRadius: 6, padding: "4px 10px", cursor: "pointer", fontSize: 12, fontWeight: 600 }}>Delete</button>}
+                        {currentUser?.role === "Admin" && <button onClick={() => deleteDept(d.id)} style={{ border: "none", background: "#fee2e2", color: "#ef4444", borderRadius: 6, padding: "4px 10px", cursor: "pointer", fontSize: 12, fontWeight: 600 }}>x</button>}
                       </div>
                     );
                   })}
@@ -3341,7 +3341,7 @@ export default function HelpDesk() {
                       <div key={l.id} style={{ display: "flex", alignItems: "center", gap: 9, padding: "11px 13px", borderRadius: 9, border: `1.5px solid ${color}33`, background: `${color}0d` }}>
                         <div style={{ width: 11, height: 11, borderRadius: 3, background: color, flexShrink: 0 }} />
                         <span style={{ flex: 1, fontSize: 13, fontWeight: 600 }}>📍 {l.name}</span>
-                        {(currentUser?.role === "Admin" || currentUser?.role === "Manager") && <button onClick={() => deleteLocation(l.id)} style={{ border: "none", background: "#fee2e2", color: "#ef4444", borderRadius: 6, padding: "4px 10px", cursor: "pointer", fontSize: 12, fontWeight: 600 }}>Delete</button>}
+                        {(currentUser?.role === "Admin" || currentUser?.role === "Manager") && <button onClick={() => deleteLocation(l.id)} style={{ border: "none", background: "#fee2e2", color: "#ef4444", borderRadius: 6, padding: "4px 10px", cursor: "pointer", fontSize: 12, fontWeight: 600 }}>x</button>}
                       </div>
                     );
                   })}
