@@ -1150,10 +1150,10 @@ export default function HelpDesk() {
       }
     }
 
-    // 3. Push one inbox entry per recipient (fire-and-forget, silent)
-    recipients.forEach(uid => {
+    // 3. Post ONE notification with all recipient IDs — server fans it out into one row each
+    if (recipients.size > 0) {
       axios.post(NOTIFICATIONS_API, {
-        userId: uid,
+        recipientIds: Array.from(recipients),   // server expands this
         type: "activity",
         title: notif.text,
         message: notif.text,
@@ -1165,7 +1165,7 @@ export default function HelpDesk() {
         alerted: false,
         createdAt: nowISO
       }).catch(() => { });
-    });
+    }
   };
 
   const pushFloatingAlert = (item) => {

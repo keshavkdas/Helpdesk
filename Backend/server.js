@@ -537,11 +537,14 @@ app.get("/api/notifications", async (req, res) => {
 });
 
 // POST /api/notifications
-// Create a new notification for a user
+// Two modes:
+//   Single:  { userId, type, title, ... }         — one row
+//   Bulk:    { recipientIds:[1,2,3], type, ... }  — one row per recipient, one request
 app.post("/api/notifications", async (req, res) => {
     try {
         const {
-            userId, type, title, message,
+            userId, recipientIds,
+            type, title, message,
             ticketId, ticketSummary, requestId,
             fromUser, fromUserId, toAgent, reason,
             status, resolved, from,
@@ -549,13 +552,11 @@ app.post("/api/notifications", async (req, res) => {
             read = false, alerted = false,
         } = req.body;
 
-        if (!userId) return res.status(400).json({ error: "userId is required" });
         if (!type) return res.status(400).json({ error: "type is required" });
         if (!title) return res.status(400).json({ error: "title is required" });
         if (!message) return res.status(400).json({ error: "message is required" });
 
-        const notif = await Notification.create({
-            userId: parseInt(userId, 10),
+        const base = {
             type, title, message,
             ticketId: ticketId || null,
             ticketSummary: ticketSummary || null,
@@ -571,7 +572,18 @@ app.post("/api/notifications", async (req, res) => {
             broadcastType: broadcastType || null,
             read,
             alerted,
-        });
+        };
+
+        // Bulk fan-out — one DB bulkCreate instead of N separate requests
+        if (Array.isArray(recipientIds) && recipientIds.length > 0) {
+            const rows = recipientIds.map(uid => ({ ...base, userId: parseInt(uid, 10) }));
+            await Notification.bulkCreate(rows);
+            return res.status(201).json({ success: true, count: rows.length });
+        }
+
+        // Single recipient
+        if (!userId) return res.status(400).json({ error: "userId or recipientIds is required" });
+        const notif = await Notification.create({ ...base, userId: parseInt(userId, 10) });
         res.status(201).json(fmt(notif));
     } catch (err) {
         console.error("POST /api/notifications error:", err.message);
