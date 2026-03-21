@@ -18,6 +18,7 @@ const AUTH_API = `${BASE_URL}/auth/login`;
 const IMPORT_API = `${BASE_URL}/import`;
 const PROJECTS_API = `${BASE_URL}/projects`;
 const VALIDATE_SESSIONS_API = `${BASE_URL}/validate-sessions`;
+const NOTIFICATIONS_API = `${BASE_URL}/notifications`;
 
 // ─── CONSTANTS ────────────────────────────────────────────────────────────────
 const PRIORITIES = ["Low", "Medium", "High", "Critical"];
@@ -878,7 +879,12 @@ export default function HelpDesk() {
   const [newProjComment, setNewProjComment] = useState("");
 
   // ── Ticket form ──
-  const emptyForm = { org: "", department: "", contact: "", reportedBy: "", summary: "", description: "", assignees: [], priority: "Medium", category: "", customAttrs: {}, dueDate: "", isWebcast: false, satsangType: "", location: "", satsangId: null };
+  const getDefaultDueDate = () => {
+    const tomorrow = new Date();
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    return tomorrow.toISOString().split("T")[0];
+  };
+  const emptyForm = () => ({ org: "", department: "", contact: "", reportedBy: "", summary: "", description: "", assignees: [], priority: "Medium", category: "", customAttrs: {}, dueDate: getDefaultDueDate(), isWebcast: false, satsangType: "", location: "", satsangId: null });
   const [form, setForm] = useState(emptyForm);
   const [ccInput, setCcInput] = useState("");
   const [assigneeSearch, setAssigneeSearch] = useState("");
@@ -957,6 +963,51 @@ export default function HelpDesk() {
 
   // ✅ NEW: Timeline View
   const [showTimelineView, setShowTimelineView] = useState(false);  // Show full timeline in modal
+
+  // ── Notification Center ──
+  // Bell: daily activity log (localStorage, resets per day, not stored in DB)
+  const NOTIF_KEY = "deskflow_notifications";
+  const getTodayKey = () => new Date().toISOString().split("T")[0];
+  const loadDailyNotifs = () => {
+    try {
+      const raw = localStorage.getItem(NOTIF_KEY);
+      if (!raw) return [];
+      const { date, items } = JSON.parse(raw);
+      if (date !== getTodayKey()) { localStorage.removeItem(NOTIF_KEY); return []; }
+      return items || [];
+    } catch { return []; }
+  };
+  const saveDailyNotifs = (items) => {
+    try { localStorage.setItem(NOTIF_KEY, JSON.stringify({ date: getTodayKey(), items })); } catch { }
+  };
+  const [dailyNotifs, setDailyNotifs] = useState(loadDailyNotifs);
+  const [showBellPanel, setShowBellPanel] = useState(false);
+  const [bellUnread, setBellUnread] = useState(0);
+
+  // Mail: inbox items from DB (per user), persisted
+  const [inboxItems, setInboxItems] = useState([]);
+  const [showInboxPanel, setShowInboxPanel] = useState(false);
+  const [inboxUnread, setInboxUnread] = useState(0);
+
+  // Floating forward-request alerts (30 sec, with Accept/Reject)
+  const [floatingAlerts, setFloatingAlerts] = useState([]);
+
+  const addDailyNotif = (notif) => {
+    setDailyNotifs(prev => {
+      const updated = [{ ...notif, id: Date.now(), time: new Date().toISOString() }, ...prev].slice(0, 200);
+      saveDailyNotifs(updated);
+      setBellUnread(u => u + 1);
+      return updated;
+    });
+  };
+
+  const pushFloatingAlert = (item) => {
+    const alertId = `fa-${Date.now()}-${Math.random()}`;
+    setFloatingAlerts(prev => [...prev, { ...item, alertId }]);
+    setTimeout(() => {
+      setFloatingAlerts(prev => prev.filter(a => a.alertId !== alertId));
+    }, 30000);
+  };
 
   // ── Profile ──
   const [profileOpen, setProfileOpen] = useState(false);
@@ -1082,6 +1133,73 @@ export default function HelpDesk() {
     return () => clearTimeout(timeout);
   }, []);
 
+  // Silent background refresh on page navigation — no loading spinner
+  const silentRefresh = async () => {
+    try {
+      const response = await axios.get(DB_API);
+      const data = response.data;
+
+      setUsers(data.users || []);
+      setOrgs(data.orgs || []);
+      setCategories(data.categories || []);
+      setCustomAttrs(data.customAttrs || []);
+      setTicketCategories(data.categories || []);
+      setProjectCategories(data.categories || []);
+      setTicketCustomAttrs(data.customAttrs || []);
+      setProjectCustomAttrs(data.customAttrs || []);
+
+      try { const r = await axios.get(`${BASE_URL}/departments`); setDepartments(r.data || []); } catch (_) { }
+      try { const r = await axios.get(LOCATIONS_API); setLocations(r.data || []); } catch (_) { }
+      try { const r = await axios.get(VENDORS_API); setVendors(r.data || []); } catch (_) { }
+
+      const allRaw = [...(data.tickets || []), ...(data.webcasts || [])];
+      const seenIds = new Set();
+      const parsedTickets = allRaw
+        .filter(t => { if (seenIds.has(t.id)) return false; seenIds.add(t.id); return true; })
+        .map(t => ({
+          ...t,
+          created: new Date(t.createdAt || t.created),
+          updated: new Date(t.updatedAt || t.updated),
+          isWebcast: t.isWebcast || false,
+          satsangType: t.satsangType || "",
+          location: t.location || ""
+        })).sort((a, b) => b.created - a.created);
+
+      setTickets(parsedTickets);
+      setSatsangs(data.satsangs || []);
+
+      const parsedProjects = (data.projects || []).map(p => ({
+        ...p,
+        created: new Date(p.createdAt || p.created),
+        updated: new Date(p.updatedAt || p.updated),
+        dueDate: p.dueDate ? new Date(p.dueDate) : null,
+        isWebcast: p.isWebcast || false,
+        progress: p.progress || 0,
+        org: p.org || "",
+        department: p.department || "",
+        reportedBy: p.reportedBy || "",
+        category: p.category || "",
+        location: p.location || "",
+        priority: p.priority || "Medium",
+        status: p.status || "Open",
+        assignees: Array.isArray(p.assignees) ? p.assignees : [],
+        cc: Array.isArray(p.cc) ? p.cc : [],
+        customAttrs: p.customAttrs || {},
+        satsangId: p.satsangId || null,
+        satsangType: p.satsangType || "",
+      })).sort((a, b) => b.created - a.created);
+
+      setProjects(parsedProjects);
+    } catch (e) {
+      console.error("Silent refresh failed:", e);
+    }
+  };
+
+  // Refresh data silently every time the user navigates to a different page
+  useEffect(() => {
+    if (currentUser) silentRefresh();
+  }, [view]);
+
   // ✅ NEW: Validate sessions periodically and update user statuses
   const validateSessions = async () => {
     try {
@@ -1106,6 +1224,41 @@ export default function HelpDesk() {
     const interval = setInterval(validateSessions, 45000);
     return () => clearInterval(interval);
   }, [currentUser]);
+
+  // ── Inbox polling: fetch notifications from DB every 10s ──
+  const fetchInbox = async () => {
+    if (!currentUser) return;
+    try {
+      const res = await axios.get(`${NOTIFICATIONS_API}?userId=${currentUser.id}`);
+      const items = res.data || [];
+      setInboxItems(items);
+      const unread = items.filter(i => !i.read).length;
+      setInboxUnread(unread);
+      // Show floating alerts for unread forward-request inbox items not yet alerted
+      items.filter(i => !i.read && (i.type === "forward_request" || i.type === "forward_response")).forEach(item => {
+        if (!item.alerted) {
+          pushFloatingAlert(item);
+          // Mark as alerted on server
+          axios.put(`${NOTIFICATIONS_API}/${item.id}`, { ...item, alerted: true }).catch(() => { });
+        }
+      });
+    } catch (e) {
+      // Silently fail - notifications are non-critical
+    }
+  };
+
+  useEffect(() => {
+    if (!currentUser) return;
+    fetchInbox();
+    const interval = setInterval(fetchInbox, 10000);
+    return () => clearInterval(interval);
+  }, [currentUser]);
+
+  // Init bell unread count from today's stored notifs
+  useEffect(() => {
+    const stored = loadDailyNotifs();
+    setBellUnread(stored.filter(n => !n.read).length);
+  }, []);
 
   // ✅ NEW: Listen for role change broadcasts from other tabs/admins
   useEffect(() => {
@@ -1218,8 +1371,8 @@ export default function HelpDesk() {
     if (isWebcastCategory) return false;
 
     if (!currentUser || !cvd.filter(t, currentUser)) return false;
-    // Non-admins only see tickets assigned to them or reported by them
-    if (currentUser.role !== "Admin" && t.reportedBy !== currentUser.name && !t.assignees?.some(a => a.id === currentUser.id)) return false;
+    // Non-admins/managers only see tickets assigned to them or reported by them
+    if (currentUser.role !== "Admin" && currentUser.role !== "Manager" && t.reportedBy !== currentUser.name && !t.assignees?.some(a => a.id === currentUser.id)) return false;
     if (statusF !== "All" && t.status !== statusF) return false;
     if (priorityF !== "All" && t.priority !== priorityF) return false;
     // ✅ NEW: Apply org and dept filters
@@ -1242,8 +1395,8 @@ export default function HelpDesk() {
     if (!isWebcastCategory) return false;
 
     if (!currentUser || !cvd.filter(t, currentUser)) return false;
-    // Non-admins only see tickets assigned to them or reported by them
-    if (currentUser.role !== "Admin" && t.reportedBy !== currentUser.name && !t.assignees?.some(a => a.id === currentUser.id)) return false;
+    // Non-admins/managers only see tickets assigned to them or reported by them
+    if (currentUser.role !== "Admin" && currentUser.role !== "Manager" && t.reportedBy !== currentUser.name && !t.assignees?.some(a => a.id === currentUser.id)) return false;
     if (statusF !== "All" && t.status !== statusF) return false;
     if (priorityF !== "All" && t.priority !== priorityF) return false;
     if (orgFilter !== "all" && t.org !== orgFilter) return false;
@@ -1642,10 +1795,11 @@ export default function HelpDesk() {
       setTickets(prev => [ticketWithDates, ...prev]);
       setSelTicket(ticketWithDates);  // ✅ Auto-open ticket details
       setShowNewTicket(false);
-      setForm(emptyForm);
+      setForm(emptyForm());
       setAssigneeSearch("");
       setShowAssigneeDD(false);
       setCustomAlert({ show: true, message: "✅ Ticket created successfully!", type: "success" });
+      addDailyNotif({ type: "ticket_created", icon: "🎫", text: `${currentUser.name} created ticket ${ticketWithDates.id}`, ticketId: ticketWithDates.id, by: currentUser.name });
       // ✅ Animation handles fade-out automatically (3.5s)
     } catch (e) {
       setCustomAlert({ show: true, message: "Failed to save ticket: " + (e.response?.data?.error || e.message), type: "error" });
@@ -1687,6 +1841,11 @@ export default function HelpDesk() {
       await axios.put(`${TICKETS_API}/${id}`, updatedT);
       setTickets(p => p.map(x => x.id === id ? { ...updatedT, updated: new Date(nowISO) } : x));
       if (selTicket?.id === id) setSelTicket({ ...updatedT, updated: new Date(nowISO) });
+      if (status === "Closed" || status === "Resolved") {
+        addDailyNotif({ type: "ticket_closed", icon: "✅", text: `${currentUser.name} ${status.toLowerCase()} ticket ${id}`, ticketId: id, by: currentUser.name });
+      } else {
+        addDailyNotif({ type: "ticket_status", icon: "🔄", text: `${currentUser.name} changed ${id} to ${status}`, ticketId: id, by: currentUser.name });
+      }
     } catch (e) { alert("Failed to update"); }
   };
 
@@ -1725,11 +1884,20 @@ export default function HelpDesk() {
         await axios.put(`${TICKETS_API}/${selTicket.id}`, update);
         setTickets(p => p.map(x => x.id === selTicket.id ? { ...update, updated: new Date(nowISO) } : x));
         setSelTicket({ ...update, updated: new Date(nowISO) });
-
         setShowForward(false);
         setFwdReason("");
         setFwdTargetAgent("");
         setCustomAlert({ show: true, message: "✅ Ticket forwarded successfully!", type: "success" });
+        addDailyNotif({ type: "ticket_forwarded", icon: "✉️", text: `${currentUser.name} forwarded ${selTicket.id} to ${agent.name}`, ticketId: selTicket.id, by: currentUser.name });
+        // Send inbox notification to the agent being assigned
+        try {
+          await axios.post(NOTIFICATIONS_API, {
+            userId: agent.id, type: "ticket_assigned", read: false, alerted: false,
+            title: `Ticket Assigned: ${selTicket.id}`,
+            message: `${currentUser.name} forwarded ticket ${selTicket.id} to you. Reason: ${fwdReason}`,
+            ticketId: selTicket.id, from: currentUser.name, createdAt: nowISO
+          });
+        } catch { }
       } catch (e) {
         setCustomAlert({ show: true, message: "Failed to forward ticket", type: "error" });
       }
@@ -1755,6 +1923,22 @@ export default function HelpDesk() {
       setFwdReason("");
       setFwdTargetAgent("");
       setCustomAlert({ show: true, message: "✅ Forward request sent to admin for approval", type: "success" });
+      addDailyNotif({ type: "forward_requested", icon: "📬", text: `You requested to forward ${selTicket.id} to ${agent.name}`, ticketId: selTicket.id, by: currentUser.name });
+      // Send inbox notification to all admins and managers
+      const adminsAndManagers = users.filter(u => u.active && (u.role === "Admin" || u.role === "Manager"));
+      for (const admin of adminsAndManagers) {
+        try {
+          await axios.post(NOTIFICATIONS_API, {
+            userId: admin.id, type: "forward_request", read: false, alerted: false,
+            requestId: forwardRequest.id,
+            title: `Forward Request: ${selTicket.id}`,
+            message: `${currentUser.name} (${currentUser.role}) wants to forward ${selTicket.id} to ${agent.name}. Reason: ${fwdReason}`,
+            ticketId: selTicket.id, ticketSummary: selTicket.summary,
+            fromUser: currentUser.name, fromUserId: currentUser.id,
+            toAgent: agent, createdAt: nowISO, reason: fwdReason
+          });
+        } catch { }
+      }
     }
   };
 
@@ -1788,21 +1972,54 @@ export default function HelpDesk() {
           ? { ...r, status: "Approved", approvedBy: currentUser.name, approvedAt: nowISO }
           : r
       ));
-
       setCustomAlert({ show: true, message: "✅ Forward request approved", type: "success" });
+      addDailyNotif({ type: "forward_approved", icon: "✅", text: `${currentUser.name} approved forward of ${request.ticketId} to ${request.toAgent.name}`, ticketId: request.ticketId, by: currentUser.name });
+      // Send inbox response back to requester
+      try {
+        const requesterId = users.find(u => u.name === request.fromUser)?.id;
+        if (requesterId) {
+          await axios.post(NOTIFICATIONS_API, {
+            userId: requesterId, type: "forward_response", read: false, alerted: false,
+            title: `Forward Request Approved: ${request.ticketId}`,
+            message: `${currentUser.name} approved your request to forward ${request.ticketId} to ${request.toAgent.name}.`,
+            ticketId: request.ticketId, from: currentUser.name, status: "Approved", createdAt: nowISO
+          });
+        }
+        // Also notify assigned agent
+        await axios.post(NOTIFICATIONS_API, {
+          userId: request.toAgent.id, type: "ticket_assigned", read: false, alerted: false,
+          title: `Ticket Assigned: ${request.ticketId}`,
+          message: `${request.fromUser}'s forward request was approved. Ticket ${request.ticketId} is now assigned to you.`,
+          ticketId: request.ticketId, from: currentUser.name, createdAt: nowISO
+        });
+      } catch { }
     } catch (e) {
       setCustomAlert({ show: true, message: "Failed to approve forward", type: "error" });
     }
   };
 
   // ✅ Admin rejects forward request
-  const rejectForwardRequest = (request) => {
+  const rejectForwardRequest = async (request) => {
+    const nowISO = new Date().toISOString();
     setForwardRequests(prev => prev.map(r =>
       r.id === request.id
-        ? { ...r, status: "Rejected", approvedBy: currentUser.name, approvedAt: new Date().toISOString() }
+        ? { ...r, status: "Rejected", approvedBy: currentUser.name, approvedAt: nowISO }
         : r
     ));
-    setCustomAlert({ show: true, message: "✅ Forward request rejected", type: "success" });
+    setCustomAlert({ show: true, message: "Forward request rejected", type: "success" });
+    addDailyNotif({ type: "forward_rejected", icon: "❌", text: `${currentUser.name} rejected forward of ${request.ticketId}`, ticketId: request.ticketId, by: currentUser.name });
+    // Send inbox response back to requester
+    try {
+      const requesterId = users.find(u => u.name === request.fromUser)?.id;
+      if (requesterId) {
+        await axios.post(NOTIFICATIONS_API, {
+          userId: requesterId, type: "forward_response", read: false, alerted: false,
+          title: `Forward Request Rejected: ${request.ticketId}`,
+          message: `${currentUser.name} rejected your request to forward ${request.ticketId} to ${request.toAgent.name}.`,
+          ticketId: request.ticketId, from: currentUser.name, status: "Rejected", createdAt: nowISO
+        });
+      }
+    } catch { }
   };
 
   const handleSendForRepair = async (vendorName, contactInfo) => {
@@ -1829,8 +2046,9 @@ export default function HelpDesk() {
     try {
       const res = await axios.post(ORGS_API, newOrg);
       const created = res.data; // ✅ Extract the actual data
-      setOrgs([...orgs, created]); // Update state immediately
+      setOrgs([...orgs, created]);
       setNewOrg({ name: "", domain: "", phone: "" });
+      addDailyNotif({ type: "org_added", icon: "🏢", text: `${currentUser.name} added organisation "${created.name}"`, by: currentUser.name });
     } catch (err) { console.error(err); }
   };
 
@@ -1841,6 +2059,7 @@ export default function HelpDesk() {
       const created = res.data; // ✅ Extract the actual data
       setCategories([...categories, created]);
       setNewCat({ name: "", color: "#3b82f6" });
+      addDailyNotif({ type: "category_added", icon: "🏷", text: `${currentUser.name} added category "${created.name}"`, by: currentUser.name });
     } catch (err) { console.error(err); }
   };
   const addUser = async () => {
@@ -1865,6 +2084,7 @@ export default function HelpDesk() {
 
       // ✅ Custom success alert instead of system alert
       setCustomAlert({ show: true, message: `User "${created.name}" created successfully with temporary password`, type: "success" });
+      addDailyNotif({ type: "user_added", icon: "👤", text: `${currentUser.name} added user "${created.name}" (${created.role})`, by: currentUser.name });
 
       // Reset form
       setNewUser({ name: "", email: "", password: "", role: "Viewer" });
@@ -2092,6 +2312,7 @@ export default function HelpDesk() {
       setShowNewProject(false);
       setProjForm(emptyProjectForm);
       setCustomAlert({ show: true, message: "✅ Project created successfully!", type: "success" });
+      addDailyNotif({ type: "project_created", icon: "📁", text: `${currentUser.name} created project "${projectWithDates.title || projectWithDates.id}"`, by: currentUser.name });
       // ✅ Animation handles fade-out automatically (3.5s)
     } catch (e) {
       setCustomAlert({ show: true, message: "Failed to save project: " + (e.response?.data?.error || e.message), type: "error" });
@@ -2131,6 +2352,7 @@ export default function HelpDesk() {
       setDepartments([...departments, dept.data]);
       setNewDept({ name: "" });
       setCustomAlert({ show: true, message: "✅ Department added!", type: "success" });
+      addDailyNotif({ type: "dept_added", icon: "🏛", text: `${currentUser.name} added department "${dept.data.name}"`, by: currentUser.name });
     } catch (e) {
       setCustomAlert({ show: true, message: "Failed to add department", type: "error" });
     }
@@ -2158,6 +2380,7 @@ export default function HelpDesk() {
       setLocations([...locations, loc.data]);
       setNewLocation({ name: "" });
       setCustomAlert({ show: true, message: "✅ Location added!", type: "success" });
+      addDailyNotif({ type: "location_added", icon: "📍", text: `${currentUser.name} added location "${loc.data.name}"`, by: currentUser.name });
     } catch (e) {
       setCustomAlert({ show: true, message: "Failed to add location", type: "error" });
     }
@@ -2185,6 +2408,7 @@ export default function HelpDesk() {
       setVendors([...vendors, vend.data]);
       setNewVendor({ name: "", email: "", phone: "", address: "" });
       setCustomAlert({ show: true, message: "✅ Vendor added!", type: "success" });
+      addDailyNotif({ type: "vendor_added", icon: "🏭", text: `${currentUser.name} added vendor "${vend.data.name}"`, by: currentUser.name });
     } catch (e) {
       setCustomAlert({ show: true, message: "Failed to add vendor", type: "error" });
     }
@@ -2358,6 +2582,89 @@ export default function HelpDesk() {
   };
 
   // ─── NAVIGATION HELPERS ────────────────────────────────────────────────────
+
+  const markBellRead = () => {
+    setDailyNotifs(prev => {
+      const updated = prev.map(n => ({ ...n, read: true }));
+      saveDailyNotifs(updated);
+      return updated;
+    });
+    setBellUnread(0);
+  };
+
+  const markInboxRead = async () => {
+    setInboxUnread(0);
+    const unread = inboxItems.filter(i => !i.read);
+    setInboxItems(prev => prev.map(i => ({ ...i, read: true })));
+    for (const item of unread) {
+      try { await axios.put(`${NOTIFICATIONS_API}/${item.id}`, { ...item, read: true }); } catch { }
+    }
+  };
+
+  // Accept a forward request from inbox (Admin/Manager action)
+  const acceptInboxForwardRequest = async (item) => {
+    try {
+      const ticket = tickets.find(t => t.id === item.ticketId);
+      if (!ticket) return;
+      const agent = item.toAgent;
+      const nowISO = new Date().toISOString();
+      const update = {
+        ...ticket, assignees: [agent], updated: nowISO,
+        timeline: [...(ticket.timeline || []), {
+          action: `✉️ Forwarded to Agent: ${agent.name}`,
+          by: currentUser.name, date: nowISO,
+          note: `Inbox approval. From: ${item.fromUser}. Reason: ${item.reason}`
+        }]
+      };
+      await axios.put(`${TICKETS_API}/${ticket.id}`, update);
+      setTickets(p => p.map(x => x.id === ticket.id ? { ...update, updated: new Date(nowISO) } : x));
+      await axios.put(`${NOTIFICATIONS_API}/${item.id}`, { ...item, read: true, alerted: true, resolved: "Approved" });
+      setInboxItems(prev => prev.map(i => i.id === item.id ? { ...i, read: true, resolved: "Approved" } : i));
+      addDailyNotif({ type: "forward_approved", icon: "✅", text: `${currentUser.name} approved forward of ${item.ticketId} to ${agent.name}`, ticketId: item.ticketId, by: currentUser.name });
+      // Notify requester
+      const requesterId = users.find(u => u.name === item.fromUser)?.id;
+      if (requesterId) {
+        await axios.post(NOTIFICATIONS_API, {
+          userId: requesterId, type: "forward_response", read: false, alerted: false,
+          title: `Forward Request Approved: ${item.ticketId}`,
+          message: `${currentUser.name} approved your request to forward ${item.ticketId} to ${agent.name}.`,
+          ticketId: item.ticketId, from: currentUser.name, status: "Approved", createdAt: nowISO
+        });
+      }
+      // Notify assigned agent
+      await axios.post(NOTIFICATIONS_API, {
+        userId: agent.id, type: "ticket_assigned", read: false, alerted: false,
+        title: `Ticket Assigned: ${item.ticketId}`,
+        message: `${item.fromUser}'s forward request was approved. Ticket ${item.ticketId} is now assigned to you.`,
+        ticketId: item.ticketId, from: currentUser.name, createdAt: nowISO
+      });
+      setCustomAlert({ show: true, message: "✅ Forward approved and ticket reassigned!", type: "success" });
+    } catch (e) {
+      setCustomAlert({ show: true, message: "Failed to approve forward", type: "error" });
+    }
+  };
+
+  const rejectInboxForwardRequest = async (item) => {
+    try {
+      const nowISO = new Date().toISOString();
+      await axios.put(`${NOTIFICATIONS_API}/${item.id}`, { ...item, read: true, alerted: true, resolved: "Rejected" });
+      setInboxItems(prev => prev.map(i => i.id === item.id ? { ...i, read: true, resolved: "Rejected" } : i));
+      addDailyNotif({ type: "forward_rejected", icon: "❌", text: `${currentUser.name} rejected forward of ${item.ticketId}`, ticketId: item.ticketId, by: currentUser.name });
+      const requesterId = users.find(u => u.name === item.fromUser)?.id;
+      if (requesterId) {
+        await axios.post(NOTIFICATIONS_API, {
+          userId: requesterId, type: "forward_response", read: false, alerted: false,
+          title: `Forward Request Rejected: ${item.ticketId}`,
+          message: `${currentUser.name} rejected your request to forward ${item.ticketId} to ${item.toAgent?.name}.`,
+          ticketId: item.ticketId, from: currentUser.name, status: "Rejected", createdAt: nowISO
+        });
+      }
+      setCustomAlert({ show: true, message: "Forward request rejected.", type: "success" });
+    } catch {
+      setCustomAlert({ show: true, message: "Failed to reject forward", type: "error" });
+    }
+  };
+
   const sideNav = (currentUser?.role === "Admin" || currentUser?.role === "Manager") ? [
     { id: "dashboard", label: "Dashboard", icon: "▦" },
     { id: "tickets", label: "All Tickets", icon: "◈" },
@@ -2710,7 +3017,7 @@ export default function HelpDesk() {
 
         {/* New Ticket / Project buttons */}
         <div style={{ padding: "8px 8px 10px", display: "flex", flexDirection: "column", gap: 5 }}>
-          <button onClick={() => setShowNewTicket(true)} style={{ width: "100%", padding: "8px", borderRadius: 9, border: "none", background: "linear-gradient(135deg,#3b82f6,#6366f1)", color: "#fff", fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: "'DM Sans',sans-serif" }}>+ New Ticket</button>
+          <button onClick={() => { setForm(emptyForm()); setShowNewTicket(true); }} style={{ width: "100%", padding: "8px", borderRadius: 9, border: "none", background: "linear-gradient(135deg,#3b82f6,#6366f1)", color: "#fff", fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: "'DM Sans',sans-serif" }}>+ New Ticket</button>
           <button onClick={() => setShowNewProject(true)} style={{ width: "100%", padding: "8px", borderRadius: 9, border: "1.5px solid #1e40af", background: "transparent", color: "#60a5fa", fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: "'DM Sans',sans-serif", display: (currentUser?.role === "Admin" || currentUser?.role === "Manager") ? "block" : "none" }}>+ New Project</button>
         </div>
 
@@ -2879,10 +3186,83 @@ export default function HelpDesk() {
                 </>}
               </div>
             )}
-            {/* {view !== "dashboard" && <>
-              <button onClick={() => setShowNewTicket(true)} style={{ ...bP, padding: "8px 14px", fontSize: 13 }}>+ New Ticket</button>
-              <button onClick={() => setShowNewProject(true)} style={{ ...bG, padding: "8px 14px", fontSize: 13 }}>+ New Project</button>
-            </>} */}
+            {/* Bell + Inbox Icons */}
+            <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+              {/* 🔔 Bell — daily activity log */}
+              <div style={{ position: "relative" }}>
+                <button onClick={() => { setShowBellPanel(p => !p); setShowInboxPanel(false); if (!showBellPanel) markBellRead(); }}
+                  style={{ width: 36, height: 36, borderRadius: 9, border: "1.5px solid #e2e8f0", background: showBellPanel ? "#eff6ff" : "#fff", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 16, position: "relative" }}>
+                  🔔
+                  {bellUnread > 0 && <span style={{ position: "absolute", top: -4, right: -4, background: "#ef4444", color: "#fff", borderRadius: 99, fontSize: 9, fontWeight: 700, minWidth: 16, height: 16, display: "flex", alignItems: "center", justifyContent: "center", padding: "0 3px" }}>{bellUnread > 99 ? "99+" : bellUnread}</span>}
+                </button>
+                {showBellPanel && <>
+                  <div style={{ position: "fixed", inset: 0, zIndex: 299 }} onClick={() => setShowBellPanel(false)} />
+                  <div style={{ position: "absolute", right: 0, top: "calc(100% + 8px)", width: 340, background: "#fff", border: "1.5px solid #e2e8f0", borderRadius: 14, boxShadow: "0 12px 40px rgba(0,0,0,0.14)", zIndex: 300, overflow: "hidden" }}>
+                    <div style={{ padding: "13px 16px", borderBottom: "1px solid #f1f5f9", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                      <span style={{ fontSize: 13, fontWeight: 700, color: "#0f172a" }}>🔔 Today's Activity</span>
+                      <span style={{ fontSize: 11, color: "#94a3b8" }}>{new Date().toLocaleDateString()}</span>
+                    </div>
+                    <div style={{ maxHeight: 420, overflowY: "auto" }}>
+                      {dailyNotifs.length === 0 && <div style={{ padding: 28, textAlign: "center", color: "#94a3b8", fontSize: 13 }}>No activity yet today</div>}
+                      {dailyNotifs.map(n => (
+                        <div key={n.id} style={{ padding: "10px 16px", borderBottom: "1px solid #f8fafc", display: "flex", alignItems: "flex-start", gap: 10, background: n.read ? "#fff" : "#f0f9ff" }}>
+                          <span style={{ fontSize: 16, flexShrink: 0, marginTop: 1 }}>{n.icon}</span>
+                          <div style={{ flex: 1, minWidth: 0 }}>
+                            <div style={{ fontSize: 12, fontWeight: 500, color: "#1e293b", lineHeight: 1.4 }}>{n.text}</div>
+                            {n.ticketId && <div style={{ fontSize: 10, color: "#3b82f6", marginTop: 2, fontFamily: "monospace" }}>{n.ticketId}</div>}
+                            <div style={{ fontSize: 10, color: "#94a3b8", marginTop: 2 }}>{new Date(n.time).toLocaleTimeString()}</div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </>}
+              </div>
+
+              {/* ✉️ Inbox — DB-backed per user */}
+              <div style={{ position: "relative" }}>
+                <button onClick={() => { setShowInboxPanel(p => !p); setShowBellPanel(false); if (!showInboxPanel) markInboxRead(); }}
+                  style={{ width: 36, height: 36, borderRadius: 9, border: "1.5px solid #e2e8f0", background: showInboxPanel ? "#eff6ff" : "#fff", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 16, position: "relative" }}>
+                  ✉️
+                  {inboxUnread > 0 && <span style={{ position: "absolute", top: -4, right: -4, background: "#3b82f6", color: "#fff", borderRadius: 99, fontSize: 9, fontWeight: 700, minWidth: 16, height: 16, display: "flex", alignItems: "center", justifyContent: "center", padding: "0 3px" }}>{inboxUnread > 99 ? "99+" : inboxUnread}</span>}
+                </button>
+                {showInboxPanel && <>
+                  <div style={{ position: "fixed", inset: 0, zIndex: 299 }} onClick={() => setShowInboxPanel(false)} />
+                  <div style={{ position: "absolute", right: 0, top: "calc(100% + 8px)", width: 380, background: "#fff", border: "1.5px solid #e2e8f0", borderRadius: 14, boxShadow: "0 12px 40px rgba(0,0,0,0.14)", zIndex: 300, overflow: "hidden" }}>
+                    <div style={{ padding: "13px 16px", borderBottom: "1px solid #f1f5f9", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                      <span style={{ fontSize: 13, fontWeight: 700, color: "#0f172a" }}>✉️ Inbox</span>
+                      <span style={{ fontSize: 11, color: "#94a3b8" }}>{inboxItems.length} messages</span>
+                    </div>
+                    <div style={{ maxHeight: 460, overflowY: "auto" }}>
+                      {inboxItems.length === 0 && <div style={{ padding: 28, textAlign: "center", color: "#94a3b8", fontSize: 13 }}>No messages</div>}
+                      {inboxItems.map(item => (
+                        <div key={item.id} style={{ padding: "12px 16px", borderBottom: "1px solid #f8fafc", background: item.read ? "#fff" : "#f0f9ff", borderLeft: item.read ? "none" : "3px solid #3b82f6" }}>
+                          <div style={{ display: "flex", alignItems: "flex-start", gap: 9 }}>
+                            <span style={{ fontSize: 18, flexShrink: 0, marginTop: 1 }}>
+                              {item.type === "forward_request" ? "📬" : item.type === "forward_response" ? (item.status === "Approved" ? "✅" : "❌") : item.type === "ticket_assigned" ? "🎫" : "📩"}
+                            </span>
+                            <div style={{ flex: 1, minWidth: 0 }}>
+                              <div style={{ fontSize: 12, fontWeight: 700, color: "#0f172a", marginBottom: 3 }}>{item.title}</div>
+                              <div style={{ fontSize: 11, color: "#64748b", lineHeight: 1.5, marginBottom: 6 }}>{item.message}</div>
+                              {item.ticketId && <div style={{ fontSize: 10, color: "#3b82f6", fontFamily: "monospace", marginBottom: 6 }}>{item.ticketId}</div>}
+                              {/* Accept/Reject for pending forward requests */}
+                              {item.type === "forward_request" && !item.resolved && (currentUser?.role === "Admin" || currentUser?.role === "Manager") && (
+                                <div style={{ display: "flex", gap: 6, marginTop: 6 }}>
+                                  <button onClick={() => acceptInboxForwardRequest(item)} style={{ flex: 1, padding: "5px 10px", fontSize: 11, fontWeight: 600, background: "#10b981", color: "#fff", border: "none", borderRadius: 6, cursor: "pointer" }}>✓ Approve</button>
+                                  <button onClick={() => rejectInboxForwardRequest(item)} style={{ flex: 1, padding: "5px 10px", fontSize: 11, fontWeight: 600, background: "#ef4444", color: "#fff", border: "none", borderRadius: 6, cursor: "pointer" }}>✕ Reject</button>
+                                </div>
+                              )}
+                              {item.resolved && <span style={{ fontSize: 10, fontWeight: 600, padding: "2px 7px", borderRadius: 99, background: item.resolved === "Approved" ? "#dcfce7" : "#fee2e2", color: item.resolved === "Approved" ? "#15803d" : "#991b1b" }}>{item.resolved}</span>}
+                              <div style={{ fontSize: 10, color: "#94a3b8", marginTop: 4 }}>{item.createdAt ? new Date(item.createdAt).toLocaleString() : ""}</div>
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </>}
+              </div>
+            </div>
           </div>
         </div>
 
@@ -2954,7 +3334,7 @@ export default function HelpDesk() {
                   <div style={{ display: "grid", gridTemplateColumns: "1fr", gap: 12 }}>
                     <div style={{ background: "#fff", borderRadius: 12, padding: 16, boxShadow: "0 1px 4px rgba(0,0,0,0.06)" }}>
                       <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 10, color: "#374151" }}>Recent Tickets</div>
-                      {(currentUser?.role === "Admin" ? tickets : tickets.filter(t => t.reportedBy === currentUser?.name || t.assignees?.some(a => a.id === currentUser?.id))).slice(0, 5).map(t => (
+                      {(currentUser?.role === "Admin" || currentUser?.role === "Manager" ? tickets : tickets.filter(t => t.reportedBy === currentUser?.name || t.assignees?.some(a => a.id === currentUser?.id))).slice(0, 5).map(t => (
                         <div key={t.id} onClick={() => setSelTicket(t)} style={{ display: "flex", alignItems: "center", gap: 9, padding: "6px", borderRadius: 8, cursor: "pointer", border: "1px solid #f1f5f9", marginBottom: 5 }}>
                           <div style={{ display: "flex" }}>{(t.assignees || []).slice(0, 2).map((a, i) => <div key={a.id} style={{ marginLeft: i > 0 ? -6 : 0, border: "2px solid #fff", borderRadius: "50%" }}><Avatar name={a.name} size={24} /></div>)}{!t.assignees?.length && <Avatar name="?" size={24} />}</div>
                           <div style={{ flex: 1, minWidth: 0 }}><div style={{ fontSize: 12, fontWeight: 600, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{t.summary}</div><div style={{ fontSize: 10, color: "#94a3b8" }}>{t.id} · {t.org}</div></div>
@@ -3309,7 +3689,7 @@ export default function HelpDesk() {
               <div style={{ overflowX: "auto" }}>
                 <table style={{ width: "100%", borderCollapse: "collapse" }}>
                   <thead><tr style={{ background: "#f8fafc" }}>{["ID", "Summary", "Location", "Satsang Type", "Priority", "Status"].map(h => <th key={h} style={thStyle}>{h}</th>)}</tr></thead>
-                  <tbody>{tickets.filter(t => (t.isWebcast || (t.category && t.category.toLowerCase().includes("webcast"))) && (t.assignees?.some(a => a.id === currentUser?.id) || currentUser?.role === "Admin")).slice(0, 10).map((t, i) => (
+                  <tbody>{tickets.filter(t => (t.isWebcast || (t.category && t.category.toLowerCase().includes("webcast"))) && (t.assignees?.some(a => a.id === currentUser?.id) || currentUser?.role === "Admin" || currentUser?.role === "Manager")).slice(0, 10).map((t, i) => (
                     <tr key={t.id + i} className="rh" onClick={() => setSelTicket(t)} style={{ cursor: "pointer" }}>
                       <td style={tdStyle}><span style={{ fontFamily: "'DM Mono',monospace", fontSize: 11.5, color: "#3b82f6" }}>{t.id}</span></td>
                       <td style={{ ...tdStyle, maxWidth: 200 }}><div style={{ whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{t.summary}</div></td>
@@ -3319,7 +3699,7 @@ export default function HelpDesk() {
                       <td style={tdStyle}><Badge label={t.status} style={{ ...STATUS_COLOR[t.status] }} /></td>
                     </tr>
                   ))}
-                    {tickets.filter(t => (t.isWebcast || (t.category && t.category.toLowerCase().includes("webcast"))) && (t.assignees?.some(a => a.id === currentUser?.id) || currentUser?.role === "Admin")).length === 0 && <tr><td colSpan={6} style={{ padding: 24, textAlign: "center", color: "#94a3b8", fontSize: 13 }}>No webcast tickets assigned to you yet.</td></tr>}
+                    {tickets.filter(t => (t.isWebcast || (t.category && t.category.toLowerCase().includes("webcast"))) && (t.assignees?.some(a => a.id === currentUser?.id) || currentUser?.role === "Admin" || currentUser?.role === "Manager")).length === 0 && <tr><td colSpan={6} style={{ padding: 24, textAlign: "center", color: "#94a3b8", fontSize: 13 }}>No webcast tickets assigned to you yet.</td></tr>}
                   </tbody>
                 </table>
               </div>
@@ -3594,7 +3974,7 @@ export default function HelpDesk() {
               {settingsTab === "locations" && <div style={{ background: "#fff", borderRadius: 12, padding: 22, boxShadow: "0 1px 4px rgba(0,0,0,0.06)" }}>
                 <h3 style={{ margin: "0 0 4px", fontSize: 15, fontWeight: 700 }}>Locations ({locations.length})</h3>
                 <p style={{ margin: "0 0 18px", fontSize: 12, color: "#64748b" }}>Manage ticket and project locations/venues.</p>
-                {currentUser?.role === "Admin" || currentUser?.role === "Manager" ? (
+                {currentUser?.role === "Admin" ? (
                   <div style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: 9, marginBottom: 18, padding: 14, background: "#f8fafc", borderRadius: 9 }}>
                     <input
                       style={iS}
@@ -3604,7 +3984,7 @@ export default function HelpDesk() {
                     />
                     <button onClick={addLocation} style={bP}>Add</button>
                   </div>
-                ) : <div style={{ marginBottom: 18, padding: "10px 14px", background: "#fef3c7", color: "#92400e", borderRadius: 8, fontSize: 13, fontWeight: 500 }}>Read Only: Location management is restricted to Admins and Managers.</div>}
+                ) : <div style={{ marginBottom: 18, padding: "10px 14px", background: "#fef3c7", color: "#92400e", borderRadius: 8, fontSize: 13, fontWeight: 500 }}>Read Only: Adding or removing locations is restricted to Admins.</div>}
                 <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(160px,1fr))", gap: 9 }}>
                   {locations.map(l => {
                     const color = getItemColor(l);
@@ -3612,7 +3992,7 @@ export default function HelpDesk() {
                       <div key={l.id} style={{ display: "flex", alignItems: "center", gap: 9, padding: "11px 13px", borderRadius: 9, border: `1.5px solid ${color}33`, background: `${color}0d` }}>
                         <div style={{ width: 11, height: 11, borderRadius: 3, background: color, flexShrink: 0 }} />
                         <span style={{ flex: 1, fontSize: 13, fontWeight: 600 }}>📍 {l.name}</span>
-                        {(currentUser?.role === "Admin" || currentUser?.role === "Manager") && <button onClick={() => deleteLocation(l.id)} style={{ border: "none", background: "#fee2e2", color: "#ef4444", borderRadius: 6, padding: "4px 10px", cursor: "pointer", fontSize: 12, fontWeight: 600 }}>Delete</button>}
+                        {currentUser?.role === "Admin" && <button onClick={() => deleteLocation(l.id)} style={{ border: "none", background: "#fee2e2", color: "#ef4444", borderRadius: 6, padding: "4px 10px", cursor: "pointer", fontSize: 12, fontWeight: 600 }}>Delete</button>}
                       </div>
                     );
                   })}
@@ -3624,7 +4004,7 @@ export default function HelpDesk() {
               {settingsTab === "vendors" && <div style={{ background: "#fff", borderRadius: 12, padding: 22, boxShadow: "0 1px 4px rgba(0,0,0,0.06)" }}>
                 <h3 style={{ margin: "0 0 4px", fontSize: 15, fontWeight: 700 }}>🏭 Vendors ({vendors.length})</h3>
                 <p style={{ margin: "0 0 18px", fontSize: 12, color: "#64748b" }}>Manage vendors with contact information for sending tickets.</p>
-                {currentUser?.role === "Admin" || currentUser?.role === "Manager" ? (
+                {currentUser?.role === "Admin" ? (
                   <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr auto", gap: 9, marginBottom: 18, padding: 14, background: "#f8fafc", borderRadius: 9 }}>
                     <input
                       style={iS}
@@ -3653,7 +4033,7 @@ export default function HelpDesk() {
                     />
                     <button onClick={addVendor} style={bP}>Add</button>
                   </div>
-                ) : <div style={{ marginBottom: 18, padding: "10px 14px", background: "#fef3c7", color: "#92400e", borderRadius: 8, fontSize: 13, fontWeight: 500 }}>Read Only: Vendor management is restricted to Admins and Managers.</div>}
+                ) : <div style={{ marginBottom: 18, padding: "10px 14px", background: "#fef3c7", color: "#92400e", borderRadius: 8, fontSize: 13, fontWeight: 500 }}>Read Only: Adding or removing vendors is restricted to Admins.</div>}
 
                 <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(280px,1fr))", gap: 12 }}>
                   {vendors.map(v => (
@@ -3665,7 +4045,7 @@ export default function HelpDesk() {
                           {v.phone && <div style={{ fontSize: 11, color: "#92400e" }}>📞 {v.phone}</div>}
                           {v.address && <div style={{ fontSize: 11, color: "#92400e", marginTop: 3, maxHeight: "40px", overflow: "hidden" }}>📍 {v.address}</div>}
                         </div>
-                        {(currentUser?.role === "Admin" || currentUser?.role === "Manager") && (
+                        {currentUser?.role === "Admin" && (
                           <button onClick={() => deleteVendor(v.id)} style={{ border: "none", background: "#fee2e2", color: "#ef4444", borderRadius: 6, padding: "4px 10px", cursor: "pointer", fontSize: 12, fontWeight: 600, marginLeft: 8 }}>Delete</button>
                         )}
                       </div>
@@ -4094,7 +4474,7 @@ export default function HelpDesk() {
             ) : (
               <>
                 <button onClick={() => { setEditMode(false); setEditTicket(null); }} style={{ padding: "6px 14px", fontSize: 12, fontWeight: 600, borderRadius: 7, border: "1.5px solid #e2e8f0", cursor: "pointer", background: "#fff", color: "#64748b" }}>Cancel</button>
-                <button onClick={async () => { try { await axios.put(`${TICKETS_API}/${selTicket.id}`, { ...editTicket, updated: new Date().toISOString() }); setTickets(t => t.map(x => x.id === selTicket.id ? { ...editTicket, updated: new Date() } : x)); setSelTicket(editTicket); setEditMode(false); setEditTicket(null); showToast("Ticket updated successfully ✓", "success"); } catch (e) { showToast("Failed to save ticket", "error"); } }} style={{ padding: "6px 14px", fontSize: 12, fontWeight: 600, borderRadius: 7, border: "none", cursor: "pointer", background: "#22c55e", color: "#fff" }}>💾 Save Changes</button>
+                <button onClick={async () => { try { await axios.put(`${TICKETS_API}/${selTicket.id}`, { ...editTicket, updated: new Date().toISOString() }); setTickets(t => t.map(x => x.id === selTicket.id ? { ...editTicket, updated: new Date() } : x)); setSelTicket(editTicket); setEditMode(false); setEditTicket(null); showToast("Ticket updated successfully ✓", "success"); addDailyNotif({ type: "ticket_edited", icon: "✏️", text: `${currentUser.name} edited ticket ${selTicket.id}`, ticketId: selTicket.id, by: currentUser.name }); } catch (e) { showToast("Failed to save ticket", "error"); } }} style={{ padding: "6px 14px", fontSize: 12, fontWeight: 600, borderRadius: 7, border: "none", cursor: "pointer", background: "#22c55e", color: "#fff" }}>💾 Save Changes</button>
               </>
             )}
           </div>
@@ -4460,32 +4840,7 @@ export default function HelpDesk() {
         )}
       </Modal>
 
-      {/* ✅ NEW: ADMIN FORWARD APPROVALS MODAL */}
-      {(currentUser?.role === "Admin" || currentUser?.role === "Manager") && forwardRequests.filter(r => r.status === "Pending").length > 0 && (
-        <div style={{ position: "fixed", top: 20, right: 20, background: "#fff", border: "2px solid #f59e0b", borderRadius: 10, padding: "16px", maxWidth: "350px", boxShadow: "0 10px 30px rgba(0,0,0,0.15)", zIndex: 10000 }}>
-          <div style={{ fontSize: 13, fontWeight: 700, color: "#ea580c", marginBottom: 12, display: "flex", alignItems: "center", gap: 6 }}>
-            🔔 Forward Requests ({forwardRequests.filter(r => r.status === "Pending").length})
-          </div>
-
-          {forwardRequests.filter(r => r.status === "Pending").map(request => (
-            <div key={request.id} style={{ background: "#fef3c7", padding: "10px", borderRadius: 7, marginBottom: 10, border: "1px solid #fcd34d" }}>
-              <div style={{ fontSize: 11, fontWeight: 600, color: "#78350f", marginBottom: 4 }}>
-                Ticket: {request.ticketId}
-              </div>
-              <div style={{ fontSize: 10, color: "#92400e", marginBottom: 6, lineHeight: 1.4 }}>
-                <strong>{request.fromUser}</strong> → <strong>{request.toAgent.name}</strong>
-              </div>
-              <div style={{ fontSize: 10, color: "#92400e", marginBottom: 8, fontStyle: "italic", background: "#fff9e6", padding: "6px", borderRadius: 4 }}>
-                "{request.reason}"
-              </div>
-              <div style={{ display: "flex", gap: 6 }}>
-                <button onClick={() => approveForwardRequest(request)} style={{ flex: 1, padding: "6px 10px", fontSize: 10, fontWeight: 600, background: "#10b981", color: "#fff", border: "none", borderRadius: 5, cursor: "pointer" }}>✓ Approve</button>
-                <button onClick={() => rejectForwardRequest(request)} style={{ flex: 1, padding: "6px 10px", fontSize: 10, fontWeight: 600, background: "#ef4444", color: "#fff", border: "none", borderRadius: 5, cursor: "pointer" }}>✕ Reject</button>
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
+      {/* Forward requests now handled via Inbox (✉️) and floating alerts */}
 
       {/* ── PROJECT DETAIL MODAL ── */}
       <Modal open={!!selProject} onClose={() => setSelProject(null)} title={selProject?.id || ""} width={720}>
@@ -4565,6 +4920,41 @@ export default function HelpDesk() {
         </div>}
       </Modal>
 
+      {/* ── Floating 30-sec Action Alerts (forward requests / responses) ── */}
+      <div style={{ position: "fixed", top: 20, left: "50%", transform: "translateX(-50%)", zIndex: 10005, display: "flex", flexDirection: "column", gap: 10, alignItems: "center", pointerEvents: "none", width: "100%", maxWidth: 480, padding: "0 16px" }}>
+        {floatingAlerts.map(alert => (
+          <div key={alert.alertId} style={{ width: "100%", background: "#fff", borderRadius: 14, boxShadow: "0 8px 32px rgba(0,0,0,0.18)", border: alert.type === "forward_request" ? "2px solid #f59e0b" : alert.status === "Approved" ? "2px solid #22c55e" : alert.status === "Rejected" ? "2px solid #ef4444" : "2px solid #3b82f6", overflow: "hidden", pointerEvents: "auto", animation: "floatIn 0.35s ease-out" }}>
+            {/* Progress bar countdown */}
+            <div style={{ height: 3, background: alert.type === "forward_request" ? "#fef3c7" : "#f0fdf4", position: "relative" }}>
+              <div style={{ position: "absolute", left: 0, top: 0, height: "100%", background: alert.type === "forward_request" ? "#f59e0b" : alert.status === "Approved" ? "#22c55e" : "#ef4444", animation: "shrink30 30s linear forwards" }} />
+            </div>
+            <div style={{ padding: "14px 16px" }}>
+              <div style={{ display: "flex", alignItems: "flex-start", gap: 11 }}>
+                <span style={{ fontSize: 22, flexShrink: 0 }}>
+                  {alert.type === "forward_request" ? "📬" : alert.type === "forward_response" ? (alert.status === "Approved" ? "✅" : "❌") : alert.type === "ticket_assigned" ? "🎫" : "📩"}
+                </span>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: "#0f172a", marginBottom: 4 }}>{alert.title}</div>
+                  <div style={{ fontSize: 12, color: "#475569", lineHeight: 1.5 }}>{alert.message}</div>
+                  {alert.ticketId && <div style={{ fontSize: 11, color: "#3b82f6", fontFamily: "monospace", marginTop: 4 }}>{alert.ticketId}</div>}
+                  {/* Accept / Reject buttons only for forward_request type and admins/managers */}
+                  {alert.type === "forward_request" && !alert.resolved && (currentUser?.role === "Admin" || currentUser?.role === "Manager") && (
+                    <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
+                      <button onClick={() => { acceptInboxForwardRequest(alert); setFloatingAlerts(prev => prev.filter(a => a.alertId !== alert.alertId)); }}
+                        style={{ flex: 1, padding: "7px 12px", fontSize: 12, fontWeight: 700, background: "linear-gradient(135deg,#10b981,#059669)", color: "#fff", border: "none", borderRadius: 8, cursor: "pointer" }}>✓ Approve</button>
+                      <button onClick={() => { rejectInboxForwardRequest(alert); setFloatingAlerts(prev => prev.filter(a => a.alertId !== alert.alertId)); }}
+                        style={{ flex: 1, padding: "7px 12px", fontSize: 12, fontWeight: 700, background: "linear-gradient(135deg,#ef4444,#dc2626)", color: "#fff", border: "none", borderRadius: 8, cursor: "pointer" }}>✕ Reject</button>
+                    </div>
+                  )}
+                </div>
+                <button onClick={() => setFloatingAlerts(prev => prev.filter(a => a.alertId !== alert.alertId))}
+                  style={{ background: "none", border: "none", cursor: "pointer", color: "#94a3b8", fontSize: 16, flexShrink: 0, padding: 0 }}>×</button>
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
+
       {/* ── Toast Notifications ── */}
       <div style={{ position: "fixed", top: 20, right: 20, zIndex: 9999, display: "flex", flexDirection: "column", gap: 10 }}>
         {toasts.map(toast => (
@@ -4595,14 +4985,16 @@ export default function HelpDesk() {
 
       <style>{`
         @keyframes slideIn {
-          from {
-            opacity: 0;
-            transform: translateX(400px);
-          }
-          to {
-            opacity: 1;
-            transform: translateX(0);
-          }
+          from { opacity: 0; transform: translateX(400px); }
+          to { opacity: 1; transform: translateX(0); }
+        }
+        @keyframes floatIn {
+          from { opacity: 0; transform: translateY(-18px) scale(0.97); }
+          to { opacity: 1; transform: translateY(0) scale(1); }
+        }
+        @keyframes shrink30 {
+          from { width: 100%; }
+          to { width: 0%; }
         }
       `}</style>
     </div>

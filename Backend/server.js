@@ -184,6 +184,34 @@ const Location = sequelize.define("Location", {
     },
 }, { timestamps: true });
 
+// ─── Notification Model ───────────────────────────────────────────────────────
+const Notification = sequelize.define("Notification", {
+    userId: {
+        type: DataTypes.INTEGER,
+        allowNull: false,
+        comment: "The recipient user's ID"
+    },
+    type: {
+        type: DataTypes.STRING,
+        allowNull: false,
+        // Values: forward_request | forward_response | ticket_assigned | ticket_created | ticket_closed | project_created
+    },
+    title: { type: DataTypes.STRING, allowNull: false },
+    message: { type: DataTypes.TEXT, allowNull: false },
+    ticketId: { type: DataTypes.STRING, defaultValue: null },
+    ticketSummary: { type: DataTypes.STRING, defaultValue: null },
+    requestId: { type: DataTypes.STRING, defaultValue: null },
+    fromUser: { type: DataTypes.STRING, defaultValue: null },
+    fromUserId: { type: DataTypes.INTEGER, defaultValue: null },
+    toAgent: { type: DataTypes.JSON, defaultValue: null },
+    reason: { type: DataTypes.TEXT, defaultValue: null },
+    status: { type: DataTypes.STRING, defaultValue: null },
+    resolved: { type: DataTypes.STRING, defaultValue: null },
+    from: { type: DataTypes.STRING, defaultValue: null },
+    read: { type: DataTypes.BOOLEAN, defaultValue: false },
+    alerted: { type: DataTypes.BOOLEAN, defaultValue: false },
+}, { timestamps: true });
+
 // ─── SERIALIZER (Matches your original fmt) ──────────────────────────────────
 const fmt = (doc) => {
     if (!doc) return null;
@@ -480,6 +508,100 @@ app.delete("/api/locations/:id", async (req, res) => {
 
         await loc.destroy();
         res.json({ success: true, message: "Location deleted" });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// ─── NOTIFICATIONS (Inbox — DB-backed per user) ─────────────────────────────
+
+// GET /api/notifications?userId=<id>
+// Returns all notifications for a user, newest first
+app.get("/api/notifications", async (req, res) => {
+    try {
+        const { userId } = req.query;
+        if (!userId) return res.status(400).json({ error: "userId query param required" });
+
+        const items = await Notification.findAll({
+            where: { userId: parseInt(userId, 10) },
+            order: [["createdAt", "DESC"]],
+        });
+        res.json(items.map(fmt));
+    } catch (err) {
+        console.error("GET /api/notifications error:", err.message);
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// POST /api/notifications
+// Create a new notification for a user
+app.post("/api/notifications", async (req, res) => {
+    try {
+        const {
+            userId, type, title, message,
+            ticketId, ticketSummary, requestId,
+            fromUser, fromUserId, toAgent, reason,
+            status, resolved, from,
+            read = false, alerted = false,
+        } = req.body;
+
+        if (!userId) return res.status(400).json({ error: "userId is required" });
+        if (!type) return res.status(400).json({ error: "type is required" });
+        if (!title) return res.status(400).json({ error: "title is required" });
+        if (!message) return res.status(400).json({ error: "message is required" });
+
+        const notif = await Notification.create({
+            userId: parseInt(userId, 10),
+            type, title, message,
+            ticketId: ticketId || null,
+            ticketSummary: ticketSummary || null,
+            requestId: requestId || null,
+            fromUser: fromUser || null,
+            fromUserId: fromUserId ? parseInt(fromUserId, 10) : null,
+            toAgent: toAgent || null,
+            reason: reason || null,
+            status: status || null,
+            resolved: resolved || null,
+            from: from || null,
+            read,
+            alerted,
+        });
+        res.status(201).json(fmt(notif));
+    } catch (err) {
+        console.error("POST /api/notifications error:", err.message);
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// PUT /api/notifications/:id
+// Update a notification (mark read, alerted, resolved, etc.)
+app.put("/api/notifications/:id", async (req, res) => {
+    try {
+        const notif = await Notification.findByPk(req.params.id);
+        if (!notif) return res.status(404).json({ error: "Notification not found" });
+
+        // Only allow updating safe fields — never allow changing userId or type
+        const { read, alerted, resolved, status } = req.body;
+        const updates = {};
+        if (read !== undefined) updates.read = read;
+        if (alerted !== undefined) updates.alerted = alerted;
+        if (resolved !== undefined) updates.resolved = resolved;
+        if (status !== undefined) updates.status = status;
+
+        await notif.update(updates);
+        res.json(fmt(notif));
+    } catch (err) {
+        console.error("PUT /api/notifications/:id error:", err.message);
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// DELETE /api/notifications/:id  (optional cleanup)
+app.delete("/api/notifications/:id", async (req, res) => {
+    try {
+        const notif = await Notification.findByPk(req.params.id);
+        if (notif) await notif.destroy();
+        res.json({ success: true });
     } catch (err) {
         res.status(500).json({ error: err.message });
     }
@@ -826,6 +948,20 @@ app.post("/api/all-data/import", async (req, res) => {
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+// ─── NOTIFICATION CLEANUP JOB (runs once on startup, then every 24h) ────────
+// Deletes inbox notifications older than 30 days to keep the table lean
+async function cleanupOldNotifications() {
+    try {
+        const cutoff = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+        const deleted = await Notification.destroy({
+            where: { createdAt: { [Op.lt]: cutoff } }
+        });
+        if (deleted > 0) console.log(`🗑️  Cleaned up ${deleted} old notification(s)`);
+    } catch (err) {
+        console.error("Notification cleanup error:", err.message);
+    }
+}
+
 // ─── HEALTH ───────────────────────────────────────────────────────────────────
 
 app.get("/", (req, res) => res.json({ msg: "🚀 DeskFlow API v1" }));
@@ -961,6 +1097,11 @@ sequelize.sync({ alter: true }).then(async () => {
 
     // ✅ RUN AUTOMATIC WEBCAST MIGRATION
     await migrateWebcastsOnStartup();
+
+    // 🗑️ Clean up old notifications (>30 days) on startup
+    await cleanupOldNotifications();
+    // Schedule daily cleanup
+    setInterval(cleanupOldNotifications, 24 * 60 * 60 * 1000);
 
     // ✅ NO HARDCODED DEPARTMENTS & LOCATIONS - Only add via frontend!
     // Departments and Locations must be created manually through Settings tabs
