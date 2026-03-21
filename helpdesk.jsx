@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect, useRef } from "react";
+import React, { useState, useMemo, useEffect, useRef } from "react";
 import axios from "axios";
 
 // --- SERVER CONFIGURATION ---
@@ -68,7 +68,7 @@ const PROJECT_VIEWS = [
   { id: "inprogress", label: "In Progress", icon: "⚙️", desc: "Projects being worked on", filter: p => p.status === "In Progress" },
   { id: "closed", label: "Closed Projects", icon: "✅", desc: "Closed & resolved projects", filter: p => p.status === "Closed" || p.status === "Resolved" },
   { id: "unassigned", label: "Unassigned", icon: "👤", desc: "Projects with no assignee", filter: p => (!p.assignees || p.assignees.length === 0) && p.status !== "Closed" && p.status !== "Resolved" },
-  { id: "mine", label: "My Projects", icon: "🙋", desc: "Projects assigned to me", filter: (p, me) => p.assignees?.some(a => a.id === me?.id) },
+  { id: "mine", label: "My Projects", icon: "🙋", desc: "Projects assigned to me", filter: (p, me) => p.assignees?.some(a => a.id === me?.id) && p.status !== "Closed" && p.status !== "Resolved" },
   { id: "all", label: "All Projects", icon: "◈", desc: "Every project in the system", filter: () => true },
   { id: "critical", label: "Critical", icon: "🔔", desc: "Critical priority projects", filter: p => p.priority === "Critical" && p.status !== "Closed" && p.status !== "Resolved" },
 ];
@@ -377,6 +377,116 @@ const ConfirmationModal = ({ show, title, message, onConfirm, onCancel }) => {
       `}</style>
     </div>
   );
+};
+
+// ─── FILTERABLE HEADER ───────────────────────────────────────────────────────
+// Click header → searchable dropdown of unique values for that column.
+// Active filter shown with blue highlight + ✕ to clear.
+const FilterableHeader = ({ label, field, data, filters, onFilter, style = {}, getVal }) => {
+  const [open, setOpen] = React.useState(false);
+  const [search, setSearch] = React.useState("");
+  const active = filters[field] != null && filters[field] !== "";
+
+  // Collect unique display values for this column
+  const unique = React.useMemo(() => {
+    const seen = new Set();
+    const vals = [];
+    (data || []).forEach(row => {
+      let v = getVal ? getVal(row, field) : row[field];
+      if (v == null || v === "") v = "—";
+      if (Array.isArray(v)) v = v.length > 0 ? v.map(a => a.name || a).join(", ") : "None";
+      if (v instanceof Date) v = v.toLocaleDateString();
+      const s = String(v);
+      if (!seen.has(s)) { seen.add(s); vals.push(s); }
+    });
+    return vals.sort((a, b) => a === "—" ? 1 : b === "—" ? -1 : a.localeCompare(b));
+  }, [data, field]);
+
+  const filtered = unique.filter(v => v.toLowerCase().includes(search.toLowerCase()));
+
+  return (
+    <th style={{ ...style, position: "relative", userSelect: "none", whiteSpace: "nowrap" }}>
+      <div
+        onClick={() => { setOpen(o => !o); setSearch(""); }}
+        style={{
+          display: "inline-flex", alignItems: "center", gap: 5, cursor: "pointer", padding: "2px 4px", borderRadius: 5,
+          background: active ? "#eff6ff" : "transparent", color: active ? "#3b82f6" : "inherit"
+        }}
+      >
+        <span style={{ fontSize: "inherit", fontWeight: "inherit" }}>{label}</span>
+        {active
+          ? <span
+            onClick={e => { e.stopPropagation(); onFilter({ ...filters, [field]: "" }); }}
+            style={{ fontSize: 10, background: "#3b82f6", color: "#fff", borderRadius: 99, padding: "1px 5px", fontWeight: 700, cursor: "pointer" }}
+          >✕</span>
+          : <span style={{ fontSize: 10, color: "#94a3b8" }}>▾</span>
+        }
+      </div>
+      {open && <>
+        <div style={{ position: "fixed", inset: 0, zIndex: 499 }} onClick={() => setOpen(false)} />
+        <div style={{
+          position: "absolute", top: "calc(100% + 2px)", left: 0, minWidth: 180, maxWidth: 260,
+          background: "#fff", border: "1.5px solid #e2e8f0", borderRadius: 10,
+          boxShadow: "0 8px 28px rgba(0,0,0,0.13)", zIndex: 500, overflow: "hidden"
+        }}>
+          <div style={{ padding: "8px 10px", borderBottom: "1px solid #f1f5f9" }}>
+            <input
+              autoFocus
+              type="text"
+              placeholder={`Search ${label}…`}
+              value={search}
+              onChange={e => setSearch(e.target.value)}
+              onClick={e => e.stopPropagation()}
+              style={{
+                width: "100%", padding: "6px 9px", border: "1.5px solid #e2e8f0", borderRadius: 7,
+                fontSize: 12, outline: "none", boxSizing: "border-box", fontFamily: "'DM Sans',sans-serif"
+              }}
+            />
+          </div>
+          <div style={{ maxHeight: 220, overflowY: "auto" }}>
+            <div
+              onClick={() => { onFilter({ ...filters, [field]: "" }); setOpen(false); setSearch(""); }}
+              style={{
+                padding: "7px 12px", fontSize: 12, cursor: "pointer", color: "#64748b",
+                background: !active ? "#f0f9ff" : "#fff", fontWeight: !active ? 600 : 400,
+                borderBottom: "1px solid #f8fafc"
+              }}
+            >All</div>
+            {filtered.length === 0 && <div style={{ padding: "10px 12px", fontSize: 12, color: "#94a3b8" }}>No results</div>}
+            {filtered.map(v => (
+              <div key={v}
+                onClick={() => { onFilter({ ...filters, [field]: v }); setOpen(false); setSearch(""); }}
+                style={{
+                  padding: "7px 12px", fontSize: 12, cursor: "pointer",
+                  background: filters[field] === v ? "#eff6ff" : "#fff",
+                  color: filters[field] === v ? "#3b82f6" : "#1e293b",
+                  fontWeight: filters[field] === v ? 600 : 400,
+                  borderBottom: "1px solid #f8fafc"
+                }}
+              >
+                {v}
+              </div>
+            ))}
+          </div>
+        </div>
+      </>}
+    </th>
+  );
+};
+
+// Apply column filters to a dataset
+const applySort = (arr, filters) => {
+  if (!filters || Object.keys(filters).every(k => !filters[k])) return arr;
+  return arr.filter(row => {
+    return Object.entries(filters).every(([field, val]) => {
+      if (!val) return true;
+      let v = row[field];
+      if (v == null || v === "") v = "—";
+      if (Array.isArray(v)) v = v.length > 0 ? v.map(a => a.name || a).join(", ") : "None";
+      if (v instanceof Date) v = v.toLocaleDateString();
+      return String(v).toLowerCase().includes(val.toLowerCase());
+    });
+  });
 };
 
 const FF = ({ label, required, children }) => <div style={{ marginBottom: 14 }}>
@@ -992,12 +1102,69 @@ export default function HelpDesk() {
   // Floating forward-request alerts (30 sec, with Accept/Reject)
   const [floatingAlerts, setFloatingAlerts] = useState([]);
 
+  // ── Core notification broadcaster ──────────────────────────────────────────
+  // Logs to current user's bell AND pushes inbox entries to:
+  //   • Every Admin, Manager, Super Admin  (all system events)
+  //   • Assigned agents/viewers           (ticket-specific events only)
+  // The sender themselves gets only the bell entry (not a duplicate inbox item).
   const addDailyNotif = (notif) => {
+    // 1. Add to local bell for the current user
     setDailyNotifs(prev => {
       const updated = [{ ...notif, id: Date.now(), time: new Date().toISOString() }, ...prev].slice(0, 200);
       saveDailyNotifs(updated);
       setBellUnread(u => u + 1);
       return updated;
+    });
+
+    if (!currentUser) return;
+    const nowISO = new Date().toISOString();
+    const ticketEventTypes = [
+      "ticket_created", "ticket_closed", "ticket_status", "ticket_edited",
+      "ticket_forwarded", "forward_approved", "forward_rejected"
+    ];
+    const globalEventTypes = [
+      ...ticketEventTypes,
+      "project_created", "org_added", "category_added", "dept_added",
+      "location_added", "vendor_added", "user_added"
+    ];
+    if (!globalEventTypes.includes(notif.type)) return;
+
+    const isTicketEvent = ticketEventTypes.includes(notif.type);
+
+    // 2. Collect recipients
+    const recipients = new Set();
+
+    // All admins/managers/super admins (except the person who triggered it)
+    users
+      .filter(u => u.active && u.id !== currentUser.id &&
+        (u.role === "Admin" || u.role === "Manager" || u.role === "Super Admin"))
+      .forEach(u => recipients.add(u.id));
+
+    // For ticket events: also notify assigned agents/viewers on that ticket
+    if (isTicketEvent && notif.ticketId) {
+      const ticket = tickets.find(t => t.id === notif.ticketId);
+      if (ticket) {
+        (ticket.assignees || [])
+          .filter(a => a.id !== currentUser.id)
+          .forEach(a => recipients.add(a.id));
+      }
+    }
+
+    // 3. Push one inbox entry per recipient (fire-and-forget, silent)
+    recipients.forEach(uid => {
+      axios.post(NOTIFICATIONS_API, {
+        userId: uid,
+        type: "activity",
+        title: notif.text,
+        message: notif.text,
+        ticketId: notif.ticketId || null,
+        from: currentUser.name,
+        broadcastIcon: notif.icon,
+        broadcastType: notif.type,
+        read: false,
+        alerted: false,
+        createdAt: nowISO
+      }).catch(() => { });
     });
   };
 
@@ -1023,6 +1190,18 @@ export default function HelpDesk() {
   const [ticketsPerPage, setTicketsPerPage] = useState(10);
   const [showOtherActions, setShowOtherActions] = useState(false);
   const [sortOrder, setSortOrder] = useState("desc"); // "desc" = newest first, "asc" = oldest first
+
+  // ── Per-table sort state ──
+  const [ticketSort, setTicketSort] = useState({});
+  const [projSort, setProjSort] = useState({});
+  const [userSort, setUserSort] = useState({});
+  const [orgSort, setOrgSort] = useState({});
+  const [catSort, setCatSort] = useState({});
+  const [deptSort, setDeptSort] = useState({});
+  const [locSort, setLocSort] = useState({});
+  const [vendorSort, setVendorSort] = useState({});
+  const [webcastSort, setWebcastSort] = useState({});
+  const [agentSort, setAgentSort] = useState({});
 
   // ✅ NEW: Admin edit user modal
   const [editUserOpen, setEditUserOpen] = useState(null); // Holds the user being edited
@@ -1231,14 +1410,60 @@ export default function HelpDesk() {
     try {
       const res = await axios.get(`${NOTIFICATIONS_API}?userId=${currentUser.id}`);
       const items = res.data || [];
-      setInboxItems(items);
-      const unread = items.filter(i => !i.read).length;
+
+      // Split: activity items go to bell, action items go to inbox
+      const activityItems = items.filter(i => i.type === "activity");
+      const inboxOnlyItems = items.filter(i => i.type !== "activity");
+
+      // ── Feed activity items into the bell panel ──
+      const todayStart = new Date(); todayStart.setHours(0, 0, 0, 0);
+      const newActivity = activityItems.filter(a => {
+        const created = new Date(a.createdAt);
+        if (created < todayStart) return false; // only today's
+        // Avoid duplicates already in bell
+        return !dailyNotifs.some(n =>
+          n.fromDB && n.dbId === a.id
+        );
+      });
+
+      if (newActivity.length > 0) {
+        setDailyNotifs(prev => {
+          const merged = [
+            ...newActivity.map(a => ({
+              id: `db-${a.id}`,
+              dbId: a.id,
+              type: a.broadcastType || "activity",
+              icon: a.broadcastIcon || "📢",
+              text: a.title,
+              ticketId: a.ticketId,
+              by: a.from,
+              time: a.createdAt,
+              read: a.read,
+              fromDB: true,
+              fromBroadcast: true
+            })),
+            ...prev
+          ].slice(0, 300);
+          saveDailyNotifs(merged);
+          const newUnread = newActivity.filter(a => !a.read).length;
+          if (newUnread > 0) setBellUnread(u => u + newUnread);
+          return merged;
+        });
+        // Mark activity items as read on server so they don't re-appear next poll
+        newActivity.forEach(a => {
+          axios.put(`${NOTIFICATIONS_API}/${a.id}`, { ...a, read: true, alerted: true }).catch(() => { });
+        });
+      }
+
+      // ── Feed action items into the inbox panel ──
+      setInboxItems(inboxOnlyItems);
+      const unread = inboxOnlyItems.filter(i => !i.read).length;
       setInboxUnread(unread);
-      // Show floating alerts for unread forward-request inbox items not yet alerted
-      items.filter(i => !i.read && (i.type === "forward_request" || i.type === "forward_response")).forEach(item => {
+
+      // Show floating alerts for unread forward requests / responses
+      inboxOnlyItems.filter(i => !i.read && (i.type === "forward_request" || i.type === "forward_response")).forEach(item => {
         if (!item.alerted) {
           pushFloatingAlert(item);
-          // Mark as alerted on server
           axios.put(`${NOTIFICATIONS_API}/${item.id}`, { ...item, alerted: true }).catch(() => { });
         }
       });
@@ -1318,12 +1543,31 @@ export default function HelpDesk() {
   }, [users]);
 
   // ─── COMPUTED DATA ─────────────────────────────────────────────────────────
-  const now = Date.now(), dayMs = 86400000, rangeMs = range === "all" ? Infinity : parseInt(range) * dayMs;
+  const now = Date.now(), dayMs = 86400000;
+  const rangeMs = (() => {
+    if (range === "all") return Infinity;
+    if (range === "last_month") {
+      // last 6 calendar months back from today
+      const d = new Date(); d.setHours(0, 0, 0, 0);
+      const start6mo = new Date(d); start6mo.setMonth(start6mo.getMonth() - 6);
+      return d.getTime() - start6mo.getTime();
+    }
+    return parseInt(range) * dayMs;
+  })();
   const fbr = useMemo(() => {
-    const inRange = range === "all" ? tickets : tickets.filter(t => now - t.created.getTime() <= rangeMs);
+    let inRange;
+    if (range === "all") {
+      inRange = tickets;
+    } else if (range === "last_month") {
+      const d = new Date(); d.setHours(0, 0, 0, 0);
+      const start6mo = new Date(d); start6mo.setMonth(start6mo.getMonth() - 6);
+      inRange = tickets.filter(t => t.created.getTime() >= start6mo.getTime());
+    } else {
+      inRange = tickets.filter(t => now - t.created.getTime() <= rangeMs);
+    }
     if (currentUser?.role === "Admin" || currentUser?.role === "Manager") return inRange;
     return inRange.filter(t => t.reportedBy === currentUser?.name || t.assignees?.some(a => a.id === currentUser?.id));
-  }, [tickets, rangeMs, now, currentUser]);
+  }, [tickets, range, rangeMs, now, currentUser]);
 
   // ✅ NEW: Dashboard data filtered by organization
   const dashboardData = useMemo(() => {
@@ -1413,12 +1657,8 @@ export default function HelpDesk() {
 
   const totalPages = Math.ceil(filtered.length / TICKETS_PER_PAGE);
 
-  // Sort tickets by created date with configurable order
-  const allSortedTickets = [...filtered].sort((a, b) => {
-    const dateA = a.created instanceof Date ? a.created.getTime() : new Date(a.created).getTime();
-    const dateB = b.created instanceof Date ? b.created.getTime() : new Date(b.created).getTime();
-    return sortOrder === "desc" ? dateB - dateA : dateA - dateB;
-  });
+  // Filter tickets by column filters
+  const allSortedTickets = applySort(filtered, ticketSort);
 
   // Paginate the sorted list
   const currentTickets = allSortedTickets.slice((currentPage - 1) * TICKETS_PER_PAGE,
@@ -1443,7 +1683,7 @@ export default function HelpDesk() {
     open: dashboardData.filter(x => x.status === "Open" || x.status === "In Progress").length,
     inProgress: dashboardData.filter(x => x.status === "In Progress").length,
     resolved: dashboardData.filter(x => x.status === "Resolved" || x.status === "Closed").length,
-    critical: dashboardData.filter(x => x.priority === "Critical").length
+    critical: dashboardData.filter(x => x.priority === "Critical" && x.status !== "Closed" && x.status !== "Resolved").length
   }), [dashboardData]);
 
   // For dashboard: Agents and Viewers only see stats for projects assigned to them
@@ -1454,7 +1694,7 @@ export default function HelpDesk() {
     return prbr;
   }, [prbr, currentUser]);
 
-  const projStats = useMemo(() => ({ total: dashboardProjects.length, open: dashboardProjects.filter(x => x.status === "Open").length, inProgress: dashboardProjects.filter(x => x.status === "In Progress").length, resolved: dashboardProjects.filter(x => x.status === "Resolved" || x.status === "Closed").length, critical: dashboardProjects.filter(x => x.priority === "Critical").length }), [dashboardProjects]);
+  const projStats = useMemo(() => ({ total: dashboardProjects.length, open: dashboardProjects.filter(x => x.status === "Open").length, inProgress: dashboardProjects.filter(x => x.status === "In Progress").length, resolved: dashboardProjects.filter(x => x.status === "Resolved" || x.status === "Closed").length, critical: dashboardProjects.filter(x => x.priority === "Critical" && x.status !== "Closed" && x.status !== "Resolved").length }), [dashboardProjects]);
   const agentStats = useMemo(() => users.map(u => ({ ...u, assigned: fbr.filter(t => t.assignees?.some(a => a.id === u.id)).length, resolved: fbr.filter(t => t.assignees?.some(a => a.id === u.id) && (t.status === "Resolved" || t.status === "Closed")).length, projAssigned: prbr.filter(p => p.assignees?.some(a => a.id === u.id)).length })), [fbr, prbr, users]);
   const dailyData = useMemo(() => { const days = parseInt(range) <= 7 ? parseInt(range) : 7; return Array.from({ length: days }, (_, i) => { const d = new Date(now - (days - 1 - i) * dayMs); return { label: d.toLocaleDateString("en", { weekday: "short" }), value: fbr.filter(t => t.created.getDate() === d.getDate() && t.created.getMonth() === d.getMonth()).length }; }); }, [fbr, range, now, dayMs]);
   const priorityDist = useMemo(() => PRIORITIES.map(p => ({ label: p, value: dashboardData.filter(t => t.priority === p).length, color: PRIORITY_COLOR[p] })), [dashboardData]);
@@ -2200,6 +2440,11 @@ export default function HelpDesk() {
   // --- USERS ---
   const deleteUser = async (id) => {
     const user = users.find(u => u.id === id);
+    // Guard: plain Admin cannot delete another Admin — only Super Admin can
+    if (currentUser?.role !== "Super Admin" && user?.role === "Admin") {
+      setCustomAlert({ show: true, message: "Only Super Admin can delete other Admins.", type: "error" });
+      return;
+    }
     setConfirmModal({
       show: true,
       title: `Delete ${user?.name}?`,
@@ -2230,6 +2475,11 @@ export default function HelpDesk() {
     }
     if (editUserForm.password && editUserForm.password.length < 6) {
       alert("Password must be at least 6 characters");
+      return;
+    }
+    // Guard: plain Admin cannot edit another Admin — only Super Admin can
+    if (currentUser?.role !== "Super Admin" && editUserOpen?.role === "Admin") {
+      setCustomAlert({ show: true, message: "Only Super Admin can edit other Admins.", type: "error" });
       return;
     }
 
@@ -3155,6 +3405,7 @@ export default function HelpDesk() {
                     <option value="1">Today</option>
                     <option value="7">Last 7 Days</option>
                     <option value="30">Last 30 Days</option>
+                    <option value="last_month">Last 6 Months</option>
                   </>
                 ) : (
                   <>
@@ -3205,9 +3456,12 @@ export default function HelpDesk() {
                     <div style={{ maxHeight: 420, overflowY: "auto" }}>
                       {dailyNotifs.length === 0 && <div style={{ padding: 28, textAlign: "center", color: "#94a3b8", fontSize: 13 }}>No activity yet today</div>}
                       {dailyNotifs.map(n => (
-                        <div key={n.id} style={{ padding: "10px 16px", borderBottom: "1px solid #f8fafc", display: "flex", alignItems: "flex-start", gap: 10, background: n.read ? "#fff" : "#f0f9ff" }}>
+                        <div key={n.id} style={{ padding: "10px 16px", borderBottom: "1px solid #f8fafc", display: "flex", alignItems: "flex-start", gap: 10, background: n.read ? "#fff" : (n.fromBroadcast ? "#fff7ed" : "#f0f9ff") }}>
                           <span style={{ fontSize: 16, flexShrink: 0, marginTop: 1 }}>{n.icon}</span>
                           <div style={{ flex: 1, minWidth: 0 }}>
+                            {n.fromBroadcast && n.by && n.by !== currentUser?.name && (
+                              <div style={{ fontSize: 9, fontWeight: 700, color: "#f97316", textTransform: "uppercase", marginBottom: 2, letterSpacing: "0.05em" }}>📢 {n.by}</div>
+                            )}
                             <div style={{ fontSize: 12, fontWeight: 500, color: "#1e293b", lineHeight: 1.4 }}>{n.text}</div>
                             {n.ticketId && <div style={{ fontSize: 10, color: "#3b82f6", marginTop: 2, fontFamily: "monospace" }}>{n.ticketId}</div>}
                             <div style={{ fontSize: 10, color: "#94a3b8", marginTop: 2 }}>{new Date(n.time).toLocaleTimeString()}</div>
@@ -3288,7 +3542,7 @@ export default function HelpDesk() {
               <div style={{ display: "grid", gridTemplateColumns: "repeat(6,1fr)", gap: 9, marginBottom: 20 }}>
                 {[
                   { label: "Open", value: dashboardStats.open, bg: "#fef3c7", accent: "#f59e0b", icon: "📬", action: () => { setView("tickets"); setTvFilter("open"); setStatusF("All"); setPriorityF("All"); } },
-                  { label: "Unassigned", value: dashboardData.filter(t => !t.assignees || t.assignees.length === 0).length, bg: "#f3e8ff", accent: "#a855f7", icon: "🔸", action: () => { setView("tickets"); setTvFilter("unassigned"); } },
+                  { label: "Unassigned", value: dashboardData.filter(t => (!t.assignees || t.assignees.length === 0) && t.status !== "Closed" && t.status !== "Resolved").length, bg: "#f3e8ff", accent: "#a855f7", icon: "🔸", action: () => { setView("tickets"); setTvFilter("unassigned"); } },
                   { label: "In Progress", value: dashboardStats.inProgress, bg: "#ede9fe", accent: "#6366f1", icon: "⚙️", action: () => { setView("tickets"); setTvFilter("all"); setStatusF("In Progress"); setPriorityF("All"); } },
                   { label: "Critical", value: dashboardStats.critical, bg: "#fee2e2", accent: "#ef4444", icon: "🔥", action: () => { setView("tickets"); setTvFilter("alerts"); setStatusF("All"); setPriorityF("Critical"); } },
                   { label: "Resolved", value: dashboardStats.resolved, bg: "#dcfce7", accent: "#22c55e", icon: "✅", action: () => { setView("tickets"); setTvFilter("closed"); setStatusF("All"); setPriorityF("All"); } },
@@ -3377,49 +3631,9 @@ export default function HelpDesk() {
           {view === "tickets" && <div style={{ background: "#fff", borderRadius: 12, boxShadow: "0 1px 4px rgba(0,0,0,0.06)", overflow: "hidden" }}>
             <div style={{ padding: "11px 14px", borderBottom: "1px solid #f1f5f9", display: "flex", gap: 9, alignItems: "center", flexWrap: "wrap" }}>
               <input placeholder="Search…" value={search} onChange={e => setSearch(e.target.value)} style={{ ...iS, width: 200, fontSize: 13, padding: "7px 10px" }} />
-              <select value={statusF} onChange={e => setStatusF(e.target.value)} style={{ ...sS, width: 128, fontSize: 13, padding: "7px 10px" }}><option value="All">All Status</option>{STATUSES.map(s => <option key={s}>{s}</option>)}</select>
-              <select value={priorityF} onChange={e => setPriorityF(e.target.value)} style={{ ...sS, width: 128, fontSize: 13, padding: "7px 10px" }}><option value="All">All Priority</option>{PRIORITIES.map(p => <option key={p}>{p}</option>)}</select>
-
-              {/* ✅ NEW: Organization filter */}
-              <div style={{ position: "relative", width: 200 }}>
-                <input type="text" placeholder="Search org..." value={orgFilterSearch ? orgFilterSearch : (orgFilter !== "all" ? orgFilter : "")} onChange={e => setOrgFilterSearch(e.target.value)} onFocus={() => { setOrgFilterSearch(""); setShowOrgFilterDD(true); }} style={{ ...sS, width: "100%", fontSize: 13, padding: "7px 10px" }} />
-                {showOrgFilterDD && <>
-                  <div style={{ position: "fixed", inset: 0, zIndex: 199 }} onClick={() => { setShowOrgFilterDD(false); setOrgFilterSearch(""); }} />
-                  <div style={{ position: "absolute", top: "calc(100% + 3px)", left: 0, right: 0, background: "#fff", border: "1.5px solid #e2e8f0", borderRadius: 8, zIndex: 200, boxShadow: "0 4px 12px rgba(0,0,0,0.1)", maxHeight: 200, overflowY: "auto" }}>
-                    <div style={{ padding: 8, borderBottom: "1px solid #f1f5f9", position: "sticky", top: 0, background: "#fff" }}>
-                      <input type="text" placeholder="Search organizations..." value={orgFilterSearch} onChange={e => setOrgFilterSearch(e.target.value)} onClick={e => e.stopPropagation()} autoFocus style={{ ...sS, width: "100%", fontSize: 12 }} />
-                    </div>
-                    <div onClick={() => { setOrgFilter("all"); setShowOrgFilterDD(false); setOrgFilterSearch(""); }} style={{ padding: "8px 12px", cursor: "pointer", borderBottom: "1px solid #f1f5f9", background: orgFilter === "all" ? "#f0f9ff" : "#fff", fontWeight: orgFilter === "all" ? 600 : 400 }}>
-                      <div style={{ fontSize: 12 }}>All Organizations</div>
-                    </div>
-                    {orgs.filter(o => orgFilterSearch === "" || o.name.toLowerCase().includes(orgFilterSearch.toLowerCase())).map(o => (
-                      <div key={o.id} onClick={() => { setOrgFilter(o.name); setShowOrgFilterDD(false); setOrgFilterSearch(""); }} style={{ padding: "8px 12px", cursor: "pointer", borderBottom: "1px solid #f1f5f9", background: orgFilter === o.name ? "#f0f9ff" : "#fff", fontWeight: orgFilter === o.name ? 600 : 400 }}>
-                        <div style={{ fontSize: 12 }}>{o.name}</div>
-                      </div>
-                    ))}
-                    {orgs.filter(o => orgFilterSearch === "" || o.name.toLowerCase().includes(orgFilterSearch.toLowerCase())).length === 0 && <div style={{ padding: "12px", textAlign: "center", fontSize: 12, color: "#94a3b8" }}>No organizations found</div>}
-                  </div>
-                </>}
-              </div>
-
-              {/* ✅ NEW: Department filter */}
-              <select value={deptFilter} onChange={(e) => setDeptFilter(e.target.value)} style={{ ...sS, width: 140, fontSize: 13, padding: "7px 10px" }}>
-                <option value="all">All Departments</option>
-                {departments.map(d => (
-                  <option key={d.id} value={d.name}>{d.name}</option>
-                ))}
-              </select>
-
-              {/* ✅ NEW: Category filter - only non-webcast categories */}
-              <select value={categoryFilter} onChange={(e) => setCategoryFilter(e.target.value)} style={{ ...sS, width: 140, fontSize: 13, padding: "7px 10px" }}>
-                <option value="all">All Categories</option>
-                {ticketCategories.filter(c => !c.name.toLowerCase().includes("webcast")).map(c => (
-                  <option key={c.id} value={c.name}>{c.name}</option>
-                ))}
-              </select>
-
-              <span style={{ fontSize: 12, color: "#64748b" }}>{filtered.length} tickets</span>
+              <span style={{ fontSize: 12, color: "#64748b" }}>{allSortedTickets.length} tickets</span>
               <div style={{ marginLeft: "auto", display: "flex", gap: 8, alignItems: "center" }}>
+                <button onClick={() => { setForm(emptyForm()); setShowNewTicket(true); }} style={{ ...bP, padding: "7px 13px", fontSize: 12 }}>+ New Ticket</button>
                 {selectedIds.size > 0 && <span style={{ fontSize: 12, color: "#3b82f6", fontWeight: 600, background: "#eff6ff", padding: "4px 10px", borderRadius: 99 }}>{selectedIds.size} selected</span>}
 
                 {/* Mark All as Closed Button */}
@@ -3529,19 +3743,25 @@ export default function HelpDesk() {
               <table style={{ width: "100%", borderCollapse: "collapse" }}>
                 <thead><tr style={{ background: "#f8fafc" }}>
                   <th style={{ ...thStyle, width: 40 }}><input type="checkbox" checked={selectedIds.size === filtered.length && filtered.length > 0} onChange={toggleAll} style={{ cursor: "pointer" }} /></th>
-                  {["ID", "Summary", "Org / Dept", "Reported By", "Assignees", "Priority", "Category", "Status", "Created", "Action"].map(h => (
-                    <th key={h} style={{ ...thStyle, cursor: h === "Created" ? "pointer" : "default", background: h === "Created" ? "#e0f2fe" : "#f8fafc" }} onClick={h === "Created" ? () => setSortOrder(sortOrder === "desc" ? "asc" : "desc") : undefined}>
-                      {h}
-                      {h === "Created" && <span style={{ marginLeft: 4, fontSize: 10 }}>{sortOrder === "desc" ? "↓" : "↑"}</span>}
-                    </th>
-                  ))}
+                  <FilterableHeader label="ID" field="id" data={filtered} filters={ticketSort} onFilter={setTicketSort} style={thStyle} />
+                  <FilterableHeader label="Summary" field="summary" data={filtered} filters={ticketSort} onFilter={setTicketSort} style={thStyle} />
+                  <FilterableHeader label="Org" field="org" data={filtered} filters={ticketSort} onFilter={setTicketSort} style={thStyle} />
+                  <FilterableHeader label="Dept" field="department" data={filtered} filters={ticketSort} onFilter={setTicketSort} style={thStyle} />
+                  <FilterableHeader label="Reported By" field="reportedBy" data={filtered} filters={ticketSort} onFilter={setTicketSort} style={thStyle} />
+                  <FilterableHeader label="Assignees" field="assignees" data={filtered} filters={ticketSort} onFilter={setTicketSort} style={thStyle} />
+                  <FilterableHeader label="Priority" field="priority" data={filtered} filters={ticketSort} onFilter={setTicketSort} style={thStyle} />
+                  <FilterableHeader label="Category" field="category" data={filtered} filters={ticketSort} onFilter={setTicketSort} style={thStyle} />
+                  <FilterableHeader label="Status" field="status" data={filtered} filters={ticketSort} onFilter={setTicketSort} style={thStyle} />
+                  <FilterableHeader label="Created" field="created" data={filtered} filters={ticketSort} onFilter={setTicketSort} style={thStyle} />
+                  <th style={thStyle}>Action</th>
                 </tr></thead>
                 <tbody>{currentTickets.map(t => (
                   <tr key={t.id} className="rh" style={{ cursor: "pointer", background: selectedIds.has(t.id) ? "#eff6ff" : "#fff" }}>
                     <td style={tdStyle} onClick={e => e.stopPropagation()}><input type="checkbox" checked={selectedIds.has(t.id)} onChange={() => toggleSel(t.id)} style={{ cursor: "pointer" }} /></td>
                     <td style={tdStyle} onClick={() => setSelTicket(t)}><span style={{ fontFamily: "'DM Mono',monospace", fontSize: 11.5, color: "#3b82f6", fontWeight: 500 }}>{t.id}</span>{t.isWebcast && <span style={{ marginLeft: 5, fontSize: 10, background: "#fff7ed", color: "#f97316", padding: "1px 5px", borderRadius: 4, fontWeight: 600 }}>📡</span>}</td>
                     <td style={{ ...tdStyle, maxWidth: 180 }} onClick={() => setSelTicket(t)}><div style={{ fontWeight: 500, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{t.summary}</div></td>
-                    <td style={tdStyle} onClick={() => setSelTicket(t)}><div style={{ fontSize: 12, fontWeight: 500 }}>{t.org}</div><div style={{ fontSize: 11, color: "#94a3b8" }}>{t.department}</div></td>
+                    <td style={tdStyle} onClick={() => setSelTicket(t)}><div style={{ fontSize: 12, fontWeight: 500 }}>{t.org}</div></td>
+                    <td style={tdStyle} onClick={() => setSelTicket(t)}><div style={{ fontSize: 12, color: "#64748b" }}>{t.department || "—"}</div></td>
                     <td style={tdStyle} onClick={() => setSelTicket(t)}><span style={{ fontSize: 12, color: "#64748b" }}>{t.reportedBy || "—"}</span></td>
                     <td style={tdStyle} onClick={() => setSelTicket(t)}>
                       <div style={{ display: "flex", alignItems: "center" }}>
@@ -3607,15 +3827,13 @@ export default function HelpDesk() {
               </div>
             </div>
 
-            {/* Project Filters */}
+            {/* Project action bar */}
             <div style={{ padding: "11px 14px", borderBottom: "1px solid #f1f5f9", display: "flex", gap: 9, alignItems: "center", flexWrap: "wrap" }}>
               <input placeholder="Search projects…" value={projSearch} onChange={e => setProjSearch(e.target.value)} style={{ ...iS, width: 200, fontSize: 13, padding: "7px 10px" }} />
-              <select value={projStatusF} onChange={e => setProjStatusF(e.target.value)} style={{ ...sS, width: 128, fontSize: 13, padding: "7px 10px" }}><option value="All">All Status</option>{PROJECT_STATUSES.map(s => <option key={s}>{s}</option>)}</select>
-              <select value={projPriorityF} onChange={e => setProjPriorityF(e.target.value)} style={{ ...sS, width: 128, fontSize: 13, padding: "7px 10px" }}><option value="All">All Priority</option>{PROJECT_PRIORITIES.map(p => <option key={p}>{p}</option>)}</select>
-              <span style={{ fontSize: 12, color: "#64748b" }}>{filteredProjects.length} projects</span>
+              <span style={{ fontSize: 12, color: "#64748b" }}>{applySort(filteredProjects, projSort).length} projects</span>
               <div style={{ marginLeft: "auto", display: "flex", gap: 8, alignItems: "center" }}>
                 {selectedProjIds.size > 0 && <span style={{ fontSize: 12, color: "#3b82f6", fontWeight: 600, background: "#eff6ff", padding: "4px 10px", borderRadius: 99 }}>{selectedProjIds.size} selected</span>}
-                <button onClick={() => setShowNewProject(true)} style={{ ...bP, padding: "7px 13px", fontSize: 13, background: "linear-gradient(135deg,#8b5cf6,#6366f1)", display: (currentUser?.role === "Admin" || currentUser?.role === "Manager") ? "block" : "none" }}>+ New Project</button>
+                {(currentUser?.role === "Admin" || currentUser?.role === "Manager") && <button onClick={() => setShowNewProject(true)} style={{ ...bP, padding: "7px 13px", fontSize: 13, background: "linear-gradient(135deg,#8b5cf6,#6366f1)" }}>+ New Project</button>}
               </div>
             </div>
 
@@ -3624,14 +3842,25 @@ export default function HelpDesk() {
               <table style={{ width: "100%", borderCollapse: "collapse" }}>
                 <thead><tr style={{ background: "#f8fafc" }}>
                   <th style={{ ...thStyle, width: 40 }}><input type="checkbox" checked={selectedProjIds.size === filteredProjects.length && filteredProjects.length > 0} onChange={toggleAllProj} style={{ cursor: "pointer" }} /></th>
-                  {["ID", "Title", "Org / Dept", "Assignees", "Priority", "Category", "Status", "Progress", "Due Date", "Action"].map(h => <th key={h} style={thStyle}>{h}</th>)}
+                  <FilterableHeader label="ID" field="id" data={filteredProjects} filters={projSort} onFilter={setProjSort} style={thStyle} />
+                  <FilterableHeader label="Title" field="title" data={filteredProjects} filters={projSort} onFilter={setProjSort} style={thStyle} />
+                  <FilterableHeader label="Org" field="org" data={filteredProjects} filters={projSort} onFilter={setProjSort} style={thStyle} />
+                  <FilterableHeader label="Dept" field="department" data={filteredProjects} filters={projSort} onFilter={setProjSort} style={thStyle} />
+                  <FilterableHeader label="Assignees" field="assignees" data={filteredProjects} filters={projSort} onFilter={setProjSort} style={thStyle} />
+                  <FilterableHeader label="Priority" field="priority" data={filteredProjects} filters={projSort} onFilter={setProjSort} style={thStyle} />
+                  <FilterableHeader label="Category" field="category" data={filteredProjects} filters={projSort} onFilter={setProjSort} style={thStyle} />
+                  <FilterableHeader label="Status" field="status" data={filteredProjects} filters={projSort} onFilter={setProjSort} style={thStyle} />
+                  <FilterableHeader label="Progress" field="progress" data={filteredProjects} filters={projSort} onFilter={setProjSort} style={thStyle} />
+                  <FilterableHeader label="Due Date" field="dueDate" data={filteredProjects} filters={projSort} onFilter={setProjSort} style={thStyle} />
+                  <th style={thStyle}>Action</th>
                 </tr></thead>
-                <tbody>{filteredProjects.map(p => (
+                <tbody>{applySort(filteredProjects, projSort).map(p => (
                   <tr key={p.id} className="rh" style={{ cursor: "pointer", background: selectedProjIds.has(p.id) ? "#f5f3ff" : "#fff" }}>
                     <td style={tdStyle} onClick={e => e.stopPropagation()}><input type="checkbox" checked={selectedProjIds.has(p.id)} onChange={() => toggleProjSel(p.id)} style={{ cursor: "pointer" }} /></td>
                     <td style={tdStyle} onClick={() => setSelProject(p)}><span style={{ fontFamily: "'DM Mono',monospace", fontSize: 11.5, color: "#8b5cf6", fontWeight: 500 }}>{p.id}</span></td>
                     <td style={{ ...tdStyle, maxWidth: 180 }} onClick={() => setSelProject(p)}><div style={{ fontWeight: 500, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{p.title}</div></td>
-                    <td style={tdStyle} onClick={() => setSelProject(p)}><div style={{ fontSize: 12, fontWeight: 500 }}>{p.org}</div><div style={{ fontSize: 11, color: "#94a3b8" }}>{p.department}</div></td>
+                    <td style={tdStyle} onClick={() => setSelProject(p)}><div style={{ fontSize: 12, fontWeight: 500 }}>{p.org}</div></td>
+                    <td style={tdStyle} onClick={() => setSelProject(p)}><div style={{ fontSize: 12, color: "#64748b" }}>{p.department || "—"}</div></td>
                     <td style={tdStyle} onClick={() => setSelProject(p)}>
                       <div style={{ display: "flex", alignItems: "center" }}>
                         {(p.assignees || []).slice(0, 3).map((a, i) => <div key={a.id} title={a.name} style={{ marginLeft: i > 0 ? -7 : 0, border: "2px solid #fff", borderRadius: "50%" }}><Avatar name={a.name} size={22} /></div>)}
@@ -3671,7 +3900,7 @@ export default function HelpDesk() {
                     { label: "Open", value: webcastBase.filter(t => t.status === "Open").length, color: "#3b82f6", icon: "📂" },
                     { label: "In Progress", value: webcastBase.filter(t => t.status === "In Progress").length, color: "#eab308", icon: "⚙️" },
                     { label: "Closed", value: webcastBase.filter(t => t.status === "Closed").length, color: "#64748b", icon: "✅" },
-                    { label: "Critical", value: webcastBase.filter(t => t.priority === "Critical").length, color: "#ef4444", icon: "🔥" },
+                    { label: "Critical", value: webcastBase.filter(t => t.priority === "Critical" && t.status !== "Closed" && t.status !== "Resolved").length, color: "#ef4444", icon: "🔥" },
                   ].map(s => (
                     <div key={s.label} style={{ background: "#fff", borderRadius: 12, padding: "14px 16px", boxShadow: "0 1px 4px rgba(0,0,0,0.06)", borderTop: `3px solid ${s.color}` }}>
                       <div style={{ fontSize: 20, marginBottom: 5 }}>{s.icon}</div>
@@ -3688,8 +3917,15 @@ export default function HelpDesk() {
               <h3 style={{ margin: "0 0 14px", fontSize: 15, fontWeight: 700 }}>My Webcast Tickets</h3>
               <div style={{ overflowX: "auto" }}>
                 <table style={{ width: "100%", borderCollapse: "collapse" }}>
-                  <thead><tr style={{ background: "#f8fafc" }}>{["ID", "Summary", "Location", "Satsang Type", "Priority", "Status"].map(h => <th key={h} style={thStyle}>{h}</th>)}</tr></thead>
-                  <tbody>{tickets.filter(t => (t.isWebcast || (t.category && t.category.toLowerCase().includes("webcast"))) && (t.assignees?.some(a => a.id === currentUser?.id) || currentUser?.role === "Admin" || currentUser?.role === "Manager")).slice(0, 10).map((t, i) => (
+                  <thead><tr style={{ background: "#f8fafc" }}>
+                    <FilterableHeader label="ID" field="id" data={tickets.filter(t => (t.isWebcast || (t.category && t.category.toLowerCase().includes("webcast"))) && (t.assignees?.some(a => a.id === currentUser?.id) || currentUser?.role === "Admin" || currentUser?.role === "Manager"))} filters={webcastSort} onFilter={setWebcastSort} style={thStyle} />
+                    <FilterableHeader label="Summary" field="summary" data={tickets.filter(t => (t.isWebcast || (t.category && t.category.toLowerCase().includes("webcast"))) && (t.assignees?.some(a => a.id === currentUser?.id) || currentUser?.role === "Admin" || currentUser?.role === "Manager"))} filters={webcastSort} onFilter={setWebcastSort} style={thStyle} />
+                    <FilterableHeader label="Location" field="location" data={tickets.filter(t => (t.isWebcast || (t.category && t.category.toLowerCase().includes("webcast"))) && (t.assignees?.some(a => a.id === currentUser?.id) || currentUser?.role === "Admin" || currentUser?.role === "Manager"))} filters={webcastSort} onFilter={setWebcastSort} style={thStyle} />
+                    <FilterableHeader label="Satsang Type" field="satsangType" data={tickets.filter(t => (t.isWebcast || (t.category && t.category.toLowerCase().includes("webcast"))) && (t.assignees?.some(a => a.id === currentUser?.id) || currentUser?.role === "Admin" || currentUser?.role === "Manager"))} filters={webcastSort} onFilter={setWebcastSort} style={thStyle} />
+                    <FilterableHeader label="Priority" field="priority" data={tickets.filter(t => (t.isWebcast || (t.category && t.category.toLowerCase().includes("webcast"))) && (t.assignees?.some(a => a.id === currentUser?.id) || currentUser?.role === "Admin" || currentUser?.role === "Manager"))} filters={webcastSort} onFilter={setWebcastSort} style={thStyle} />
+                    <FilterableHeader label="Status" field="status" data={tickets.filter(t => (t.isWebcast || (t.category && t.category.toLowerCase().includes("webcast"))) && (t.assignees?.some(a => a.id === currentUser?.id) || currentUser?.role === "Admin" || currentUser?.role === "Manager"))} filters={webcastSort} onFilter={setWebcastSort} style={thStyle} />
+                  </tr></thead>
+                  <tbody>{applySort(tickets.filter(t => (t.isWebcast || (t.category && t.category.toLowerCase().includes("webcast"))) && (t.assignees?.some(a => a.id === currentUser?.id) || currentUser?.role === "Admin" || currentUser?.role === "Manager")), webcastSort).slice(0, 10).map((t, i) => (
                     <tr key={t.id + i} className="rh" onClick={() => setSelTicket(t)} style={{ cursor: "pointer" }}>
                       <td style={tdStyle}><span style={{ fontFamily: "'DM Mono',monospace", fontSize: 11.5, color: "#3b82f6" }}>{t.id}</span></td>
                       <td style={{ ...tdStyle, maxWidth: 200 }}><div style={{ whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{t.summary}</div></td>
@@ -3764,12 +4000,101 @@ export default function HelpDesk() {
               </div>
             </div>
 
+            {/* Agent Assigned vs Resolved — Grouped Bar Chart */}
+            <div style={{ background: "#fff", borderRadius: 12, padding: 18, boxShadow: "0 1px 4px rgba(0,0,0,0.06)", marginBottom: 12 }}>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
+                <div>
+                  <div style={{ fontSize: 14, fontWeight: 700, color: "#0f172a" }}>Agent Performance Overview</div>
+                  <div style={{ fontSize: 11, color: "#94a3b8", marginTop: 2 }}>Tickets assigned vs resolved per agent — filtered by selected time range</div>
+                </div>
+                <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 5 }}><div style={{ width: 12, height: 12, borderRadius: 3, background: "#3b82f6" }} /><span style={{ fontSize: 11, color: "#64748b" }}>Assigned</span></div>
+                  <div style={{ display: "flex", alignItems: "center", gap: 5 }}><div style={{ width: 12, height: 12, borderRadius: 3, background: "#22c55e" }} /><span style={{ fontSize: 11, color: "#64748b" }}>Resolved</span></div>
+                  <div style={{ display: "flex", alignItems: "center", gap: 5 }}><div style={{ width: 12, height: 12, borderRadius: 3, background: "#f59e0b" }} /><span style={{ fontSize: 11, color: "#64748b" }}>Open</span></div>
+                </div>
+              </div>
+              {(() => {
+                const chartData = agentStats.filter(a => a.assigned > 0 || a.resolved > 0);
+                if (chartData.length === 0) return <div style={{ textAlign: "center", color: "#94a3b8", padding: 32, fontSize: 13 }}>No agent data for the selected time range</div>;
+                const maxVal = Math.max(...chartData.map(a => a.assigned), 1);
+                const barH = 220;
+                const groupW = Math.max(60, Math.min(100, Math.floor(700 / chartData.length)));
+                const barW = Math.floor(groupW * 0.28);
+                const gap = Math.floor(groupW * 0.07);
+                const totalW = chartData.length * groupW + 60;
+                return (
+                  <div style={{ overflowX: "auto" }}>
+                    <svg width={totalW} height={barH + 60} style={{ display: "block", minWidth: "100%" }}>
+                      {/* Y-axis gridlines */}
+                      {[0, 0.25, 0.5, 0.75, 1].map(p => {
+                        const y = 10 + barH * (1 - p);
+                        const val = Math.round(maxVal * p);
+                        return (
+                          <g key={p}>
+                            <line x1={44} y1={y} x2={totalW - 10} y2={y} stroke="#f1f5f9" strokeWidth={1} />
+                            <text x={38} y={y + 4} textAnchor="end" fontSize={9} fill="#94a3b8" fontFamily="DM Sans,sans-serif">{val}</text>
+                          </g>
+                        );
+                      })}
+                      {/* Bars per agent */}
+                      {chartData.map((a, i) => {
+                        const x = 50 + i * groupW;
+                        const assignedH = Math.max(2, (a.assigned / maxVal) * barH);
+                        const resolvedH = Math.max(a.resolved > 0 ? 2 : 0, (a.resolved / maxVal) * barH);
+                        const openVal = Math.max(0, a.assigned - a.resolved);
+                        const openH = Math.max(openVal > 0 ? 2 : 0, (openVal / maxVal) * barH);
+                        const assignedY = 10 + barH - assignedH;
+                        const resolvedY = 10 + barH - resolvedH;
+                        const openY = 10 + barH - openH;
+                        const labelX = x + barW + gap + barW / 2;
+                        const shortName = a.name.split(" ")[0];
+                        return (
+                          <g key={a.id}>
+                            {/* Assigned bar */}
+                            <rect x={x} y={assignedY} width={barW} height={assignedH} fill="#3b82f6" rx={3}
+                              style={{ transition: "opacity 0.2s" }} opacity={0.85}>
+                              <title>{a.name}: {a.assigned} assigned</title>
+                            </rect>
+                            {a.assigned > 0 && <text x={x + barW / 2} y={assignedY - 3} textAnchor="middle" fontSize={9} fill="#3b82f6" fontWeight={600} fontFamily="DM Sans,sans-serif">{a.assigned}</text>}
+                            {/* Resolved bar */}
+                            <rect x={x + barW + gap} y={resolvedY} width={barW} height={resolvedH} fill="#22c55e" rx={3} opacity={0.85}>
+                              <title>{a.name}: {a.resolved} resolved</title>
+                            </rect>
+                            {a.resolved > 0 && <text x={x + barW + gap + barW / 2} y={resolvedY - 3} textAnchor="middle" fontSize={9} fill="#22c55e" fontWeight={600} fontFamily="DM Sans,sans-serif">{a.resolved}</text>}
+                            {/* Open bar */}
+                            <rect x={x + (barW + gap) * 2} y={openY} width={barW} height={openH} fill="#f59e0b" rx={3} opacity={0.85}>
+                              <title>{a.name}: {openVal} open</title>
+                            </rect>
+                            {openVal > 0 && <text x={x + (barW + gap) * 2 + barW / 2} y={openY - 3} textAnchor="middle" fontSize={9} fill="#f59e0b" fontWeight={600} fontFamily="DM Sans,sans-serif">{openVal}</text>}
+                            {/* Agent label */}
+                            <text x={x + barW + gap + barW / 2} y={10 + barH + 16} textAnchor="middle" fontSize={10} fill="#374151" fontWeight={600} fontFamily="DM Sans,sans-serif">{shortName}</text>
+                            <text x={x + barW + gap + barW / 2} y={10 + barH + 28} textAnchor="middle" fontSize={9} fill="#94a3b8" fontFamily="DM Sans,sans-serif">{a.role}</text>
+                            {/* Group separator */}
+                            {i < chartData.length - 1 && <line x1={x + groupW - 2} y1={10} x2={x + groupW - 2} y2={10 + barH} stroke="#f8fafc" strokeWidth={1} />}
+                          </g>
+                        );
+                      })}
+                      {/* X axis line */}
+                      <line x1={44} y1={10 + barH} x2={totalW - 10} y2={10 + barH} stroke="#e2e8f0" strokeWidth={1.5} />
+                    </svg>
+                  </div>
+                );
+              })()}
+            </div>
+
             {/* Agent Performance Table */}
             <div style={{ background: "#fff", borderRadius: 12, padding: 18, boxShadow: "0 1px 4px rgba(0,0,0,0.06)" }}>
               <table style={{ width: "100%", borderCollapse: "collapse" }}>
-                <thead><tr>{["Agent", "Role", "Assigned", "Resolved", "Open", "Rate"].map(h => <th key={h} style={thStyle}>{h}</th>)}</tr></thead>
-                <tbody>{agentStats.map(a => {
-                  const rate = a.assigned ? Math.round(a.resolved / a.assigned * 100) : 0; return (
+                <thead><tr>
+                  <FilterableHeader label="Agent" field="name" data={agentStats} filters={agentSort} onFilter={setAgentSort} style={thStyle} />
+                  <FilterableHeader label="Role" field="role" data={agentStats} filters={agentSort} onFilter={setAgentSort} style={thStyle} />
+                  <th style={thStyle}>Assigned</th>
+                  <th style={thStyle}>Resolved</th>
+                  <th style={thStyle}>Open</th>
+                  <th style={thStyle}>Rate</th>
+                </tr></thead>
+                <tbody>{applySort(agentStats.map(a => ({ ...a, open: a.assigned - a.resolved, rate: a.assigned ? Math.round(a.resolved / a.assigned * 100) : 0 })), agentSort).map(a => {
+                  const rate = a.rate ?? (a.assigned ? Math.round(a.resolved / a.assigned * 100) : 0); return (
                     <tr key={a.id} className="rh">
                       <td style={tdStyle}><div style={{ display: "flex", alignItems: "center", gap: 8 }}><Avatar name={a.name} size={26} /><div><div style={{ fontSize: 12, fontWeight: 600 }}>{a.name}</div><div style={{ fontSize: 11, color: "#94a3b8" }}>{a.email}</div></div></div></td>
                       <td style={tdStyle}><Badge label={a.role} style={{ background: "#ede9fe", color: "#6d28d9" }} /></td>
@@ -3912,8 +4237,13 @@ export default function HelpDesk() {
                   </div>
                 ) : <div style={{ marginBottom: 18, padding: "10px 14px", background: "#fef3c7", color: "#92400e", borderRadius: 8, fontSize: 13, fontWeight: 500 }}>Read Only: Organisation management is restricted to Admins.</div>}
                 <table style={{ width: "100%", borderCollapse: "collapse" }}>
-                  <thead><tr>{["Name", "Domain", "Phone", currentUser?.role === "Admin" ? "" : null].filter(s => s !== null).map(h => <th key={h} style={thStyle}>{h}</th>)}</tr></thead>
-                  <tbody>{orgs.map(o => <tr key={o.id} className="rh">
+                  <thead><tr>
+                    <FilterableHeader label="Name" field="name" data={orgs} filters={orgSort} onFilter={setOrgSort} style={thStyle} />
+                    <FilterableHeader label="Domain" field="domain" data={orgs} filters={orgSort} onFilter={setOrgSort} style={thStyle} />
+                    <FilterableHeader label="Phone" field="phone" data={orgs} filters={orgSort} onFilter={setOrgSort} style={thStyle} />
+                    {currentUser?.role === "Admin" && <th style={thStyle}></th>}
+                  </tr></thead>
+                  <tbody>{applySort(orgs, orgSort).map(o => <tr key={o.id} className="rh">
                     <td style={{ ...tdStyle, fontWeight: 600 }}>{o.name}</td>
                     <td style={{ ...tdStyle, color: "#64748b" }}>{o.domain || "—"}</td>
                     <td style={{ ...tdStyle, color: "#64748b" }}>{o.phone || "—"}</td>
@@ -3930,16 +4260,22 @@ export default function HelpDesk() {
                     <button onClick={addCat} style={bP}>Add</button>
                   </div>
                 ) : <div style={{ marginBottom: 18, padding: "10px 14px", background: "#fef3c7", color: "#92400e", borderRadius: 8, fontSize: 13, fontWeight: 500 }}>Read Only: Category management is restricted to Admins.</div>}
-                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(190px,1fr))", gap: 9 }}>
-                  {categories.map(c => (
-                    <div key={c.id} style={{ display: "flex", alignItems: "center", gap: 9, padding: "11px 13px", borderRadius: 9, border: `1.5px solid ${c.color}33`, background: `${c.color}0d` }}>
-                      <div style={{ width: 11, height: 11, borderRadius: 3, background: c.color, flexShrink: 0 }} />
-                      <span style={{ flex: 1, fontSize: 13, fontWeight: 600 }}>{c.name}</span>
-                      <span style={{ fontSize: 11, color: "#94a3b8" }}>{tickets.filter(t => t.category === c.name).length}</span>
-                      {currentUser?.role === "Admin" && <button onClick={() => deleteCat(c.id)} style={{ border: "none", background: "#fee2e2", color: "#ef4444", borderRadius: 6, padding: "4px 10px", cursor: "pointer", fontSize: 12, fontWeight: 600 }}>Delete</button>}
-                    </div>
-                  ))}
-                </div>
+                <table style={{ width: "100%", borderCollapse: "collapse" }}>
+                  <thead><tr>
+                    <FilterableHeader label="Name" field="name" data={categories} filters={catSort} onFilter={setCatSort} style={thStyle} />
+                    <th style={thStyle}>Color</th>
+                    <th style={thStyle}>Tickets</th>
+                    {currentUser?.role === "Admin" && <th style={thStyle}></th>}
+                  </tr></thead>
+                  <tbody>{applySort(categories, catSort).map(c => (
+                    <tr key={c.id} className="rh">
+                      <td style={tdStyle}><div style={{ display: "flex", alignItems: "center", gap: 8 }}><div style={{ width: 11, height: 11, borderRadius: 3, background: c.color, flexShrink: 0 }} /><span style={{ fontSize: 13, fontWeight: 600 }}>{c.name}</span></div></td>
+                      <td style={tdStyle}><span style={{ fontSize: 11, color: "#64748b", fontFamily: "monospace" }}>{c.color}</span></td>
+                      <td style={tdStyle}><span style={{ fontSize: 12, color: "#64748b" }}>{tickets.filter(t => t.category === c.name).length}</span></td>
+                      {currentUser?.role === "Admin" && <td style={tdStyle}><button onClick={() => deleteCat(c.id)} style={{ border: "none", background: "#fee2e2", color: "#ef4444", borderRadius: 6, padding: "4px 10px", cursor: "pointer", fontSize: 12, fontWeight: 600 }}>Delete</button></td>}
+                    </tr>
+                  ))}</tbody>
+                </table>
               </div>}
               {/* ✅ NEW: Departments Management */}
               {settingsTab === "departments" && <div style={{ background: "#fff", borderRadius: 12, padding: 22, boxShadow: "0 1px 4px rgba(0,0,0,0.06)" }}>
@@ -3956,18 +4292,21 @@ export default function HelpDesk() {
                     <button onClick={addDept} style={bP}>Add</button>
                   </div>
                 ) : <div style={{ marginBottom: 18, padding: "10px 14px", background: "#fef3c7", color: "#92400e", borderRadius: 8, fontSize: 13, fontWeight: 500 }}>Read Only: Department management is restricted to Admins.</div>}
-                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(160px,1fr))", gap: 9 }}>
-                  {departments.map(d => {
+                <table style={{ width: "100%", borderCollapse: "collapse" }}>
+                  <thead><tr>
+                    <FilterableHeader label="Name" field="name" data={departments} filters={deptSort} onFilter={setDeptSort} style={thStyle} />
+                    {currentUser?.role === "Admin" && <th style={thStyle}></th>}
+                  </tr></thead>
+                  <tbody>{applySort(departments, deptSort).map(d => {
                     const color = getItemColor(d);
                     return (
-                      <div key={d.id} style={{ display: "flex", alignItems: "center", gap: 9, padding: "11px 13px", borderRadius: 9, border: `1.5px solid ${color}33`, background: `${color}0d` }}>
-                        <div style={{ width: 11, height: 11, borderRadius: 3, background: color, flexShrink: 0 }} />
-                        <span style={{ flex: 1, fontSize: 13, fontWeight: 600 }}>{d.name}</span>
-                        {currentUser?.role === "Admin" && <button onClick={() => deleteDept(d.id)} style={{ border: "none", background: "#fee2e2", color: "#ef4444", borderRadius: 6, padding: "4px 10px", cursor: "pointer", fontSize: 12, fontWeight: 600 }}>Delete</button>}
-                      </div>
+                      <tr key={d.id} className="rh">
+                        <td style={tdStyle}><div style={{ display: "flex", alignItems: "center", gap: 8 }}><div style={{ width: 11, height: 11, borderRadius: 3, background: color, flexShrink: 0 }} /><span style={{ fontSize: 13, fontWeight: 600 }}>{d.name}</span></div></td>
+                        {currentUser?.role === "Admin" && <td style={tdStyle}><button onClick={() => deleteDept(d.id)} style={{ border: "none", background: "#fee2e2", color: "#ef4444", borderRadius: 6, padding: "4px 10px", cursor: "pointer", fontSize: 12, fontWeight: 600 }}>Delete</button></td>}
+                      </tr>
                     );
-                  })}
-                </div>
+                  })}</tbody>
+                </table>
                 {departments.length === 0 && <div style={{ textAlign: "center", color: "#94a3b8", padding: 28 }}>No departments yet. Add one to get started.</div>}
               </div>}
               {/* ✅ NEW: Locations Management */}
@@ -3985,18 +4324,21 @@ export default function HelpDesk() {
                     <button onClick={addLocation} style={bP}>Add</button>
                   </div>
                 ) : <div style={{ marginBottom: 18, padding: "10px 14px", background: "#fef3c7", color: "#92400e", borderRadius: 8, fontSize: 13, fontWeight: 500 }}>Read Only: Adding or removing locations is restricted to Admins.</div>}
-                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(160px,1fr))", gap: 9 }}>
-                  {locations.map(l => {
+                <table style={{ width: "100%", borderCollapse: "collapse" }}>
+                  <thead><tr>
+                    <FilterableHeader label="Name" field="name" data={locations} filters={locSort} onFilter={setLocSort} style={thStyle} />
+                    {currentUser?.role === "Admin" && <th style={thStyle}></th>}
+                  </tr></thead>
+                  <tbody>{applySort(locations, locSort).map(l => {
                     const color = getItemColor(l);
                     return (
-                      <div key={l.id} style={{ display: "flex", alignItems: "center", gap: 9, padding: "11px 13px", borderRadius: 9, border: `1.5px solid ${color}33`, background: `${color}0d` }}>
-                        <div style={{ width: 11, height: 11, borderRadius: 3, background: color, flexShrink: 0 }} />
-                        <span style={{ flex: 1, fontSize: 13, fontWeight: 600 }}>📍 {l.name}</span>
-                        {currentUser?.role === "Admin" && <button onClick={() => deleteLocation(l.id)} style={{ border: "none", background: "#fee2e2", color: "#ef4444", borderRadius: 6, padding: "4px 10px", cursor: "pointer", fontSize: 12, fontWeight: 600 }}>Delete</button>}
-                      </div>
+                      <tr key={l.id} className="rh">
+                        <td style={tdStyle}><div style={{ display: "flex", alignItems: "center", gap: 8 }}><div style={{ width: 11, height: 11, borderRadius: 3, background: color, flexShrink: 0 }} /><span style={{ fontSize: 13, fontWeight: 600 }}>📍 {l.name}</span></div></td>
+                        {currentUser?.role === "Admin" && <td style={tdStyle}><button onClick={() => deleteLocation(l.id)} style={{ border: "none", background: "#fee2e2", color: "#ef4444", borderRadius: 6, padding: "4px 10px", cursor: "pointer", fontSize: 12, fontWeight: 600 }}>Delete</button></td>}
+                      </tr>
                     );
-                  })}
-                </div>
+                  })}</tbody>
+                </table>
                 {locations.length === 0 && <div style={{ textAlign: "center", color: "#94a3b8", padding: 28 }}>No locations yet. Add one to get started.</div>}
               </div>}
 
@@ -4035,29 +4377,30 @@ export default function HelpDesk() {
                   </div>
                 ) : <div style={{ marginBottom: 18, padding: "10px 14px", background: "#fef3c7", color: "#92400e", borderRadius: 8, fontSize: 13, fontWeight: 500 }}>Read Only: Adding or removing vendors is restricted to Admins.</div>}
 
-                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(280px,1fr))", gap: 12 }}>
-                  {vendors.map(v => (
-                    <div key={v.id} style={{ padding: "14px", borderRadius: 10, border: "1.5px solid #fed7aa", background: "#fef3c7", display: "flex", flexDirection: "column", gap: 8 }}>
-                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
-                        <div style={{ flex: 1 }}>
-                          <div style={{ fontSize: 13, fontWeight: 700, color: "#ea580c" }}>🏭 {v.name}</div>
-                          {v.email && <div style={{ fontSize: 11, color: "#92400e", marginTop: 3 }}>✉️ {v.email}</div>}
-                          {v.phone && <div style={{ fontSize: 11, color: "#92400e" }}>📞 {v.phone}</div>}
-                          {v.address && <div style={{ fontSize: 11, color: "#92400e", marginTop: 3, maxHeight: "40px", overflow: "hidden" }}>📍 {v.address}</div>}
-                        </div>
-                        {currentUser?.role === "Admin" && (
-                          <button onClick={() => deleteVendor(v.id)} style={{ border: "none", background: "#fee2e2", color: "#ef4444", borderRadius: 6, padding: "4px 10px", cursor: "pointer", fontSize: 12, fontWeight: 600, marginLeft: 8 }}>Delete</button>
-                        )}
-                      </div>
-                    </div>
-                  ))}
-                </div>
+                <table style={{ width: "100%", borderCollapse: "collapse" }}>
+                  <thead><tr>
+                    <FilterableHeader label="Name" field="name" data={vendors} filters={vendorSort} onFilter={setVendorSort} style={thStyle} />
+                    <FilterableHeader label="Email" field="email" data={vendors} filters={vendorSort} onFilter={setVendorSort} style={thStyle} />
+                    <FilterableHeader label="Phone" field="phone" data={vendors} filters={vendorSort} onFilter={setVendorSort} style={thStyle} />
+                    <FilterableHeader label="Address" field="address" data={vendors} filters={vendorSort} onFilter={setVendorSort} style={thStyle} />
+                    {currentUser?.role === "Admin" && <th style={thStyle}></th>}
+                  </tr></thead>
+                  <tbody>{applySort(vendors, vendorSort).map(v => (
+                    <tr key={v.id} className="rh">
+                      <td style={tdStyle}><span style={{ fontSize: 13, fontWeight: 700, color: "#ea580c" }}>🏭 {v.name}</span></td>
+                      <td style={{ ...tdStyle, color: "#64748b", fontSize: 12 }}>{v.email || "—"}</td>
+                      <td style={{ ...tdStyle, color: "#64748b", fontSize: 12 }}>{v.phone || "—"}</td>
+                      <td style={{ ...tdStyle, color: "#64748b", fontSize: 12, maxWidth: 200 }}><div style={{ whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{v.address || "—"}</div></td>
+                      {currentUser?.role === "Admin" && <td style={tdStyle}><button onClick={() => deleteVendor(v.id)} style={{ border: "none", background: "#fee2e2", color: "#ef4444", borderRadius: 6, padding: "4px 10px", cursor: "pointer", fontSize: 12, fontWeight: 600 }}>Delete</button></td>}
+                    </tr>
+                  ))}</tbody>
+                </table>
                 {vendors.length === 0 && <div style={{ textAlign: "center", color: "#94a3b8", padding: 28 }}>No vendors yet. Add one to get started.</div>}
               </div>}
 
               {settingsTab === "usermgmt" && <div style={{ background: "#fff", borderRadius: 12, padding: 22, boxShadow: "0 1px 4px rgba(0,0,0,0.06)" }}>
                 <h3 style={{ margin: "0 0 14px", fontSize: 15, fontWeight: 700 }}>User Management ({users.length} users)</h3>
-                {currentUser?.role === "Super Admin" || currentUser?.role === "Admin" ? (
+                {(currentUser?.role === "Super Admin" || currentUser?.role === "Admin") ? (
                   <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr auto auto", gap: 9, marginBottom: 18, padding: 14, background: "#f8fafc", borderRadius: 9 }}>
                     <input style={iS} placeholder="Full name *" value={newUser.name} onChange={e => setNewUser({ ...newUser, name: e.target.value })} />
                     <input style={iS} placeholder="Email *" value={newUser.email} onChange={e => setNewUser({ ...newUser, email: e.target.value })} />
@@ -4071,8 +4414,15 @@ export default function HelpDesk() {
                   <div style={{ marginBottom: 18, padding: "10px 14px", background: "#fef3c7", color: "#92400e", borderRadius: 8, fontSize: 13, fontWeight: 500 }}>Read Only: User management is restricted to Admins.</div>
                 )}
                 <table style={{ width: "100%", borderCollapse: "collapse" }}>
-                  <thead><tr>{["User", "Email", "Role", "Status", "Account Status", (currentUser?.role === "Super Admin" || currentUser?.role === "Admin") ? "Actions" : null].filter(Boolean).map(h => <th key={h} style={thStyle}>{h}</th>)}</tr></thead>
-                  <tbody>{users.map(u => (
+                  <thead><tr>
+                    <FilterableHeader label="User" field="name" data={users} filters={userSort} onFilter={setUserSort} style={thStyle} />
+                    <FilterableHeader label="Email" field="email" data={users} filters={userSort} onFilter={setUserSort} style={thStyle} />
+                    <FilterableHeader label="Role" field="role" data={users} filters={userSort} onFilter={setUserSort} style={thStyle} />
+                    <FilterableHeader label="Status" field="status" data={users} filters={userSort} onFilter={setUserSort} style={thStyle} />
+                    <FilterableHeader label="Account Status" field="active" data={users} filters={userSort} onFilter={setUserSort} style={thStyle} getVal={(row, f) => row.active ? "Activated" : "Deactivated"} />
+                    {(currentUser?.role === "Super Admin" || currentUser?.role === "Admin") && <th style={thStyle}>Actions</th>}
+                  </tr></thead>
+                  <tbody>{applySort(users, userSort).map(u => (
                     <tr key={u.id} className="rh">
                       <td style={tdStyle}><div style={{ display: "flex", alignItems: "center", gap: 8 }}><Avatar name={u.name} size={28} /><span style={{ fontSize: 13, fontWeight: 600 }}>{u.name}</span></div></td>
                       <td style={{ ...tdStyle, color: "#64748b", fontSize: 12 }}>{u.email}</td>
@@ -4084,50 +4434,54 @@ export default function HelpDesk() {
                         return sStyle ? <Badge label={sStyle.l} style={{ background: sStyle.bg, color: sStyle.c }} /> : <Badge label={statusValue} />;
                       })()}</td>
                       <td style={tdStyle}><Badge label={u.active ? "Activated" : "Deactivated"} style={{ background: u.active ? "#dcfce7" : "#fee2e2", color: u.active ? "#15803d" : "#ef4444" }} /></td>
-                      {(currentUser?.role === "Super Admin" || currentUser?.role === "Admin") && u.role !== "Super Admin" && <td style={tdStyle}><div style={{ display: "flex", gap: 6, alignItems: "center" }}>
-                        <select value={u.role} onChange={async (e) => {
-                          const newRole = e.target.value;
-
-                          // ✅ Show custom confirmation modal for role change
-                          setConfirmModal({
-                            show: true,
-                            title: `Change ${u.name}'s Role?`,
-                            message: `Are you sure you want to change ${u.name}'s role to ${newRole}? This will take effect immediately and cannot be undone.`,
-                            onConfirm: async () => {
-                              try {
-                                const updated = { ...u, role: newRole };
-                                await axios.put(`${USERS_API}/${u.id}`, updated);
-                                setUsers(users.map(x => x.id === u.id ? updated : x));
-
-                                if (u.id === currentUser.id) {
-                                  // Current user's role changed
-                                  setCurrentUser({ ...currentUser, role: newRole });
-                                  setCustomAlert({ show: true, message: `Your role has been changed to ${newRole}. Page will refresh automatically.`, type: "success" });
-                                  // Auto-refresh after 2 seconds
-                                  setTimeout(() => window.location.reload(), 2000);
-                                } else {
-                                  // Other user's role changed - notify them via localStorage broadcast
-                                  localStorage.setItem(`role_change_${u.id}`, JSON.stringify({ newRole, timestamp: Date.now() }));
-                                  setCustomAlert({ show: true, message: `${u.name}'s role has been changed to ${newRole}.`, type: "success" });
+                      {(currentUser?.role === "Super Admin" || currentUser?.role === "Admin") && u.role !== "Super Admin" && (() => {
+                        // A plain Admin cannot edit/delete/deactivate other Admins — only Super Admin can
+                        const targetIsAdmin = u.role === "Admin";
+                        const canAct = currentUser?.role === "Super Admin" || !targetIsAdmin;
+                        if (!canAct) return (
+                          <td style={tdStyle}>
+                            <span style={{ fontSize: 11, color: "#94a3b8", fontStyle: "italic" }}>Super Admin only</span>
+                          </td>
+                        );
+                        return (
+                          <td style={tdStyle}><div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                            <select value={u.role} onChange={async (e) => {
+                              const newRole = e.target.value;
+                              setConfirmModal({
+                                show: true,
+                                title: `Change ${u.name}'s Role?`,
+                                message: `Are you sure you want to change ${u.name}'s role to ${newRole}? This will take effect immediately and cannot be undone.`,
+                                onConfirm: async () => {
+                                  try {
+                                    const updated = { ...u, role: newRole };
+                                    await axios.put(`${USERS_API}/${u.id}`, updated);
+                                    setUsers(users.map(x => x.id === u.id ? updated : x));
+                                    if (u.id === currentUser.id) {
+                                      setCurrentUser({ ...currentUser, role: newRole });
+                                      setCustomAlert({ show: true, message: `Your role has been changed to ${newRole}. Page will refresh automatically.`, type: "success" });
+                                      setTimeout(() => window.location.reload(), 2000);
+                                    } else {
+                                      localStorage.setItem(`role_change_${u.id}`, JSON.stringify({ newRole, timestamp: Date.now() }));
+                                      setCustomAlert({ show: true, message: `${u.name}'s role has been changed to ${newRole}.`, type: "success" });
+                                    }
+                                    setConfirmModal({ show: false, title: "", message: "", onConfirm: null, onCancel: null });
+                                  } catch (err) {
+                                    setCustomAlert({ show: true, message: "Failed to update role", type: "error" });
+                                    setConfirmModal({ show: false, title: "", message: "", onConfirm: null, onCancel: null });
+                                  }
+                                },
+                                onCancel: () => {
+                                  setConfirmModal({ show: false, title: "", message: "", onConfirm: null, onCancel: null });
+                                  e.target.value = u.role;
                                 }
-                                setConfirmModal({ show: false, title: "", message: "", onConfirm: null, onCancel: null });
-                              } catch (err) {
-                                setCustomAlert({ show: true, message: "Failed to update role", type: "error" });
-                                setConfirmModal({ show: false, title: "", message: "", onConfirm: null, onCancel: null });
-                              }
-                            },
-                            onCancel: () => {
-                              setConfirmModal({ show: false, title: "", message: "", onConfirm: null, onCancel: null });
-                              // Reset dropdown to previous value
-                              e.target.value = u.role;
-                            }
-                          });
-                        }} style={{ ...sS, fontSize: 11, padding: "4px 8px" }}>{ROLES.filter(r => r !== "Super Admin").map(r => <option key={r}>{r}</option>)}</select>
-                        <button onClick={async () => { try { const updated = { ...u, active: !u.active }; await axios.put(`${USERS_API}/${u.id}`, updated); setUsers(users.map(x => x.id === u.id ? updated : x)); } catch (err) { alert("Failed to update user"); } }} style={{ border: "none", background: u.active ? "#fef9c3" : "#dcfce7", color: u.active ? "#854d0e" : "#15803d", borderRadius: 6, padding: "4px 9px", cursor: "pointer", fontSize: 12, fontWeight: 600 }}>{u.active ? "Deactivate" : "Activate"}</button>
-                        {u.id !== currentUser.id && <button onClick={async () => { if (window.confirm(`Delete ${u.name}?`)) { try { await axios.delete(`${USERS_API}/${u.id}`); setUsers(users.filter(x => x.id !== u.id)); } catch (err) { console.error("Delete failed:", err); } } }} style={{ border: "none", background: "#fee2e2", color: "#ef4444", borderRadius: 6, padding: "4px 9px", cursor: "pointer", fontSize: 12, fontWeight: 600 }}>Delete</button>}
-                        {/* ✅ NEW: Admin can edit name and password */}
-                        <button onClick={() => { setEditUserOpen(u); setEditUserForm({ name: u.name, email: u.email, password: "" }); }} style={{ border: "none", background: "#dbeafe", color: "#1e40af", borderRadius: 6, padding: "4px 9px", cursor: "pointer", fontSize: 12, fontWeight: 600 }}>Edit</button>
-                      </div></td>}
+                              });
+                            }} style={{ ...sS, fontSize: 11, padding: "4px 8px", width: 110, flexShrink: 0 }}>{ROLES.filter(r => r !== "Super Admin").map(r => <option key={r}>{r}</option>)}</select>
+                            <button onClick={async () => { try { const updated = { ...u, active: !u.active }; await axios.put(`${USERS_API}/${u.id}`, updated); setUsers(users.map(x => x.id === u.id ? updated : x)); } catch (err) { alert("Failed to update user"); } }} style={{ border: "none", background: u.active ? "#fef9c3" : "#dcfce7", color: u.active ? "#854d0e" : "#15803d", borderRadius: 6, padding: "4px 9px", cursor: "pointer", fontSize: 12, fontWeight: 600 }}>{u.active ? "Deactivate" : "Activate"}</button>
+                            {u.id !== currentUser.id && <button onClick={async () => { if (window.confirm(`Delete ${u.name}?`)) { try { await axios.delete(`${USERS_API}/${u.id}`); setUsers(users.filter(x => x.id !== u.id)); } catch (err) { console.error("Delete failed:", err); } } }} style={{ border: "none", background: "#fee2e2", color: "#ef4444", borderRadius: 6, padding: "4px 9px", cursor: "pointer", fontSize: 12, fontWeight: 600 }}>Delete</button>}
+                            <button onClick={() => { setEditUserOpen(u); setEditUserForm({ name: u.name, email: u.email, password: "" }); }} style={{ border: "none", background: "#dbeafe", color: "#1e40af", borderRadius: 6, padding: "4px 9px", cursor: "pointer", fontSize: 12, fontWeight: 600 }}>Edit</button>
+                          </div></td>
+                        );
+                      })()}
                     </tr>
                   ))}</tbody>
                 </table>
@@ -4320,7 +4674,7 @@ export default function HelpDesk() {
           <FF label="Due Date"><input type="date" style={iS} value={form.dueDate || ""} onChange={e => setForm({ ...form, dueDate: e.target.value })} /></FF>
         </div>
         <FF label="Assignees">
-          {currentUser?.role === "Admin" || currentUser?.role === "Manager" ? (
+          {(currentUser?.role === "Admin" || currentUser?.role === "Manager") ? (
             <div style={{ position: "relative" }}>
               <div onClick={() => setShowAssigneeDD(!showAssigneeDD)} style={{ ...iS, cursor: "pointer", minHeight: 40, display: "flex", alignItems: "center", flexWrap: "wrap", gap: 5, padding: form.assignees.length ? "6px 10px" : "9px 12px" }}>
                 {!form.assignees.length && <span style={{ color: "#94a3b8" }}>Click to assign agents…</span>}
@@ -4588,7 +4942,7 @@ export default function HelpDesk() {
           </div>}
           <div style={{ marginBottom: 14, padding: "11px 13px", background: "#f8fafc", borderRadius: 9 }}>
             <div style={{ fontSize: 10, fontWeight: 600, color: "#94a3b8", textTransform: "uppercase", marginBottom: 7 }}>Assignees</div>
-            {currentUser?.role === "Admin" || currentUser?.role === "Manager" ? (
+            {(currentUser?.role === "Admin" || currentUser?.role === "Manager") ? (
               <div>
                 <div style={{ display: "flex", flexWrap: "wrap", gap: 7, marginBottom: 10 }}>
                   {(selTicket.assignees || []).map(a => <div key={a.id} style={{ display: "flex", alignItems: "center", gap: 7, background: "#dbeafe", padding: "5px 9px", borderRadius: 7, border: "1px solid #bfdbfe" }}><Avatar name={a.name} size={24} /><div><div style={{ fontSize: 12, fontWeight: 600 }}>{a.name}</div><div style={{ fontSize: 10, color: "#64748b" }}>{a.role}</div></div><span onClick={async () => { const updated = { ...selTicket, assignees: selTicket.assignees.filter(x => x.id !== a.id), updated: new Date().toISOString() }; try { await axios.put(`${TICKETS_API}/${selTicket.id}`, updated); setTickets(t => t.map(x => x.id === selTicket.id ? { ...updated, updated: new Date(updated.updated) } : x)); setSelTicket(updated); } catch (e) { alert("Failed to remove assignee"); } }} style={{ cursor: "pointer", fontWeight: 700, marginLeft: 4, color: "#ef4444" }}>×</span></div>)}
@@ -4867,7 +5221,7 @@ export default function HelpDesk() {
           </div>
           <div style={{ marginBottom: 14, padding: "11px 13px", background: "#f8fafc", borderRadius: 9 }}>
             <div style={{ fontSize: 10, fontWeight: 600, color: "#94a3b8", textTransform: "uppercase", marginBottom: 7 }}>Assignees</div>
-            {currentUser?.role === "Admin" || currentUser?.role === "Manager" ? (
+            {(currentUser?.role === "Admin" || currentUser?.role === "Manager") ? (
               <div>
                 <div style={{ display: "flex", flexWrap: "wrap", gap: 7, marginBottom: 10 }}>
                   {(selProject.assignees || []).map(a => <div key={a.id} style={{ display: "flex", alignItems: "center", gap: 7, background: "#dbeafe", padding: "5px 9px", borderRadius: 7, border: "1px solid #bfdbfe" }}><Avatar name={a.name} size={24} /><div><div style={{ fontSize: 12, fontWeight: 600 }}>{a.name}</div><div style={{ fontSize: 10, color: "#64748b" }}>{a.role}</div></div><span onClick={async () => { const updated = { ...selProject, assignees: selProject.assignees.filter(x => x.id !== a.id), updated: new Date().toISOString() }; try { await axios.put(`${PROJECTS_API}/${selProject.id}`, updated); setProjects(p => p.map(x => x.id === selProject.id ? { ...updated, updated: new Date(updated.updated) } : x)); setSelProject(updated); } catch (e) { alert("Failed to remove assignee"); } }} style={{ cursor: "pointer", fontWeight: 700, marginLeft: 4, color: "#ef4444" }}>×</span></div>)}

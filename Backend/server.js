@@ -208,6 +208,8 @@ const Notification = sequelize.define("Notification", {
     status: { type: DataTypes.STRING, defaultValue: null },
     resolved: { type: DataTypes.STRING, defaultValue: null },
     from: { type: DataTypes.STRING, defaultValue: null },
+    broadcastIcon: { type: DataTypes.STRING, defaultValue: null },
+    broadcastType: { type: DataTypes.STRING, defaultValue: null },
     read: { type: DataTypes.BOOLEAN, defaultValue: false },
     alerted: { type: DataTypes.BOOLEAN, defaultValue: false },
 }, { timestamps: true });
@@ -516,7 +518,7 @@ app.delete("/api/locations/:id", async (req, res) => {
 // ─── NOTIFICATIONS (Inbox — DB-backed per user) ─────────────────────────────
 
 // GET /api/notifications?userId=<id>
-// Returns all notifications for a user, newest first
+// Returns all notifications for a user newest first (personal inbox + activity feed)
 app.get("/api/notifications", async (req, res) => {
     try {
         const { userId } = req.query;
@@ -525,6 +527,7 @@ app.get("/api/notifications", async (req, res) => {
         const items = await Notification.findAll({
             where: { userId: parseInt(userId, 10) },
             order: [["createdAt", "DESC"]],
+            limit: 300,
         });
         res.json(items.map(fmt));
     } catch (err) {
@@ -542,6 +545,7 @@ app.post("/api/notifications", async (req, res) => {
             ticketId, ticketSummary, requestId,
             fromUser, fromUserId, toAgent, reason,
             status, resolved, from,
+            broadcastIcon, broadcastType,
             read = false, alerted = false,
         } = req.body;
 
@@ -563,6 +567,8 @@ app.post("/api/notifications", async (req, res) => {
             status: status || null,
             resolved: resolved || null,
             from: from || null,
+            broadcastIcon: broadcastIcon || null,
+            broadcastType: broadcastType || null,
             read,
             alerted,
         });
@@ -953,10 +959,23 @@ app.post("/api/all-data/import", async (req, res) => {
 async function cleanupOldNotifications() {
     try {
         const cutoff = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+        // Delete old inbox-type notifications (forward requests etc.) older than 30 days
         const deleted = await Notification.destroy({
-            where: { createdAt: { [Op.lt]: cutoff } }
+            where: {
+                createdAt: { [Op.lt]: cutoff },
+                type: { [Op.notIn]: ["activity"] }
+            }
         });
-        if (deleted > 0) console.log(`🗑️  Cleaned up ${deleted} old notification(s)`);
+        // Delete activity notifications older than 24 hours (they belong in daily bell only)
+        const activityCutoff = new Date(Date.now() - 24 * 60 * 60 * 1000);
+        const deletedActivity = await Notification.destroy({
+            where: {
+                createdAt: { [Op.lt]: activityCutoff },
+                type: "activity"
+            }
+        });
+        if (deleted > 0 || deletedActivity > 0)
+            console.log(`🗑️  Cleaned up ${deleted} old notifications, ${deletedActivity} activity entries`);
     } catch (err) {
         console.error("Notification cleanup error:", err.message);
     }
