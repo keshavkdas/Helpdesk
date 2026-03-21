@@ -984,6 +984,7 @@ export default function HelpDesk() {
   const [selTicket, setSelTicket] = useState(null);
   const [selProject, setSelProject] = useState(null);
   const [selAgent, setSelAgent] = useState(null);
+  const [agentTicketFilter, setAgentTicketFilter] = useState(null);
 
   // ── Satsangs ──
   const [satsangs, setSatsangs] = useState([]);
@@ -4233,9 +4234,31 @@ export default function HelpDesk() {
                   </div>
                 </div>
               </div>
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10 }}>
-                {[{ l: "Assigned", v: selAgent.assigned, c: "#3b82f6" }, { l: "Resolved", v: selAgent.resolved, c: "#22c55e" }, { l: "Open", v: selAgent.assigned - selAgent.resolved, c: "#f59e0b" }].map(s => (
-                  <div key={s.l} style={{ textAlign: "center", padding: "12px 8px", background: "#f8fafc", borderRadius: 10 }}><div style={{ fontSize: 22, fontWeight: 700, color: s.c }}>{s.v}</div><div style={{ fontSize: 11, color: "#94a3b8", marginTop: 4 }}>{s.l}</div></div>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 10 }}>
+                {[
+                  { l: "All", v: selAgent.assigned, c: "#94a3b8", filter: null, bg: "#f1f5f9" },
+                  { l: "Assigned", v: selAgent.assigned, c: "#3b82f6", filter: "assigned", bg: "#dbeafe" },
+                  { l: "Resolved", v: selAgent.resolved, c: "#22c55e", filter: "resolved", bg: "#dcfce7" },
+                  { l: "Open", v: selAgent.assigned - selAgent.resolved, c: "#f59e0b", filter: "open", bg: "#fef3c7" }
+                ].map(s => (
+                  <div
+                    key={s.l}
+                    onClick={() => setAgentTicketFilter(s.filter)}
+                    style={{
+                      textAlign: "center",
+                      padding: "12px 8px",
+                      background: agentTicketFilter === s.filter ? s.bg : "#f8fafc",
+                      borderRadius: 10,
+                      border: agentTicketFilter === s.filter ? `2px solid ${s.c}` : "2px solid transparent",
+                      cursor: "pointer",
+                      transition: "all 0.2s"
+                    }}
+                    onMouseEnter={e => { if (agentTicketFilter !== s.filter) { e.currentTarget.style.background = "#f0f0f0"; } }}
+                    onMouseLeave={e => { if (agentTicketFilter !== s.filter) { e.currentTarget.style.background = "#f8fafc"; } }}
+                  >
+                    <div style={{ fontSize: 22, fontWeight: 700, color: s.c }}>{s.v}</div>
+                    <div style={{ fontSize: 11, color: "#94a3b8", marginTop: 4 }}>{s.l}</div>
+                  </div>
                 ))}
               </div>
             </div>
@@ -4243,17 +4266,26 @@ export default function HelpDesk() {
               <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 14, color: "#374151" }}>Assigned Tickets</div>
               {tickets.filter(t => t.assignees?.some(a => a.id === selAgent.id)).length > 0 ? (
                 <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                  {tickets.filter(t => t.assignees?.some(a => a.id === selAgent.id)).map(t => (
-                    <div key={t.id} onClick={() => { setSelTicket(t); setSelAgent(null); }} style={{ display: "flex", alignItems: "center", gap: 10, padding: "12px", borderRadius: 9, border: "1px solid #f1f5f9", cursor: "pointer", transition: "all 0.2s", background: "#fff" }}
-                      onMouseEnter={e => { e.currentTarget.style.background = "#f8fafc"; e.currentTarget.style.borderColor = "#3b82f6"; }}
-                      onMouseLeave={e => { e.currentTarget.style.background = "#fff"; e.currentTarget.style.borderColor = "#f1f5f9"; }}>
-                      <div style={{ flex: 1, minWidth: 0 }}>
-                        <div style={{ fontSize: 13, fontWeight: 600, color: "#1e293b" }}>{t.summary}</div>
-                        <div style={{ fontSize: 11, color: "#64748b", marginTop: 2 }}>{t.id} · {t.org}</div>
+                  {tickets.filter(t => {
+                    if (!t.assignees?.some(a => a.id === selAgent.id)) return false;
+                    if (agentTicketFilter === null) return true;
+                    if (agentTicketFilter === "assigned") return t.status === "Open" || t.status === "In Progress";
+                    if (agentTicketFilter === "resolved") return t.status === "Resolved" || t.status === "Closed";
+                    if (agentTicketFilter === "open") return t.status === "Open" || t.status === "In Progress";
+                    return true;
+                  }).map(t => {
+                    return (
+                      <div key={t.id} onClick={() => { setSelTicket(t); setSelAgent(null); }} style={{ display: "flex", alignItems: "center", gap: 10, padding: "12px", borderRadius: 9, border: "1px solid #f1f5f9", cursor: "pointer", transition: "all 0.2s", background: "#fff" }}
+                        onMouseEnter={e => { e.currentTarget.style.background = "#f8fafc"; e.currentTarget.style.borderColor = "#3b82f6"; e.currentTarget.style.transform = "translateX(4px)"; }}
+                        onMouseLeave={e => { e.currentTarget.style.background = "#fff"; e.currentTarget.style.borderColor = "#f1f5f9"; e.currentTarget.style.transform = "translateX(0)"; }}>
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div style={{ fontSize: 13, fontWeight: 600, color: "#1e293b" }}>{t.summary}</div>
+                          <div style={{ fontSize: 11, color: "#64748b", marginTop: 2 }}>{t.id} · {t.org}</div>
+                        </div>
+                        <Badge label={t.status} style={{ ...STATUS_COLOR[t.status], fontSize: 11 }} />
                       </div>
-                      <Badge label={t.status} style={{ ...STATUS_COLOR[t.status], fontSize: 11 }} />
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               ) : (
                 <div style={{ textAlign: "center", padding: 24, color: "#94a3b8", fontSize: 13 }}>No assigned tickets</div>
