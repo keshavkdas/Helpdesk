@@ -1402,19 +1402,9 @@ export default function HelpDesk() {
         ...personalItems.filter(i => i.type === "activity")
       ];
 
-      const newActivity = allActivityItems.filter(a => {
-        if (seenActivityIds.current.has(a.id)) return false;
-        const created = new Date(a.createdAt);
-        if (created < todayStart) return false;
-        return true;
-      });
-
-      // Map all activity items to bell entries and SET state directly from DB truth
+      // Build bell items from today's activity — DB is the single source of truth
       const bellItems = allActivityItems
-        .filter(a => {
-          const created = new Date(a.createdAt);
-          return created >= todayStart;
-        })
+        .filter(a => new Date(a.createdAt) >= todayStart)
         .map(a => ({
           id: `db-${a.id}`,
           dbId: a.id,
@@ -1430,11 +1420,10 @@ export default function HelpDesk() {
         .sort((a, b) => new Date(b.time) - new Date(a.time));
 
       setDailyNotifs(bellItems);
-      // Unread = new items since last time bell was opened (track via ref)
-      const newIds = bellItems.filter(b => !seenActivityIds.current.has(b.dbId));
-      if (newIds.length > 0) {
-        setBellUnread(newIds.length);
-      }
+
+      // Unread = items not yet seen (not in ref). Ref is populated when bell is opened.
+      const unseenCount = bellItems.filter(b => !seenActivityIds.current.has(b.dbId)).length;
+      setBellUnread(unseenCount);
 
       // ── Inbox panel: personal non-activity items (forward requests, responses, assignments) ──
       const inboxOnlyItems = personalItems.filter(i => i.type !== "activity");
