@@ -1120,7 +1120,7 @@ export default function HelpDesk() {
     };
 
     // 2. ONE global row — userId = 0 — visible to all admins/managers
-    axios.post(NOTIFICATIONS_API, { ...payload, userId: 0 }).catch(() => { });
+    axios.post(NOTIFICATIONS_API, { ...payload, userId: 0 }).catch(err => console.error("Notif POST failed:", err?.response?.data || err.message));
 
     // 3. For ticket events only: also send a personal row to each assigned agent/viewer
     //    so they see their own tickets in their bell too
@@ -1132,7 +1132,7 @@ export default function HelpDesk() {
             !["Admin", "Manager", "Super Admin"].includes(users.find(u => u.id === a.id)?.role))
           .map(a => a.id);
         if (assigneeIds.length > 0) {
-          axios.post(NOTIFICATIONS_API, { ...payload, recipientIds: assigneeIds }).catch(() => { });
+          axios.post(NOTIFICATIONS_API, { ...payload, recipientIds: assigneeIds }).catch(err => console.error("Notif assignee POST failed:", err?.response?.data || err.message));
         }
       }
     }

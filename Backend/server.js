@@ -36,7 +36,7 @@ const User = sequelize.define("User", {
     email: { type: DataTypes.STRING, allowNull: false, unique: true, validate: { isEmail: true } },
     password: { type: DataTypes.STRING, allowNull: false },
     phone: { type: DataTypes.STRING, defaultValue: "" },
-    role: { type: DataTypes.ENUM("Admin", "Manager", "Agent", "Viewer"), defaultValue: "Agent" },
+    role: { type: DataTypes.ENUM("Super Admin", "Admin", "Manager", "Agent", "Viewer"), defaultValue: "Agent" },
     active: { type: DataTypes.BOOLEAN, defaultValue: true },
     status: { type: DataTypes.STRING, defaultValue: "Logged-Out" },
     confirmed: { type: DataTypes.BOOLEAN, defaultValue: true },
@@ -522,7 +522,7 @@ app.delete("/api/locations/:id", async (req, res) => {
 app.get("/api/notifications", async (req, res) => {
     try {
         const { userId } = req.query;
-        if (!userId) return res.status(400).json({ error: "userId query param required" });
+        if (userId == null || userId === "") return res.status(400).json({ error: "userId query param required" });
 
         const items = await Notification.findAll({
             where: { userId: parseInt(userId, 10) },
@@ -581,12 +581,12 @@ app.post("/api/notifications", async (req, res) => {
             return res.status(201).json({ success: true, count: rows.length });
         }
 
-        // Single recipient
-        if (!userId) return res.status(400).json({ error: "userId or recipientIds is required" });
+        // Single recipient — userId can be 0 (global), explicit null check required since 0 is falsy
+        if (userId == null) return res.status(400).json({ error: "userId or recipientIds is required" });
         const notif = await Notification.create({ ...base, userId: parseInt(userId, 10) });
         res.status(201).json(fmt(notif));
     } catch (err) {
-        console.error("POST /api/notifications error:", err.message);
+        console.error("POST /api/notifications error:", err.message, err.errors?.map(e => e.message));
         res.status(500).json({ error: err.message });
     }
 });
@@ -967,27 +967,34 @@ app.post("/api/all-data/import", async (req, res) => {
 });
 
 // ─── NOTIFICATION CLEANUP JOB (runs once on startup, then every 24h) ────────
-// Deletes inbox notifications older than 30 days to keep the table lean
 async function cleanupOldNotifications() {
     try {
-        const cutoff = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
-        // Delete old inbox-type notifications (forward requests etc.) older than 30 days
-        const deleted = await Notification.destroy({
-            where: {
-                createdAt: { [Op.lt]: cutoff },
-                type: { [Op.notIn]: ["activity"] }
-            }
-        });
-        // Delete activity notifications older than 24 hours (they belong in daily bell only)
+        // 1. Bell (activity) rows: delete after 24h — these are daily-only
         const activityCutoff = new Date(Date.now() - 24 * 60 * 60 * 1000);
         const deletedActivity = await Notification.destroy({
             where: {
-                createdAt: { [Op.lt]: activityCutoff },
-                type: "activity"
+                type: "activity",
+                createdAt: { [Op.lt]: activityCutoff }
             }
         });
-        if (deleted > 0 || deletedActivity > 0)
-            console.log(`🗑️  Cleaned up ${deleted} old notifications, ${deletedActivity} activity entries`);
+
+        // 2. Inbox rows: keep forward_request items until they are resolved.
+        //    Delete all other inbox items (responses, assignments) after 30 days.
+        //    Delete resolved forward_request items after 30 days too.
+        const inboxCutoff = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+        const deletedInbox = await Notification.destroy({
+            where: {
+                type: { [Op.notIn]: ["activity"] },
+                createdAt: { [Op.lt]: inboxCutoff },
+                [Op.or]: [
+                    { type: { [Op.notIn]: ["forward_request"] } },
+                    { resolved: { [Op.not]: null } }
+                ]
+            }
+        });
+
+        if (deletedActivity > 0 || deletedInbox > 0)
+            console.log(`Cleaned up ${deletedInbox} old inbox items, ${deletedActivity} activity entries`);
     } catch (err) {
         console.error("Notification cleanup error:", err.message);
     }
