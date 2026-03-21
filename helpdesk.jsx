@@ -927,6 +927,10 @@ export default function HelpDesk() {
   // ✅ NEW: Vendor Management
   const [vendors, setVendors] = useState([]);
   const [newVendor, setNewVendor] = useState({ name: "", email: "", phone: "", address: "" });
+  const [showAddVendorModal, setShowAddVendorModal] = useState(false);
+
+  // ✅ NEW: User Add Modal
+  const [showAddUserModal, setShowAddUserModal] = useState(false);
 
   // ✅ NEW: Save current view and filters to localStorage
   useEffect(() => {
@@ -2416,12 +2420,29 @@ export default function HelpDesk() {
     setConfirmModal({
       show: true,
       title: `Delete ${user?.name}?`,
-      message: `Are you sure you want to delete ${user?.name}? This user account and all associated data will be permanently removed. This action cannot be undone.`,
+      message: `Are you sure you want to delete ${user?.name}? This user account will be removed. Any tickets assigned to this user will be marked as unassigned. This action cannot be undone.`,
       onConfirm: async () => {
         try {
+          // Find all tickets assigned to this user and mark them as unassigned
+          const ticketsToUpdate = tickets.filter(t => t.assignees?.some(a => a.id === id));
+
+          for (const ticket of ticketsToUpdate) {
+            const updatedAssignees = (ticket.assignees || []).filter(a => a.id !== id);
+            await axios.put(`${TICKETS_API}/${ticket.id}`, { ...ticket, assignees: updatedAssignees });
+          }
+
+          // Delete the user
           await axios.delete(`${USERS_API}/${id}`);
+
+          // Update local state
           setUsers(prev => prev.filter(u => u.id !== id));
-          setCustomAlert({ show: true, message: `${user?.name} deleted successfully`, type: "success" });
+          setTickets(tickets.map(t =>
+            ticketsToUpdate.some(tu => tu.id === t.id)
+              ? { ...t, assignees: (t.assignees || []).filter(a => a.id !== id) }
+              : t
+          ));
+
+          setCustomAlert({ show: true, message: `${user?.name} deleted successfully. ${ticketsToUpdate.length} ticket(s) marked as unassigned.`, type: "success" });
           setConfirmModal({ show: false, title: "", message: "", onConfirm: null, onCancel: null });
         } catch (err) {
           console.error("Error deleting user:", err);
@@ -3351,6 +3372,58 @@ export default function HelpDesk() {
             </div>
           </div>
         )}
+      </Modal>
+
+      {/* Add Vendor Modal */}
+      <Modal open={showAddVendorModal} onClose={() => { setShowAddVendorModal(false); setNewVendor({ name: "", email: "", phone: "", address: "" }); }} title="Add New Vendor" width={450}>
+        <div>
+          <div style={{ marginBottom: 16 }}>
+            <label style={{ display: "block", fontSize: 12, fontWeight: 600, color: "#334155", marginBottom: 6 }}>Vendor Name *</label>
+            <input style={iS} placeholder="Enter vendor name" value={newVendor.name || ""} onChange={e => setNewVendor({ ...newVendor, name: e.target.value })} />
+          </div>
+          <div style={{ marginBottom: 16 }}>
+            <label style={{ display: "block", fontSize: 12, fontWeight: 600, color: "#334155", marginBottom: 6 }}>Email Address</label>
+            <input style={iS} type="email" placeholder="Enter email" value={newVendor.email || ""} onChange={e => setNewVendor({ ...newVendor, email: e.target.value })} />
+          </div>
+          <div style={{ marginBottom: 16 }}>
+            <label style={{ display: "block", fontSize: 12, fontWeight: 600, color: "#334155", marginBottom: 6 }}>Phone Number</label>
+            <input style={iS} placeholder="Enter phone number" value={newVendor.phone || ""} onChange={e => setNewVendor({ ...newVendor, phone: e.target.value })} />
+          </div>
+          <div style={{ marginBottom: 18 }}>
+            <label style={{ display: "block", fontSize: 12, fontWeight: 600, color: "#334155", marginBottom: 6 }}>Address</label>
+            <input style={iS} placeholder="Enter address" value={newVendor.address || ""} onChange={e => setNewVendor({ ...newVendor, address: e.target.value })} />
+          </div>
+          <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
+            <button onClick={() => { setShowAddVendorModal(false); setNewVendor({ name: "", email: "", phone: "", address: "" }); }} style={bG}>Cancel</button>
+            <button onClick={() => { addVendor(); setShowAddVendorModal(false); }} style={bP}>Add Vendor</button>
+          </div>
+        </div>
+      </Modal>
+
+      {/* Add User Modal */}
+      <Modal open={showAddUserModal} onClose={() => { setShowAddUserModal(false); setNewUser({ name: "", email: "", password: "", role: "Viewer" }); }} title="Add New User" width={450}>
+        <div>
+          <div style={{ marginBottom: 16 }}>
+            <label style={{ display: "block", fontSize: 12, fontWeight: 600, color: "#334155", marginBottom: 6 }}>Full Name *</label>
+            <input style={iS} placeholder="Enter full name" value={newUser.name || ""} onChange={e => setNewUser({ ...newUser, name: e.target.value })} />
+          </div>
+          <div style={{ marginBottom: 16 }}>
+            <label style={{ display: "block", fontSize: 12, fontWeight: 600, color: "#334155", marginBottom: 6 }}>Email Address *</label>
+            <input style={iS} type="email" placeholder="Enter email" value={newUser.email || ""} onChange={e => setNewUser({ ...newUser, email: e.target.value })} />
+          </div>
+          <div style={{ marginBottom: 16 }}>
+            <label style={{ display: "block", fontSize: 12, fontWeight: 600, color: "#334155", marginBottom: 6 }}>Password *</label>
+            <input style={iS} type="password" placeholder="Enter password (min 6 characters)" value={newUser.password || ""} onChange={e => setNewUser({ ...newUser, password: e.target.value })} />
+          </div>
+          <div style={{ marginBottom: 18 }}>
+            <label style={{ display: "block", fontSize: 12, fontWeight: 600, color: "#334155", marginBottom: 6 }}>Role</label>
+            <select style={{ ...sS, width: "100%" }} value={newUser.role || "Viewer"} onChange={e => setNewUser({ ...newUser, role: e.target.value })}>{ROLES.filter(r => r !== "Super Admin").map(r => <option key={r}>{r}</option>)}</select>
+          </div>
+          <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
+            <button onClick={() => { setShowAddUserModal(false); setNewUser({ name: "", email: "", password: "", role: "Viewer" }); }} style={bG}>Cancel</button>
+            <button onClick={() => { addUser(); setShowAddUserModal(false); }} style={bP}>Add User</button>
+          </div>
+        </div>
       </Modal>
 
       {/* ── MAIN CONTENT ────────────────────────────────────────────────── */}
@@ -4336,33 +4409,8 @@ export default function HelpDesk() {
                 <h3 style={{ margin: "0 0 4px", fontSize: 15, fontWeight: 700 }}>🏭 Vendors ({vendors.length})</h3>
                 <p style={{ margin: "0 0 18px", fontSize: 12, color: "#64748b" }}>Manage vendors with contact information for sending tickets.</p>
                 {currentUser?.role === "Admin" ? (
-                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr auto", gap: 9, marginBottom: 18, padding: 14, background: "#f8fafc", borderRadius: 9 }}>
-                    <input
-                      style={iS}
-                      placeholder="Vendor name *"
-                      value={newVendor?.name || ""}
-                      onChange={e => setNewVendor({ ...newVendor, name: e.target.value })}
-                    />
-                    <input
-                      type="email"
-                      style={iS}
-                      placeholder="Email"
-                      value={newVendor?.email || ""}
-                      onChange={e => setNewVendor({ ...newVendor, email: e.target.value })}
-                    />
-                    <input
-                      style={iS}
-                      placeholder="Phone"
-                      value={newVendor?.phone || ""}
-                      onChange={e => setNewVendor({ ...newVendor, phone: e.target.value })}
-                    />
-                    <input
-                      style={iS}
-                      placeholder="Address"
-                      value={newVendor?.address || ""}
-                      onChange={e => setNewVendor({ ...newVendor, address: e.target.value })}
-                    />
-                    <button onClick={addVendor} style={bP}>Add</button>
+                  <div style={{ marginBottom: 18, display: "flex", justifyContent: "flex-end" }}>
+                    <button onClick={() => { setShowAddVendorModal(true); setNewVendor({ name: "", email: "", phone: "", address: "" }); }} style={{ ...bP, padding: "10px 20px", fontSize: 13, background: "linear-gradient(135deg,#3b82f6,#1e40af)", color: "#fff" }}>+ Add New Vendor</button>
                   </div>
                 ) : <div style={{ marginBottom: 18, padding: "10px 14px", background: "#fef3c7", color: "#92400e", borderRadius: 8, fontSize: 13, fontWeight: 500 }}>Read Only: Adding or removing vendors is restricted to Admins.</div>}
 
@@ -4390,12 +4438,8 @@ export default function HelpDesk() {
               {settingsTab === "usermgmt" && <div style={{ background: "#fff", borderRadius: 12, padding: 22, boxShadow: "0 1px 4px rgba(0,0,0,0.06)" }}>
                 <h3 style={{ margin: "0 0 14px", fontSize: 15, fontWeight: 700 }}>User Management ({users.length} users)</h3>
                 {(currentUser?.role === "Super Admin" || currentUser?.role === "Admin") ? (
-                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr auto auto", gap: 9, marginBottom: 18, padding: 14, background: "#f8fafc", borderRadius: 9 }}>
-                    <input style={iS} placeholder="Full name *" value={newUser.name} onChange={e => setNewUser({ ...newUser, name: e.target.value })} />
-                    <input style={iS} placeholder="Email *" value={newUser.email} onChange={e => setNewUser({ ...newUser, email: e.target.value })} />
-                    <input style={iS} type="password" placeholder="Password *" value={newUser.password} onChange={e => setNewUser({ ...newUser, password: e.target.value })} />
-                    <select style={{ ...sS, width: 110 }} value={newUser.role} onChange={e => setNewUser({ ...newUser, role: e.target.value })}>{ROLES.filter(r => r !== "Super Admin").map(r => <option key={r}>{r}</option>)}</select>
-                    <button onClick={addUser} style={bP}>Add</button>
+                  <div style={{ marginBottom: 18, display: "flex", justifyContent: "flex-end" }}>
+                    <button onClick={() => { setShowAddUserModal(true); setNewUser({ name: "", email: "", password: "", role: "Viewer" }); }} style={{ ...bP, padding: "10px 20px", fontSize: 13, background: "linear-gradient(135deg,#3b82f6,#1e40af)", color: "#fff" }}>+ Add New User</button>
                   </div>
                 ) : currentUser?.role === "Manager" ? (
                   <div style={{ marginBottom: 18, padding: "10px 14px", background: "#fef3c7", color: "#92400e", borderRadius: 8, fontSize: 13, fontWeight: 500 }}>View Only: Managers can view users but cannot add, delete, or change roles.</div>
@@ -4423,15 +4467,8 @@ export default function HelpDesk() {
                         return sStyle ? <Badge label={sStyle.l} style={{ background: sStyle.bg, color: sStyle.c }} /> : <Badge label={statusValue} />;
                       })()}</td>
                       <td style={tdStyle}><Badge label={u.active ? "Activated" : "Deactivated"} style={{ background: u.active ? "#dcfce7" : "#fee2e2", color: u.active ? "#15803d" : "#ef4444" }} /></td>
-                      {(currentUser?.role === "Super Admin" || currentUser?.role === "Admin") && u.role !== "Super Admin" && (() => {
-                        // A plain Admin cannot edit/delete/deactivate other Admins — only Super Admin can
-                        const targetIsAdmin = u.role === "Admin";
-                        const canAct = currentUser?.role === "Super Admin" || !targetIsAdmin;
-                        if (!canAct) return (
-                          <td style={tdStyle}>
-                            <span style={{ fontSize: 11, color: "#94a3b8", fontStyle: "italic" }}>Super Admin only</span>
-                          </td>
-                        );
+                      {(currentUser?.role === "Super Admin" || currentUser?.role === "Admin") && (() => {
+                        // Admins can now change role of other admins
                         return (
                           <td style={tdStyle}><div style={{ display: "flex", gap: 6, alignItems: "center" }}>
                             <select value={u.role} onChange={async (e) => {
@@ -4464,9 +4501,9 @@ export default function HelpDesk() {
                                   e.target.value = u.role;
                                 }
                               });
-                            }} style={{ ...sS, fontSize: 11, padding: "4px 8px", width: 110, flexShrink: 0 }}>{ROLES.filter(r => r !== "Super Admin").map(r => <option key={r}>{r}</option>)}</select>
+                            }} style={{ ...sS, fontSize: 11, padding: "4px 8px", width: 110, flexShrink: 0 }}>{ROLES.map(r => <option key={r}>{r}</option>)}</select>
                             <button onClick={async () => { try { const updated = { ...u, active: !u.active }; await axios.put(`${USERS_API}/${u.id}`, updated); setUsers(users.map(x => x.id === u.id ? updated : x)); } catch (err) { alert("Failed to update user"); } }} style={{ border: "none", background: u.active ? "#fef9c3" : "#dcfce7", color: u.active ? "#854d0e" : "#15803d", borderRadius: 6, padding: "4px 9px", cursor: "pointer", fontSize: 12, fontWeight: 600 }}>{u.active ? "Deactivate" : "Activate"}</button>
-                            {u.id !== currentUser.id && <button onClick={async () => { if (window.confirm(`Delete ${u.name}?`)) { try { await axios.delete(`${USERS_API}/${u.id}`); setUsers(users.filter(x => x.id !== u.id)); } catch (err) { console.error("Delete failed:", err); } } }} style={{ border: "none", background: "#fee2e2", color: "#ef4444", borderRadius: 6, padding: "4px 9px", cursor: "pointer", fontSize: 12, fontWeight: 600 }}>Delete</button>}
+                            {u.id !== currentUser.id && <button onClick={() => deleteUser(u.id)} style={{ border: "none", background: "#fee2e2", color: "#ef4444", borderRadius: 6, padding: "4px 9px", cursor: "pointer", fontSize: 12, fontWeight: 600 }}>Delete</button>}
                             <button onClick={() => { setEditUserOpen(u); setEditUserForm({ name: u.name, email: u.email, password: "" }); }} style={{ border: "none", background: "#dbeafe", color: "#1e40af", borderRadius: 6, padding: "4px 9px", cursor: "pointer", fontSize: 12, fontWeight: 600 }}>Edit</button>
                           </div></td>
                         );
@@ -4910,7 +4947,7 @@ export default function HelpDesk() {
                 {[
                   { l: "Organisation", v: selTicket.org },
                   { l: "Department", v: selTicket.department || "—" },
-                  { l: "Contact", v: selTicket.contact || "—" },
+                  { l: "POC (Point ofContact)", v: selTicket.contact || "—" },
                   { l: "Reported By", v: selTicket.reportedBy || "—" },
                   { l: "Category", v: selTicket.category || "—" },
                   { l: "Location", v: selTicket.location || "—" },
