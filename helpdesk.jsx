@@ -1075,22 +1075,8 @@ export default function HelpDesk() {
   const [showTimelineView, setShowTimelineView] = useState(false);  // Show full timeline in modal
 
   // ── Notification Center ──
-  // Bell: daily activity log (localStorage, resets per day, not stored in DB)
-  const NOTIF_KEY = "deskflow_notifications";
-  const getTodayKey = () => new Date().toISOString().split("T")[0];
-  const loadDailyNotifs = () => {
-    try {
-      const raw = localStorage.getItem(NOTIF_KEY);
-      if (!raw) return [];
-      const { date, items } = JSON.parse(raw);
-      if (date !== getTodayKey()) { localStorage.removeItem(NOTIF_KEY); return []; }
-      return items || [];
-    } catch { return []; }
-  };
-  const saveDailyNotifs = (items) => {
-    try { localStorage.setItem(NOTIF_KEY, JSON.stringify({ date: getTodayKey(), items })); } catch { }
-  };
-  const [dailyNotifs, setDailyNotifs] = useState(loadDailyNotifs);
+  // Bell: populated purely from DB — no localStorage caching
+  const [dailyNotifs, setDailyNotifs] = useState([]);
   const [showBellPanel, setShowBellPanel] = useState(false);
   const [bellUnread, setBellUnread] = useState(0);
 
@@ -1103,19 +1089,10 @@ export default function HelpDesk() {
   const [floatingAlerts, setFloatingAlerts] = useState([]);
 
   // ── Core notification broadcaster ──────────────────────────────────────────
-  // Logs to current user's bell AND pushes inbox entries to:
-  //   • Every Admin, Manager, Super Admin  (all system events)
-  //   • Assigned agents/viewers           (ticket-specific events only)
-  // The sender themselves gets only the bell entry (not a duplicate inbox item).
+  // ONE row in DB per event (userId = 0 = global).
+  // Admins/Managers poll userId=0 and see everything.
+  // For ticket events, also push one personal row to each assigned agent/viewer.
   const addDailyNotif = (notif) => {
-    // 1. Add to local bell for the current user
-    setDailyNotifs(prev => {
-      const updated = [{ ...notif, id: Date.now(), time: new Date().toISOString() }, ...prev].slice(0, 200);
-      saveDailyNotifs(updated);
-      setBellUnread(u => u + 1);
-      return updated;
-    });
-
     if (!currentUser) return;
     const nowISO = new Date().toISOString();
     const ticketEventTypes = [
@@ -1129,42 +1106,35 @@ export default function HelpDesk() {
     ];
     if (!globalEventTypes.includes(notif.type)) return;
 
-    const isTicketEvent = ticketEventTypes.includes(notif.type);
+    const payload = {
+      type: "activity",
+      title: notif.text,
+      message: notif.text,
+      ticketId: notif.ticketId || null,
+      from: currentUser.name,
+      broadcastIcon: notif.icon,
+      broadcastType: notif.type,
+      read: false,
+      alerted: false,
+      createdAt: nowISO
+    };
 
-    // 2. Collect recipients
-    const recipients = new Set();
+    // 2. ONE global row — userId = 0 — visible to all admins/managers
+    axios.post(NOTIFICATIONS_API, { ...payload, userId: 0 }).catch(() => { });
 
-    // All admins/managers/super admins (except the person who triggered it)
-    users
-      .filter(u => u.active && u.id !== currentUser.id &&
-        (u.role === "Admin" || u.role === "Manager" || u.role === "Super Admin"))
-      .forEach(u => recipients.add(u.id));
-
-    // For ticket events: also notify assigned agents/viewers on that ticket
-    if (isTicketEvent && notif.ticketId) {
+    // 3. For ticket events only: also send a personal row to each assigned agent/viewer
+    //    so they see their own tickets in their bell too
+    if (ticketEventTypes.includes(notif.type) && notif.ticketId) {
       const ticket = tickets.find(t => t.id === notif.ticketId);
       if (ticket) {
-        (ticket.assignees || [])
-          .filter(a => a.id !== currentUser.id)
-          .forEach(a => recipients.add(a.id));
+        const assigneeIds = (ticket.assignees || [])
+          .filter(a => a.id !== currentUser.id &&
+            !["Admin", "Manager", "Super Admin"].includes(users.find(u => u.id === a.id)?.role))
+          .map(a => a.id);
+        if (assigneeIds.length > 0) {
+          axios.post(NOTIFICATIONS_API, { ...payload, recipientIds: assigneeIds }).catch(() => { });
+        }
       }
-    }
-
-    // 3. Post ONE notification with all recipient IDs — server fans it out into one row each
-    if (recipients.size > 0) {
-      axios.post(NOTIFICATIONS_API, {
-        recipientIds: Array.from(recipients),   // server expands this
-        type: "activity",
-        title: notif.text,
-        message: notif.text,
-        ticketId: notif.ticketId || null,
-        from: currentUser.name,
-        broadcastIcon: notif.icon,
-        broadcastType: notif.type,
-        read: false,
-        alerted: false,
-        createdAt: nowISO
-      }).catch(() => { });
     }
   };
 
@@ -1405,85 +1375,94 @@ export default function HelpDesk() {
   }, [currentUser]);
 
   // ── Inbox polling: fetch notifications from DB every 10s ──
+  // Use a ref to track which DB activity IDs we've already merged into the bell
+  // so stale closures in the polling interval never cause duplicates
+  const seenActivityIds = useRef(new Set());
+
   const fetchInbox = async () => {
     if (!currentUser) return;
+    const isAdminOrManager = ["Admin", "Manager", "Super Admin"].includes(currentUser.role);
     try {
-      const res = await axios.get(`${NOTIFICATIONS_API}?userId=${currentUser.id}`);
-      const items = res.data || [];
+      // Personal notifications (forward requests, responses, ticket assignments for agents)
+      const personalRes = await axios.get(`${NOTIFICATIONS_API}?userId=${currentUser.id}`);
+      const personalItems = personalRes.data || [];
 
-      // Split: activity items go to bell, action items go to inbox
-      const activityItems = items.filter(i => i.type === "activity");
-      const inboxOnlyItems = items.filter(i => i.type !== "activity");
-
-      // ── Feed activity items into the bell panel ──
-      const todayStart = new Date(); todayStart.setHours(0, 0, 0, 0);
-      const newActivity = activityItems.filter(a => {
-        const created = new Date(a.createdAt);
-        if (created < todayStart) return false; // only today's
-        // Avoid duplicates already in bell
-        return !dailyNotifs.some(n =>
-          n.fromDB && n.dbId === a.id
-        );
-      });
-
-      if (newActivity.length > 0) {
-        setDailyNotifs(prev => {
-          const merged = [
-            ...newActivity.map(a => ({
-              id: `db-${a.id}`,
-              dbId: a.id,
-              type: a.broadcastType || "activity",
-              icon: a.broadcastIcon || "📢",
-              text: a.title,
-              ticketId: a.ticketId,
-              by: a.from,
-              time: a.createdAt,
-              read: a.read,
-              fromDB: true,
-              fromBroadcast: true
-            })),
-            ...prev
-          ].slice(0, 300);
-          saveDailyNotifs(merged);
-          const newUnread = newActivity.filter(a => !a.read).length;
-          if (newUnread > 0) setBellUnread(u => u + newUnread);
-          return merged;
-        });
-        // Mark activity items as read on server so they don't re-appear next poll
-        newActivity.forEach(a => {
-          axios.put(`${NOTIFICATIONS_API}/${a.id}`, { ...a, read: true, alerted: true }).catch(() => { });
-        });
+      // Global activity log (userId=0) — only admins/managers pull this
+      let globalItems = [];
+      if (isAdminOrManager) {
+        const globalRes = await axios.get(`${NOTIFICATIONS_API}?userId=0`);
+        globalItems = globalRes.data || [];
       }
 
-      // ── Feed action items into the inbox panel ──
-      setInboxItems(inboxOnlyItems);
-      const unread = inboxOnlyItems.filter(i => !i.read).length;
-      setInboxUnread(unread);
+      const todayStart = new Date(); todayStart.setHours(0, 0, 0, 0);
 
-      // Show floating alerts for unread forward requests / responses
-      inboxOnlyItems.filter(i => !i.read && (i.type === "forward_request" || i.type === "forward_response")).forEach(item => {
-        if (!item.alerted) {
-          pushFloatingAlert(item);
-          axios.put(`${NOTIFICATIONS_API}/${item.id}`, { ...item, alerted: true }).catch(() => { });
-        }
+      // ── Activity items for bell: global rows (admins) + personal activity rows (agents) ──
+      const allActivityItems = [
+        ...globalItems.filter(i => i.type === "activity"),
+        ...personalItems.filter(i => i.type === "activity")
+      ];
+
+      const newActivity = allActivityItems.filter(a => {
+        if (seenActivityIds.current.has(a.id)) return false;
+        const created = new Date(a.createdAt);
+        if (created < todayStart) return false;
+        return true;
       });
+
+      // Map all activity items to bell entries and SET state directly from DB truth
+      const bellItems = allActivityItems
+        .filter(a => {
+          const created = new Date(a.createdAt);
+          return created >= todayStart;
+        })
+        .map(a => ({
+          id: `db-${a.id}`,
+          dbId: a.id,
+          type: a.broadcastType || "activity",
+          icon: a.broadcastIcon || "📢",
+          text: a.title,
+          ticketId: a.ticketId,
+          by: a.from,
+          time: a.createdAt,
+          fromDB: true,
+          fromBroadcast: a.userId === 0
+        }))
+        .sort((a, b) => new Date(b.time) - new Date(a.time));
+
+      setDailyNotifs(bellItems);
+      // Unread = new items since last time bell was opened (track via ref)
+      const newIds = bellItems.filter(b => !seenActivityIds.current.has(b.dbId));
+      if (newIds.length > 0) {
+        setBellUnread(newIds.length);
+      }
+
+      // ── Inbox panel: personal non-activity items (forward requests, responses, assignments) ──
+      const inboxOnlyItems = personalItems.filter(i => i.type !== "activity");
+      setInboxItems(inboxOnlyItems);
+      setInboxUnread(inboxOnlyItems.filter(i => !i.read).length);
+
+      inboxOnlyItems
+        .filter(i => !i.read && (i.type === "forward_request" || i.type === "forward_response"))
+        .forEach(item => {
+          if (!item.alerted) {
+            pushFloatingAlert(item);
+            axios.put(`${NOTIFICATIONS_API}/${item.id}`, { ...item, alerted: true }).catch(() => { });
+          }
+        });
     } catch (e) {
-      // Silently fail - notifications are non-critical
+      // Silently fail — notifications are non-critical
     }
   };
 
   useEffect(() => {
     if (!currentUser) return;
+    seenActivityIds.current = new Set(); // reset on login/user-change
     fetchInbox();
     const interval = setInterval(fetchInbox, 10000);
     return () => clearInterval(interval);
   }, [currentUser]);
 
-  // Init bell unread count from today's stored notifs
-  useEffect(() => {
-    const stored = loadDailyNotifs();
-    setBellUnread(stored.filter(n => !n.read).length);
-  }, []);
+
 
   // ✅ NEW: Listen for role change broadcasts from other tabs/admins
   useEffect(() => {
@@ -2834,11 +2813,8 @@ export default function HelpDesk() {
   // ─── NAVIGATION HELPERS ────────────────────────────────────────────────────
 
   const markBellRead = () => {
-    setDailyNotifs(prev => {
-      const updated = prev.map(n => ({ ...n, read: true }));
-      saveDailyNotifs(updated);
-      return updated;
-    });
+    // Mark all current bell items as seen in the ref so next poll doesn't re-count them
+    dailyNotifs.forEach(n => { if (n.dbId) seenActivityIds.current.add(n.dbId); });
     setBellUnread(0);
   };
 
