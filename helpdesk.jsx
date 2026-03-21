@@ -3590,7 +3590,7 @@ export default function HelpDesk() {
               <div style={{ display: "grid", gridTemplateColumns: "repeat(6,1fr)", gap: 9, marginBottom: 20 }}>
                 {[
                   { label: "Open", value: projStats.open, bg: "#fef3c7", accent: "#f59e0b", icon: "📂", action: () => { setPvFilter("open"); setProjStatusF("All"); setProjPriorityF("All"); } },
-                  { label: "Unassigned", value: dashboardProjects.filter(p => !p.assignees || p.assignees.length === 0).length, bg: "#f3e8ff", accent: "#a855f7", icon: "👤", action: () => { setPvFilter("unassigned"); } },
+                  { label: "Unassigned", value: dashboardProjects.filter(p => (!p.assignees || p.assignees.length === 0) && p.status !== "Closed" && p.status !== "Resolved").length, bg: "#f3e8ff", accent: "#a855f7", icon: "👤", action: () => { setPvFilter("unassigned"); } },
                   { label: "In Progress", value: projStats.inProgress, bg: "#ede9fe", accent: "#6366f1", icon: "⚙️", action: () => { setPvFilter("inprogress"); setProjStatusF("All"); setProjPriorityF("All"); } },
                   { label: "Critical", value: projStats.critical, bg: "#fee2e2", accent: "#ef4444", icon: "🔥", action: () => { setPvFilter("critical"); setProjStatusF("All"); setProjPriorityF("All"); } },
                   { label: "Resolved", value: projStats.resolved, bg: "#dcfce7", accent: "#22c55e", icon: "✅", action: () => { setPvFilter("closed"); setProjStatusF("All"); setProjPriorityF("All"); } },
