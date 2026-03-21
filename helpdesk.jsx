@@ -1040,6 +1040,7 @@ export default function HelpDesk() {
 
   // ── Auth ──
   const [isLogin, setIsLogin] = useState(true);
+  const [slideIndex, setSlideIndex] = useState(0);
   const [authForm, setAuthForm] = useState({ email: "", password: "", firstName: "", middleName: "", lastName: "", countryCode: "+1", phone: "", confirm: "" });
   const [authError, setAuthError] = useState("");
   const [authMessage, setAuthMessage] = useState("");
@@ -1053,6 +1054,16 @@ export default function HelpDesk() {
       setToasts(prev => prev.filter(t => t.id !== id));
     }, duration);
   };
+
+  // ── Slideshow (Login Page) ──
+  useEffect(() => {
+    if (!currentUser) {
+      const timer = setInterval(() => {
+        setSlideIndex((prev) => (prev + 1) % 3);
+      }, 5000);
+      return () => clearInterval(timer);
+    }
+  }, [currentUser]);
 
   // ── Ticket Edit Mode ──
   const [editMode, setEditMode] = useState(false);
@@ -2993,80 +3004,118 @@ export default function HelpDesk() {
   );
 
   // ─── AUTH SCREENS ──────────────────────────────────────────────────────────
-  if (!currentUser) return (
-    <div style={{ display: "flex", height: "100vh", alignItems: "center", justifyContent: "center", background: "#f8fafc", fontFamily: "'DM Sans',sans-serif", perspective: "1000px", position: "relative", overflow: "hidden" }}>
-      {/* Background Image with Opacity */}
-      <div style={{
-        position: "absolute",
-        inset: 0,
-        backgroundImage: 'url("/res/login_page_bg.jpeg")',
-        backgroundSize: "fill",
-        backgroundPosition: "center",
-        opacity: 0.6,
-        zIndex: 0
-      }} />
-      <div style={{ width: "100%", maxWidth: 400, position: "relative", transition: "transform 0.6s cubic-bezier(0.4,0,0.2,1)", transformStyle: "preserve-3d", transform: isLogin ? "rotateY(0deg)" : "rotateY(-180deg)", zIndex: 1 }}>
+  if (!currentUser) {
+    const slides = [
+      "/res/login_page_bg.jpeg",
+      "/res/slide_2.jpeg",
+      "/res/slide_3.jpeg"
+    ];
 
-        {/* FRONT: LOGIN */}
-        <div style={{ background: "rgba(255, 255, 255, 0.45)", backdropFilter: "blur(20px)", padding: 40, borderRadius: 20, boxShadow: "0 10px 40px rgba(0,0,0,0.12)", backfaceVisibility: "hidden", position: isLogin ? "relative" : "absolute", top: 0, left: 0, width: "100%", border: "1px solid rgba(255, 255, 255, 0.3)" }}>
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 10, marginBottom: 30 }}>
-            <div style={{ width: 44, height: 44, background: "linear-gradient(135deg,#3b82f6,#8b5cf6)", borderRadius: 12, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 22, color: "#fff" }}>⚡</div>
-            <div style={{ fontSize: 24, fontWeight: 700, color: "#0f172a" }}>DeskFlow</div>
+    return (
+      <div style={{ display: "flex", height: "100vh", fontFamily: "'DM Sans',sans-serif", perspective: "1000px", position: "relative", overflow: "hidden" }}>
+        {/* LEFT: SLIDESHOW (60%) */}
+        <div style={{ flex: 1.5, position: "relative", overflow: "hidden" }}>
+          {slides.map((slide, idx) => (
+            <div
+              key={idx}
+              style={{
+                position: "absolute",
+                inset: 0,
+                backgroundImage: `url("${slide}")`,
+                backgroundSize: "cover",
+                backgroundPosition: "center",
+                opacity: idx === slideIndex ? 1 : 0,
+                transition: "opacity 1s ease-in-out",
+                zIndex: idx === slideIndex ? 1 : 0
+              }}
+            />
+          ))}
+          {/* Slide Indicators */}
+          <div style={{ position: "absolute", bottom: 20, left: "50%", transform: "translateX(-50%)", display: "flex", gap: 8, zIndex: 10 }}>
+            {slides.map((_, idx) => (
+              <button
+                key={idx}
+                onClick={() => setSlideIndex(idx)}
+                style={{
+                  width: idx === slideIndex ? 24 : 10,
+                  height: 10,
+                  background: idx === slideIndex ? "#fff" : "rgba(255,255,255,0.5)",
+                  border: "none",
+                  borderRadius: 5,
+                  cursor: "pointer",
+                  transition: "all 0.3s"
+                }}
+              />
+            ))}
           </div>
-          <div style={{ display: "flex", background: "#f1f5f9", borderRadius: 10, padding: 4, marginBottom: 24 }}>
-            <button onClick={() => { setIsLogin(true); setAuthError(""); setAuthMessage(""); }} style={{ flex: 1, padding: "8px", border: "none", borderRadius: 8, background: "#fff", boxShadow: "0 2px 4px rgba(0,0,0,0.05)", cursor: "pointer", fontWeight: 600, color: "#0f172a" }}>Login</button>
-            <button onClick={() => { setIsLogin(false); setAuthError(""); setAuthMessage(""); }} style={{ flex: 1, padding: "8px", border: "none", borderRadius: 8, background: "transparent", cursor: "pointer", fontWeight: 600, color: "#64748b" }}>Signup</button>
-          </div>
-          {authError && <div style={{ padding: "10px 14px", background: "#fee2e2", color: "#ef4444", borderRadius: 8, fontSize: 13, marginBottom: 16, fontWeight: 500 }}>{authError}</div>}
-          {authMessage && <div style={{ padding: "10px 14px", background: "#dcfce7", color: "#15803d", borderRadius: 8, fontSize: 13, marginBottom: 16, fontWeight: 500 }}>{authMessage}</div>}
-          <form onSubmit={handleLogin}>
-            <FF label="Email"><input type="email" required style={iS} value={authForm.email} onChange={e => setAuthForm({ ...authForm, email: e.target.value })} /></FF>
-            <FF label="Password"><input type="password" required style={iS} value={authForm.password} onChange={e => setAuthForm({ ...authForm, password: e.target.value })} /></FF>
-            <button type="submit" style={{ ...bP, width: "100%", marginTop: 10, padding: 12 }}>Log In</button>
-            <div style={{ marginTop: 16, textAlign: "center" }}><button type="button" onClick={() => { setIsLogin(false); setAuthError(""); setAuthMessage(""); }} style={{ ...bG, border: "none", color: "#64748b", padding: 0, fontSize: 12 }}>Need an account? Sign up</button></div>
-          </form>
         </div>
 
-        {/* BACK: SIGNUP */}
-        <div style={{ background: "rgba(255, 255, 255, 0.45)", backdropFilter: "blur(20px)", padding: 40, borderRadius: 20, boxShadow: "0 10px 40px rgba(0,0,0,0.12)", backfaceVisibility: "hidden", transform: "rotateY(180deg)", position: !isLogin ? "relative" : "absolute", top: 0, left: 0, width: "100%", border: "1px solid rgba(255, 255, 255, 0.3)" }}>
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 10, marginBottom: 30 }}>
-            <div style={{ width: 44, height: 44, background: "linear-gradient(135deg,#3b82f6,#8b5cf6)", borderRadius: 12, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 22, color: "#fff" }}>⚡</div>
-            <div style={{ fontSize: 24, fontWeight: 700, color: "#0f172a" }}>DeskFlow</div>
-          </div>
-          <div style={{ display: "flex", background: "#f1f5f9", borderRadius: 10, padding: 4, marginBottom: 24 }}>
-            <button onClick={() => { setIsLogin(true); setAuthError(""); setAuthMessage(""); }} style={{ flex: 1, padding: "8px", border: "none", borderRadius: 8, background: "transparent", cursor: "pointer", fontWeight: 600, color: "#64748b" }}>Login</button>
-            <button onClick={() => { setIsLogin(false); setAuthError(""); setAuthMessage(""); }} style={{ flex: 1, padding: "8px", border: "none", borderRadius: 8, background: "#fff", boxShadow: "0 2px 4px rgba(0,0,0,0.05)", cursor: "pointer", fontWeight: 600, color: "#0f172a" }}>Signup</button>
-          </div>
-          {authError && <div style={{ padding: "10px 14px", background: "#fee2e2", color: "#ef4444", borderRadius: 8, fontSize: 13, marginBottom: 16, fontWeight: 500 }}>{authError}</div>}
-          {authMessage && <div style={{ padding: "10px 14px", background: "#dcfce7", color: "#15803d", borderRadius: 8, fontSize: 13, marginBottom: 16, fontWeight: 500 }}>{authMessage}</div>}
-          <form onSubmit={handleSignup}>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0 10px" }}>
-              <FF label="First Name" required><input required style={iS} value={authForm.firstName} onChange={e => setAuthForm({ ...authForm, firstName: e.target.value })} /></FF>
-              <FF label="Last Name" required><input required style={iS} value={authForm.lastName} onChange={e => setAuthForm({ ...authForm, lastName: e.target.value })} /></FF>
+        {/* RIGHT: LOGIN/SIGNUP FORM (40%) */}
+        <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", background: "#f8fafc", position: "relative", overflow: "hidden" }}>
+          <div style={{ width: "100%", maxWidth: 380, position: "relative", transition: "transform 0.6s cubic-bezier(0.4,0,0.2,1)", transformStyle: "preserve-3d", transform: isLogin ? "rotateY(0deg)" : "rotateY(-180deg)", zIndex: 1 }}>
+
+            {/* FRONT: LOGIN */}
+            <div style={{ background: "rgba(255, 255, 255, 0.95)", padding: 40, borderRadius: 20, boxShadow: "0 10px 40px rgba(0,0,0,0.12)", backfaceVisibility: "hidden", position: isLogin ? "relative" : "absolute", top: 0, left: 0, width: "100%", border: "1px solid #e2e8f0" }}>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 10, marginBottom: 30 }}>
+                <div style={{ width: 44, height: 44, background: "linear-gradient(135deg,#3b82f6,#8b5cf6)", borderRadius: 12, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 22, color: "#fff" }}>⚡</div>
+                <div style={{ fontSize: 24, fontWeight: 700, color: "#0f172a" }}>DeskFlow</div>
+              </div>
+              <div style={{ display: "flex", background: "#f1f5f9", borderRadius: 10, padding: 4, marginBottom: 24 }}>
+                <button onClick={() => { setIsLogin(true); setAuthError(""); setAuthMessage(""); }} style={{ flex: 1, padding: "8px", border: "none", borderRadius: 8, background: "#fff", boxShadow: "0 2px 4px rgba(0,0,0,0.05)", cursor: "pointer", fontWeight: 600, color: "#0f172a" }}>Login</button>
+                <button onClick={() => { setIsLogin(false); setAuthError(""); setAuthMessage(""); }} style={{ flex: 1, padding: "8px", border: "none", borderRadius: 8, background: "transparent", cursor: "pointer", fontWeight: 600, color: "#64748b" }}>Signup</button>
+              </div>
+              {authError && <div style={{ padding: "10px 14px", background: "#fee2e2", color: "#ef4444", borderRadius: 8, fontSize: 13, marginBottom: 16, fontWeight: 500 }}>{authError}</div>}
+              {authMessage && <div style={{ padding: "10px 14px", background: "#dcfce7", color: "#15803d", borderRadius: 8, fontSize: 13, marginBottom: 16, fontWeight: 500 }}>{authMessage}</div>}
+              <form onSubmit={handleLogin}>
+                <FF label="Email"><input type="email" required style={iS} value={authForm.email} onChange={e => setAuthForm({ ...authForm, email: e.target.value })} /></FF>
+                <FF label="Password"><input type="password" required style={iS} value={authForm.password} onChange={e => setAuthForm({ ...authForm, password: e.target.value })} /></FF>
+                <button type="submit" style={{ ...bP, width: "100%", marginTop: 10, padding: 12 }}>Log In</button>
+                <div style={{ marginTop: 16, textAlign: "center" }}><button type="button" onClick={() => { setIsLogin(false); setAuthError(""); setAuthMessage(""); }} style={{ ...bG, border: "none", color: "#64748b", padding: 0, fontSize: 12 }}>Need an account? Sign up</button></div>
+              </form>
             </div>
-            <FF label="Middle Name (Optional)"><input style={iS} value={authForm.middleName} onChange={e => setAuthForm({ ...authForm, middleName: e.target.value })} /></FF>
-            <FF label="Phone"><div style={{ display: "flex", gap: 6 }}>
-              <select style={{ ...sS, width: 70, padding: "9px 6px" }} value={authForm.countryCode} onChange={e => setAuthForm({ ...authForm, countryCode: e.target.value })}>
-                <option value="+1">+1</option><option value="+44">+44</option><option value="+91">+91</option><option value="+61">+61</option><option value="+81">+81</option>
-              </select>
-              <input style={{ ...iS, flex: 1 }} value={authForm.phone} onChange={e => setAuthForm({ ...authForm, phone: e.target.value })} />
-            </div></FF>
-            <FF label="Email"><input type="email" required style={iS} value={authForm.email} onChange={e => setAuthForm({ ...authForm, email: e.target.value })} /></FF>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0 10px" }}>
-              <FF label="Password" required>
-                <input type="password" required style={{ ...iS, border: authForm.password && authForm.password !== authForm.confirm ? "1px solid #ef4444" : "1px solid #e2e8f0" }} value={authForm.password} onChange={e => setAuthForm({ ...authForm, password: e.target.value })} />
-                <div style={{ marginTop: 4, height: 4, background: "#e2e8f0", borderRadius: 2, overflow: "hidden" }}><div style={{ height: "100%", width: `${pwdStr}%`, background: pwdColor, transition: "all 0.3s" }} /></div>
-              </FF>
-              <FF label="Confirm" required><input type="password" required style={{ ...iS, border: authForm.confirm && authForm.password !== authForm.confirm ? "1px solid #ef4444" : "1px solid #e2e8f0" }} value={authForm.confirm} onChange={e => setAuthForm({ ...authForm, confirm: e.target.value })} /></FF>
+
+            {/* BACK: SIGNUP */}
+            <div style={{ background: "rgba(255, 255, 255, 0.95)", padding: 40, borderRadius: 20, boxShadow: "0 10px 40px rgba(0,0,0,0.12)", backfaceVisibility: "hidden", transform: "rotateY(180deg)", position: !isLogin ? "relative" : "absolute", top: 0, left: 0, width: "100%", border: "1px solid #e2e8f0" }}>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 10, marginBottom: 30 }}>
+                <div style={{ width: 44, height: 44, background: "linear-gradient(135deg,#3b82f6,#8b5cf6)", borderRadius: 12, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 22, color: "#fff" }}>⚡</div>
+                <div style={{ fontSize: 24, fontWeight: 700, color: "#0f172a" }}>DeskFlow</div>
+              </div>
+              <div style={{ display: "flex", background: "#f1f5f9", borderRadius: 10, padding: 4, marginBottom: 24 }}>
+                <button onClick={() => { setIsLogin(true); setAuthError(""); setAuthMessage(""); }} style={{ flex: 1, padding: "8px", border: "none", borderRadius: 8, background: "transparent", cursor: "pointer", fontWeight: 600, color: "#64748b" }}>Login</button>
+                <button onClick={() => { setIsLogin(false); setAuthError(""); setAuthMessage(""); }} style={{ flex: 1, padding: "8px", border: "none", borderRadius: 8, background: "#fff", boxShadow: "0 2px 4px rgba(0,0,0,0.05)", cursor: "pointer", fontWeight: 600, color: "#0f172a" }}>Signup</button>
+              </div>
+              {authError && <div style={{ padding: "10px 14px", background: "#fee2e2", color: "#ef4444", borderRadius: 8, fontSize: 13, marginBottom: 16, fontWeight: 500 }}>{authError}</div>}
+              {authMessage && <div style={{ padding: "10px 14px", background: "#dcfce7", color: "#15803d", borderRadius: 8, fontSize: 13, marginBottom: 16, fontWeight: 500 }}>{authMessage}</div>}
+              <form onSubmit={handleSignup}>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0 10px" }}>
+                  <FF label="First Name" required><input required style={iS} value={authForm.firstName} onChange={e => setAuthForm({ ...authForm, firstName: e.target.value })} /></FF>
+                  <FF label="Last Name" required><input required style={iS} value={authForm.lastName} onChange={e => setAuthForm({ ...authForm, lastName: e.target.value })} /></FF>
+                </div>
+                <FF label="Middle Name (Optional)"><input style={iS} value={authForm.middleName} onChange={e => setAuthForm({ ...authForm, middleName: e.target.value })} /></FF>
+                <FF label="Phone"><div style={{ display: "flex", gap: 6 }}>
+                  <select style={{ ...sS, width: 70, padding: "9px 6px" }} value={authForm.countryCode} onChange={e => setAuthForm({ ...authForm, countryCode: e.target.value })}>
+                    <option value="+1">+1</option><option value="+44">+44</option><option value="+91">+91</option><option value="+61">+61</option><option value="+81">+81</option>
+                  </select>
+                  <input style={{ ...iS, flex: 1 }} value={authForm.phone} onChange={e => setAuthForm({ ...authForm, phone: e.target.value })} />
+                </div></FF>
+                <FF label="Email"><input type="email" required style={iS} value={authForm.email} onChange={e => setAuthForm({ ...authForm, email: e.target.value })} /></FF>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0 10px" }}>
+                  <FF label="Password" required>
+                    <input type="password" required style={{ ...iS, border: authForm.password && authForm.password !== authForm.confirm ? "1px solid #ef4444" : "1px solid #e2e8f0" }} value={authForm.password} onChange={e => setAuthForm({ ...authForm, password: e.target.value })} />
+                    <div style={{ marginTop: 4, height: 4, background: "#e2e8f0", borderRadius: 2, overflow: "hidden" }}><div style={{ height: "100%", width: `${pwdStr}%`, background: pwdColor, transition: "all 0.3s" }} /></div>
+                  </FF>
+                  <FF label="Confirm" required><input type="password" required style={{ ...iS, border: authForm.confirm && authForm.password !== authForm.confirm ? "1px solid #ef4444" : "1px solid #e2e8f0" }} value={authForm.confirm} onChange={e => setAuthForm({ ...authForm, confirm: e.target.value })} /></FF>
+                </div>
+                {authForm.confirm && authForm.password !== authForm.confirm && <div style={{ color: "#ef4444", fontSize: 11, marginTop: -6, marginBottom: 10 }}>Passwords do not match</div>}
+                <button type="submit" disabled={authForm.password !== authForm.confirm} style={{ ...bP, width: "100%", marginTop: 4, padding: 12, opacity: authForm.password !== authForm.confirm ? 0.5 : 1 }}>Sign Up</button>
+                <div style={{ marginTop: 12, textAlign: "center" }}><button type="button" onClick={() => { setIsLogin(true); setAuthError(""); setAuthMessage(""); }} style={{ ...bG, border: "none", color: "#64748b", padding: 0, fontSize: 12 }}>Already have an account? Log in</button></div>
+              </form>
             </div>
-            {authForm.confirm && authForm.password !== authForm.confirm && <div style={{ color: "#ef4444", fontSize: 11, marginTop: -6, marginBottom: 10 }}>Passwords do not match</div>}
-            <button type="submit" disabled={authForm.password !== authForm.confirm} style={{ ...bP, width: "100%", marginTop: 4, padding: 12, opacity: authForm.password !== authForm.confirm ? 0.5 : 1 }}>Sign Up</button>
-            <div style={{ marginTop: 12, textAlign: "center" }}><button type="button" onClick={() => { setIsLogin(true); setAuthError(""); setAuthMessage(""); }} style={{ ...bG, border: "none", color: "#64748b", padding: 0, fontSize: 12 }}>Already have an account? Log in</button></div>
-          </form>
+          </div>
         </div>
       </div>
-    </div>
-  );
+    );
+  }
 
   // ─── MAIN APP ──────────────────────────────────────────────────────────────
   // ✅ NEW: Show loading screen only while actually loading or no user
@@ -3562,14 +3611,15 @@ export default function HelpDesk() {
         <div style={{ flex: 1, padding: 20, overflow: "auto", position: "relative" }}>
           {/* ── DASHBOARD (v2 layout + SmartCharts) ── */}
           {view === "dashboard" && <>
-            {/* Background Image with Opacity for Dashboard */}
+            {/* Background Image with Clear Display for Dashboard */}
             <div style={{
               position: "absolute",
               inset: 0,
               backgroundImage: 'url("/res/login_page_bg.jpeg")', // USER: Static asset from public/res folder
-              backgroundSize: "fill",
-              backgroundPosition: "center",
-              opacity: 0.5,
+              backgroundSize: "auto",
+              backgroundPosition: "0 0",
+              backgroundRepeat: "repeat",
+              opacity: 1,
               zIndex: 0,
               pointerEvents: "none"
             }} />
