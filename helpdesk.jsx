@@ -21,12 +21,12 @@ const VALIDATE_SESSIONS_API = `${BASE_URL}/validate-sessions`;
 const NOTIFICATIONS_API = `${BASE_URL}/notifications`;
 
 // ─── CONSTANTS ────────────────────────────────────────────────────────────────
-const PRIORITIES = ["Low", "Medium", "High", "Critical"];
-const STATUSES = ["Open", "In Progress", "Resolved", "Closed"];
-const ROLES = ["Super Admin", "Admin", "Manager", "Agent", "Viewer"];
-const SATSANG_TYPES = ["G Satsang", "Weekly Satsang", "Special Satsang", "Youth Satsang", "Children Satsang"];
-const PROJECT_STATUSES = ["Open", "In Progress", "Resolved", "Closed"];
-const PROJECT_PRIORITIES = ["Low", "Medium", "High", "Critical"];
+const PRIORITIES = ["Critical", "High", "Low", "Medium"];
+const STATUSES = ["Closed", "In Progress", "Open", "Resolved"];
+const ROLES = ["Admin", "Agent", "Manager", "Super Admin", "Viewer"];
+const SATSANG_TYPES = ["Children Satsang", "G Satsang", "Special Satsang", "Weekly Satsang", "Youth Satsang"];
+const PROJECT_STATUSES = ["Closed", "In Progress", "Open", "Resolved"];
+const PROJECT_PRIORITIES = ["Critical", "High", "Low", "Medium"];
 
 
 const PRIORITY_COLOR = { Low: "#22c55e", Medium: "#f59e0b", High: "#f97316", Critical: "#ef4444" };
@@ -3965,86 +3965,117 @@ export default function HelpDesk() {
               </div>
             </div>
 
-            {/* Agent Assigned vs Resolved — Grouped Bar Chart */}
-            <div style={{ background: "#fff", borderRadius: 12, padding: 18, boxShadow: "0 1px 4px rgba(0,0,0,0.06)", marginBottom: 12 }}>
-              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
-                <div>
-                  <div style={{ fontSize: 14, fontWeight: 700, color: "#0f172a" }}>Agent Performance Overview</div>
-                  <div style={{ fontSize: 11, color: "#94a3b8", marginTop: 2 }}>Tickets assigned vs resolved per agent — filtered by selected time range</div>
+            {/* Tickets Resolved by Person + Agent Performance - Side by Side */}
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 12 }}>
+              {/* Tickets Resolved by Person Table - Left */}
+              <div style={{ background: "#fff", borderRadius: 12, padding: 18, boxShadow: "0 1px 4px rgba(0,0,0,0.06)", display: "flex", flexDirection: "column" }}>
+                <div style={{ marginBottom: 14 }}>
+                  <div style={{ fontSize: 14, fontWeight: 700, color: "#0f172a" }}>Tickets Resolved by Person</div>
+                  <div style={{ fontSize: 11, color: "#94a3b8", marginTop: 2 }}>Per agent during selected time period</div>
                 </div>
-                <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: 5 }}><div style={{ width: 12, height: 12, borderRadius: 3, background: "#3b82f6" }} /><span style={{ fontSize: 11, color: "#64748b" }}>Assigned</span></div>
-                  <div style={{ display: "flex", alignItems: "center", gap: 5 }}><div style={{ width: 12, height: 12, borderRadius: 3, background: "#22c55e" }} /><span style={{ fontSize: 11, color: "#64748b" }}>Resolved</span></div>
-                  <div style={{ display: "flex", alignItems: "center", gap: 5 }}><div style={{ width: 12, height: 12, borderRadius: 3, background: "#f59e0b" }} /><span style={{ fontSize: 11, color: "#64748b" }}>Open</span></div>
+                <div style={{ flex: 1, overflowY: "auto" }}>
+                  <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
+                    <thead>
+                      <tr style={{ background: "#f8fafc", borderBottom: "1px solid #e2e8f0", position: "sticky", top: 0 }}>
+                        <th style={{ padding: "10px 8px", textAlign: "left", fontWeight: 600, color: "#374151" }}>Agent</th>
+                        <th style={{ padding: "10px 8px", textAlign: "right", fontWeight: 600, color: "#374151" }}>Resolved</th>
+                        <th style={{ padding: "10px 8px", textAlign: "right", fontWeight: 600, color: "#374151" }}>%</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {(() => {
+                        const agentMap = {};
+                        reportFilteredData.forEach(t => {
+                          if (t.status === "Resolved" || t.status === "Closed") {
+                            if (t.assignees && t.assignees.length > 0) {
+                              t.assignees.forEach(a => {
+                                if (!agentMap[a.id]) {
+                                  agentMap[a.id] = { name: a.name, resolved: 0 };
+                                }
+                                agentMap[a.id].resolved += 1;
+                              });
+                            }
+                          }
+                        });
+                        const agentData = Object.values(agentMap).sort((a, b) => b.resolved - a.resolved);
+                        const total = agentData.reduce((sum, a) => sum + a.resolved, 0);
+
+                        if (agentData.length === 0) {
+                          return <tr><td colSpan="3" style={{ padding: "16px", textAlign: "center", color: "#94a3b8" }}>No resolved tickets</td></tr>;
+                        }
+
+                        return agentData.map((agent, i) => (
+                          <tr key={i} style={{ borderBottom: "1px solid #f1f5f9" }}>
+                            <td style={{ padding: "10px 8px", color: "#374151", fontWeight: 500 }}>{agent.name}</td>
+                            <td style={{ padding: "10px 8px", textAlign: "right", fontWeight: 600, color: "#22c55e" }}>{agent.resolved}</td>
+                            <td style={{ padding: "10px 8px", textAlign: "right", color: "#94a3b8" }}>{total > 0 ? ((agent.resolved / total) * 100).toFixed(1) : 0}%</td>
+                          </tr>
+                        ));
+                      })()}
+                    </tbody>
+                  </table>
                 </div>
               </div>
-              {(() => {
-                const chartData = agentStats.filter(a => a.assigned > 0 || a.resolved > 0);
-                if (chartData.length === 0) return <div style={{ textAlign: "center", color: "#94a3b8", padding: 32, fontSize: 13 }}>No agent data for the selected time range</div>;
-                const maxVal = Math.max(...chartData.map(a => a.assigned), 1);
-                const barH = 220;
-                const groupW = Math.max(60, Math.min(100, Math.floor(700 / chartData.length)));
-                const barW = Math.floor(groupW * 0.28);
-                const gap = Math.floor(groupW * 0.07);
-                const totalW = chartData.length * groupW + 60;
-                return (
-                  <div style={{ overflowX: "auto" }}>
-                    <svg width={totalW} height={barH + 60} style={{ display: "block", minWidth: "100%" }}>
-                      {/* Y-axis gridlines */}
-                      {[0, 0.25, 0.5, 0.75, 1].map(p => {
-                        const y = 10 + barH * (1 - p);
-                        const val = Math.round(maxVal * p);
-                        return (
-                          <g key={p}>
-                            <line x1={44} y1={y} x2={totalW - 10} y2={y} stroke="#f1f5f9" strokeWidth={1} />
-                            <text x={38} y={y + 4} textAnchor="end" fontSize={9} fill="#94a3b8" fontFamily="DM Sans,sans-serif">{val}</text>
-                          </g>
-                        );
-                      })}
-                      {/* Bars per agent */}
-                      {chartData.map((a, i) => {
-                        const x = 50 + i * groupW;
-                        const assignedH = Math.max(2, (a.assigned / maxVal) * barH);
-                        const resolvedH = Math.max(a.resolved > 0 ? 2 : 0, (a.resolved / maxVal) * barH);
-                        const openVal = Math.max(0, a.assigned - a.resolved);
-                        const openH = Math.max(openVal > 0 ? 2 : 0, (openVal / maxVal) * barH);
-                        const assignedY = 10 + barH - assignedH;
-                        const resolvedY = 10 + barH - resolvedH;
-                        const openY = 10 + barH - openH;
-                        const labelX = x + barW + gap + barW / 2;
-                        const shortName = a.name.split(" ")[0];
-                        return (
-                          <g key={a.id}>
-                            {/* Assigned bar */}
-                            <rect x={x} y={assignedY} width={barW} height={assignedH} fill="#3b82f6" rx={3}
-                              style={{ transition: "opacity 0.2s" }} opacity={0.85}>
-                              <title>{a.name}: {a.assigned} assigned</title>
-                            </rect>
-                            {a.assigned > 0 && <text x={x + barW / 2} y={assignedY - 3} textAnchor="middle" fontSize={9} fill="#3b82f6" fontWeight={600} fontFamily="DM Sans,sans-serif">{a.assigned}</text>}
-                            {/* Resolved bar */}
-                            <rect x={x + barW + gap} y={resolvedY} width={barW} height={resolvedH} fill="#22c55e" rx={3} opacity={0.85}>
-                              <title>{a.name}: {a.resolved} resolved</title>
-                            </rect>
-                            {a.resolved > 0 && <text x={x + barW + gap + barW / 2} y={resolvedY - 3} textAnchor="middle" fontSize={9} fill="#22c55e" fontWeight={600} fontFamily="DM Sans,sans-serif">{a.resolved}</text>}
-                            {/* Open bar */}
-                            <rect x={x + (barW + gap) * 2} y={openY} width={barW} height={openH} fill="#f59e0b" rx={3} opacity={0.85}>
-                              <title>{a.name}: {openVal} open</title>
-                            </rect>
-                            {openVal > 0 && <text x={x + (barW + gap) * 2 + barW / 2} y={openY - 3} textAnchor="middle" fontSize={9} fill="#f59e0b" fontWeight={600} fontFamily="DM Sans,sans-serif">{openVal}</text>}
-                            {/* Agent label */}
-                            <text x={x + barW + gap + barW / 2} y={10 + barH + 16} textAnchor="middle" fontSize={10} fill="#374151" fontWeight={600} fontFamily="DM Sans,sans-serif">{shortName}</text>
-                            <text x={x + barW + gap + barW / 2} y={10 + barH + 28} textAnchor="middle" fontSize={9} fill="#94a3b8" fontFamily="DM Sans,sans-serif">{a.role}</text>
-                            {/* Group separator */}
-                            {i < chartData.length - 1 && <line x1={x + groupW - 2} y1={10} x2={x + groupW - 2} y2={10 + barH} stroke="#f8fafc" strokeWidth={1} />}
-                          </g>
-                        );
-                      })}
-                      {/* X axis line */}
-                      <line x1={44} y1={10 + barH} x2={totalW - 10} y2={10 + barH} stroke="#e2e8f0" strokeWidth={1.5} />
-                    </svg>
+
+              {/* Agent Performance Chart - Right */}
+              <div style={{ background: "#fff", borderRadius: 12, padding: 18, boxShadow: "0 1px 4px rgba(0,0,0,0.06)" }}>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
+                  <div>
+                    <div style={{ fontSize: 14, fontWeight: 700, color: "#0f172a" }}>Agent Performance Overview</div>
+                    <div style={{ fontSize: 11, color: "#94a3b8", marginTop: 2 }}>Assigned vs resolved per agent</div>
                   </div>
-                );
-              })()}
+                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 5 }}><div style={{ width: 10, height: 10, borderRadius: 2, background: "#3b82f6" }} /><span style={{ fontSize: 10, color: "#64748b" }}>Assigned</span></div>
+                    <div style={{ display: "flex", alignItems: "center", gap: 5 }}><div style={{ width: 10, height: 10, borderRadius: 2, background: "#22c55e" }} /><span style={{ fontSize: 10, color: "#64748b" }}>Resolved</span></div>
+                    <div style={{ display: "flex", alignItems: "center", gap: 5 }}><div style={{ width: 10, height: 10, borderRadius: 2, background: "#f59e0b" }} /><span style={{ fontSize: 10, color: "#64748b" }}>Open</span></div>
+                  </div>
+                </div>
+                {(() => {
+                  const chartData = agentStats.filter(a => a.assigned > 0 || a.resolved > 0);
+                  if (chartData.length === 0) return <div style={{ textAlign: "center", color: "#94a3b8", padding: 32, fontSize: 13 }}>No agent data</div>;
+                  const maxVal = Math.max(...chartData.map(a => a.assigned), 1);
+                  const barH = 240;
+                  const groupW = Math.max(50, Math.min(90, Math.floor(600 / chartData.length)));
+                  const barW = Math.floor(groupW * 0.28);
+                  const gap = Math.floor(groupW * 0.07);
+                  const totalW = chartData.length * groupW + 60;
+                  return (
+                    <div style={{ overflowX: "auto", display: "flex", justifyContent: "center" }}>
+                      <svg width={Math.min(totalW, 700)} height={barH + 40} style={{ display: "block" }}>
+                        {[0, 0.25, 0.5, 0.75, 1].map(p => {
+                          const y = 10 + barH * (1 - p);
+                          const val = Math.round(maxVal * p);
+                          return (
+                            <g key={p}>
+                              <line x1={44} y1={y} x2={totalW - 10} y2={y} stroke="#f1f5f9" strokeWidth={1} />
+                              <text x={38} y={y + 4} textAnchor="end" fontSize={8} fill="#94a3b8" fontFamily="DM Sans">{val}</text>
+                            </g>
+                          );
+                        })}
+                        {chartData.map((a, i) => {
+                          const x = 50 + i * groupW;
+                          const assignedH = Math.max(2, (a.assigned / maxVal) * barH);
+                          const resolvedH = Math.max(a.resolved > 0 ? 2 : 0, (a.resolved / maxVal) * barH);
+                          const openVal = Math.max(0, a.assigned - a.resolved);
+                          const openH = Math.max(openVal > 0 ? 2 : 0, (openVal / maxVal) * barH);
+                          return (
+                            <g key={a.id}>
+                              <rect x={x} y={10 + barH - assignedH} width={barW} height={assignedH} fill="#3b82f6" rx={2} opacity={0.85} />
+                              {a.assigned > 0 && <text x={x + barW / 2} y={10 + barH - assignedH - 2} textAnchor="middle" fontSize={8} fill="#3b82f6" fontWeight={600} fontFamily="DM Sans">{a.assigned}</text>}
+                              <rect x={x + barW + gap} y={10 + barH - resolvedH} width={barW} height={resolvedH} fill="#22c55e" rx={2} opacity={0.85} />
+                              {a.resolved > 0 && <text x={x + barW + gap + barW / 2} y={10 + barH - resolvedH - 2} textAnchor="middle" fontSize={8} fill="#22c55e" fontWeight={600} fontFamily="DM Sans">{a.resolved}</text>}
+                              <rect x={x + (barW + gap) * 2} y={10 + barH - openH} width={barW} height={openH} fill="#f59e0b" rx={2} opacity={0.85} />
+                              {openVal > 0 && <text x={x + (barW + gap) * 2 + barW / 2} y={10 + barH - openH - 2} textAnchor="middle" fontSize={8} fill="#f59e0b" fontWeight={600} fontFamily="DM Sans">{openVal}</text>}
+                              <text x={x + barW + gap + barW / 2} y={10 + barH + 12} textAnchor="middle" fontSize={9} fill="#374151" fontWeight={600} fontFamily="DM Sans">{a.name.split(" ")[0]}</text>
+                            </g>
+                          );
+                        })}
+                        <line x1={44} y1={10 + barH} x2={totalW - 10} y2={10 + barH} stroke="#e2e8f0" strokeWidth={1.5} />
+                      </svg>
+                    </div>
+                  );
+                })()}
+              </div>
             </div>
 
             {/* Agent Performance Table */}
@@ -4225,22 +4256,19 @@ export default function HelpDesk() {
                     <button onClick={addCat} style={bP}>Add</button>
                   </div>
                 ) : <div style={{ marginBottom: 18, padding: "10px 14px", background: "#fef3c7", color: "#92400e", borderRadius: 8, fontSize: 13, fontWeight: 500 }}>Read Only: Category management is restricted to Admins.</div>}
-                <table style={{ width: "100%", borderCollapse: "collapse" }}>
-                  <thead><tr>
-                    <FilterableHeader label="Name" field="name" data={categories} filters={catSort} onFilter={setCatSort} style={thStyle} />
-                    <th style={thStyle}>Color</th>
-                    <th style={thStyle}>Tickets</th>
-                    {currentUser?.role === "Admin" && <th style={thStyle}></th>}
-                  </tr></thead>
-                  <tbody>{applySort(categories, catSort).map(c => (
-                    <tr key={c.id} className="rh">
-                      <td style={tdStyle}><div style={{ display: "flex", alignItems: "center", gap: 8 }}><div style={{ width: 11, height: 11, borderRadius: 3, background: c.color, flexShrink: 0 }} /><span style={{ fontSize: 13, fontWeight: 600 }}>{c.name}</span></div></td>
-                      <td style={tdStyle}><span style={{ fontSize: 11, color: "#64748b", fontFamily: "monospace" }}>{c.color}</span></td>
-                      <td style={tdStyle}><span style={{ fontSize: 12, color: "#64748b" }}>{tickets.filter(t => t.category === c.name).length}</span></td>
-                      {currentUser?.role === "Admin" && <td style={tdStyle}><button onClick={() => deleteCat(c.id)} style={{ border: "none", background: "#fee2e2", color: "#ef4444", borderRadius: 6, padding: "4px 10px", cursor: "pointer", fontSize: 12, fontWeight: 600 }}>Delete</button></td>}
-                    </tr>
-                  ))}</tbody>
-                </table>
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(8, 1fr)", gap: 8, justifyItems: "stretch" }}>
+                  {[...categories].sort((a, b) => (a.name || "").localeCompare(b.name || "")).map(c => {
+                    const lightColor = c.color + "20";
+                    return (
+                      <div key={c.id} style={{ padding: 8, borderRadius: 6, background: lightColor, display: "flex", flexDirection: "column", alignItems: "center", gap: 4, cursor: currentUser?.role === "Admin" ? "pointer" : "default", transition: "all 0.2s ease", textAlign: "center", transform: "scale(1)" }} onMouseEnter={e => { if (currentUser?.role === "Admin") { e.currentTarget.style.transform = "scale(1.08)"; e.currentTarget.style.boxShadow = "0 6px 16px rgba(0,0,0,0.12)"; } }} onMouseLeave={e => { e.currentTarget.style.transform = "scale(1)"; e.currentTarget.style.boxShadow = "none"; }}>
+                        <div style={{ width: 10, height: 10, borderRadius: 2, background: c.color, flexShrink: 0 }} />
+                        <div style={{ fontSize: 11, fontWeight: 600, wordBreak: "break-word", flex: 1, color: "#1f2937" }}>{c.name}</div>
+                        <div style={{ fontSize: 9, color: "#6b7280" }}>{tickets.filter(t => t.category === c.name).length}</div>
+                        {currentUser?.role === "Admin" && <button onClick={e => { e.stopPropagation(); deleteCat(c.id); }} style={{ border: "none", background: "rgba(0,0,0,0.08)", color: "#374151", borderRadius: 3, padding: "2px 6px", cursor: "pointer", fontSize: 9, fontWeight: 600 }}>Delete</button>}
+                      </div>
+                    );
+                  })}
+                </div>
               </div>}
               {/* ✅ NEW: Departments Management */}
               {settingsTab === "departments" && <div style={{ background: "#fff", borderRadius: 12, padding: 22, boxShadow: "0 1px 4px rgba(0,0,0,0.06)" }}>
@@ -4257,21 +4285,19 @@ export default function HelpDesk() {
                     <button onClick={addDept} style={bP}>Add</button>
                   </div>
                 ) : <div style={{ marginBottom: 18, padding: "10px 14px", background: "#fef3c7", color: "#92400e", borderRadius: 8, fontSize: 13, fontWeight: 500 }}>Read Only: Department management is restricted to Admins.</div>}
-                <table style={{ width: "100%", borderCollapse: "collapse" }}>
-                  <thead><tr>
-                    <FilterableHeader label="Name" field="name" data={departments} filters={deptSort} onFilter={setDeptSort} style={thStyle} />
-                    {currentUser?.role === "Admin" && <th style={thStyle}></th>}
-                  </tr></thead>
-                  <tbody>{applySort(departments, deptSort).map(d => {
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(8, 1fr)", gap: 8, justifyItems: "stretch" }}>
+                  {[...departments].sort((a, b) => (a.name || "").localeCompare(b.name || "")).map(d => {
                     const color = getItemColor(d);
+                    const lightColor = color + "20";
                     return (
-                      <tr key={d.id} className="rh">
-                        <td style={tdStyle}><div style={{ display: "flex", alignItems: "center", gap: 8 }}><div style={{ width: 11, height: 11, borderRadius: 3, background: color, flexShrink: 0 }} /><span style={{ fontSize: 13, fontWeight: 600 }}>{d.name}</span></div></td>
-                        {currentUser?.role === "Admin" && <td style={tdStyle}><button onClick={() => deleteDept(d.id)} style={{ border: "none", background: "#fee2e2", color: "#ef4444", borderRadius: 6, padding: "4px 10px", cursor: "pointer", fontSize: 12, fontWeight: 600 }}>Delete</button></td>}
-                      </tr>
+                      <div key={d.id} style={{ padding: 8, borderRadius: 6, background: lightColor, display: "flex", flexDirection: "column", alignItems: "center", gap: 4, cursor: currentUser?.role === "Admin" ? "pointer" : "default", transition: "all 0.2s ease", textAlign: "center", transform: "scale(1)" }} onMouseEnter={e => { if (currentUser?.role === "Admin") { e.currentTarget.style.transform = "scale(1.08)"; e.currentTarget.style.boxShadow = "0 6px 16px rgba(0,0,0,0.12)"; } }} onMouseLeave={e => { e.currentTarget.style.transform = "scale(1)"; e.currentTarget.style.boxShadow = "none"; }}>
+                        <div style={{ width: 8, height: 8, borderRadius: 2, background: color, flexShrink: 0 }} />
+                        <div style={{ fontSize: 11, fontWeight: 600, wordBreak: "break-word", flex: 1, color: "#1f2937" }}>{d.name}</div>
+                        {currentUser?.role === "Admin" && <button onClick={e => { e.stopPropagation(); deleteDept(d.id); }} style={{ border: "none", background: "rgba(0,0,0,0.08)", color: "#374151", borderRadius: 3, padding: "2px 6px", cursor: "pointer", fontSize: 9, fontWeight: 600 }}>Delete</button>}
+                      </div>
                     );
-                  })}</tbody>
-                </table>
+                  })}
+                </div>
                 {departments.length === 0 && <div style={{ textAlign: "center", color: "#94a3b8", padding: 28 }}>No departments yet. Add one to get started.</div>}
               </div>}
               {/* ✅ NEW: Locations Management */}
@@ -4289,21 +4315,19 @@ export default function HelpDesk() {
                     <button onClick={addLocation} style={bP}>Add</button>
                   </div>
                 ) : <div style={{ marginBottom: 18, padding: "10px 14px", background: "#fef3c7", color: "#92400e", borderRadius: 8, fontSize: 13, fontWeight: 500 }}>Read Only: Adding or removing locations is restricted to Admins.</div>}
-                <table style={{ width: "100%", borderCollapse: "collapse" }}>
-                  <thead><tr>
-                    <FilterableHeader label="Name" field="name" data={locations} filters={locSort} onFilter={setLocSort} style={thStyle} />
-                    {currentUser?.role === "Admin" && <th style={thStyle}></th>}
-                  </tr></thead>
-                  <tbody>{applySort(locations, locSort).map(l => {
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(8, 1fr)", gap: 8, justifyItems: "stretch" }}>
+                  {[...locations].sort((a, b) => (a.name || "").localeCompare(b.name || "")).map(l => {
                     const color = getItemColor(l);
+                    const lightColor = color + "20";
                     return (
-                      <tr key={l.id} className="rh">
-                        <td style={tdStyle}><div style={{ display: "flex", alignItems: "center", gap: 8 }}><div style={{ width: 11, height: 11, borderRadius: 3, background: color, flexShrink: 0 }} /><span style={{ fontSize: 13, fontWeight: 600 }}>📍 {l.name}</span></div></td>
-                        {currentUser?.role === "Admin" && <td style={tdStyle}><button onClick={() => deleteLocation(l.id)} style={{ border: "none", background: "#fee2e2", color: "#ef4444", borderRadius: 6, padding: "4px 10px", cursor: "pointer", fontSize: 12, fontWeight: 600 }}>Delete</button></td>}
-                      </tr>
+                      <div key={l.id} style={{ padding: 8, borderRadius: 6, background: lightColor, display: "flex", flexDirection: "column", alignItems: "center", gap: 4, cursor: currentUser?.role === "Admin" ? "pointer" : "default", transition: "all 0.2s ease", textAlign: "center", transform: "scale(1)" }} onMouseEnter={e => { if (currentUser?.role === "Admin") { e.currentTarget.style.transform = "scale(1.08)"; e.currentTarget.style.boxShadow = "0 6px 16px rgba(0,0,0,0.12)"; } }} onMouseLeave={e => { e.currentTarget.style.transform = "scale(1)"; e.currentTarget.style.boxShadow = "none"; }}>
+                        <div style={{ fontSize: 14 }}>📍</div>
+                        <div style={{ fontSize: 11, fontWeight: 600, wordBreak: "break-word", flex: 1, color: "#1f2937" }}>{l.name}</div>
+                        {currentUser?.role === "Admin" && <button onClick={e => { e.stopPropagation(); deleteLocation(l.id); }} style={{ border: "none", background: "rgba(0,0,0,0.08)", color: "#374151", borderRadius: 3, padding: "2px 6px", cursor: "pointer", fontSize: 9, fontWeight: 600 }}>Delete</button>}
+                      </div>
                     );
-                  })}</tbody>
-                </table>
+                  })}
+                </div>
                 {locations.length === 0 && <div style={{ textAlign: "center", color: "#94a3b8", padding: 28 }}>No locations yet. Add one to get started.</div>}
               </div>}
 
