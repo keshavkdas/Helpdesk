@@ -4947,7 +4947,7 @@ export default function HelpDesk() {
                 {[
                   { l: "Organisation", v: selTicket.org },
                   { l: "Department", v: selTicket.department || "—" },
-                  { l: "POC (Point ofContact)", v: selTicket.contact || "—" },
+                  { l: "POC (Point of Contact)", v: selTicket.contact || "—" },
                   { l: "Reported By", v: selTicket.reportedBy || "—" },
                   { l: "Category", v: selTicket.category || "—" },
                   { l: "Location", v: selTicket.location || "—" },
