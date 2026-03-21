@@ -490,7 +490,7 @@ const applySort = (arr, filters) => {
 };
 
 const FF = ({ label, required, children }) => <div style={{ marginBottom: 14 }}>
-  <label style={{ display: "block", fontSize: 11, fontWeight: 600, color: "#475569", marginBottom: 5, textTransform: "uppercase", letterSpacing: "0.05em" }}>{label}{required && <span style={{ color: "#ef4444", marginLeft: 2 }}>*</span>}</label>
+  <label style={{ display: "block", fontSize: 11, fontWeight: 600, color: "#000", marginBottom: 5, textTransform: "uppercase", letterSpacing: "0.05em", fontFamily: "'Arial Hebrew', sans-serif" }}>{label}{required && <span style={{ color: "#ef4444", marginLeft: 2 }}>*</span>}</label>
   {children}
 </div>;
 
@@ -3005,112 +3005,100 @@ export default function HelpDesk() {
 
   // ─── AUTH SCREENS ──────────────────────────────────────────────────────────
   if (!currentUser) {
-    const slides = [
-      "/res/login_page_bg.jpeg",
-      "/res/slide_2.jpeg",
-      "/res/slide_3.jpeg"
-    ];
+    const videoUrl = "https://www.artofliving.org/in-en/app/uploads/2023/06/Sunrise.webm"; // USER: Set your video URL here
 
     return (
-      <div style={{ display: "flex", height: "100vh", fontFamily: "'DM Sans',sans-serif", perspective: "1000px", position: "relative", overflow: "hidden" }}>
-        {/* LEFT: SLIDESHOW (60%) */}
-        <div style={{ flex: 1.5, position: "relative", overflow: "hidden" }}>
-          {slides.map((slide, idx) => (
-            <div
-              key={idx}
-              style={{
-                position: "absolute",
-                inset: 0,
-                backgroundImage: `url("${slide}")`,
-                backgroundSize: "cover",
-                backgroundPosition: "center",
-                opacity: idx === slideIndex ? 1 : 0,
-                transition: "opacity 1s ease-in-out",
-                zIndex: idx === slideIndex ? 1 : 0
-              }}
-            />
-          ))}
-          {/* Slide Indicators */}
-          <div style={{ position: "absolute", bottom: 20, left: "50%", transform: "translateX(-50%)", display: "flex", gap: 8, zIndex: 10 }}>
-            {slides.map((_, idx) => (
-              <button
-                key={idx}
-                onClick={() => setSlideIndex(idx)}
-                style={{
-                  width: idx === slideIndex ? 24 : 10,
-                  height: 10,
-                  background: idx === slideIndex ? "#fff" : "rgba(255,255,255,0.5)",
-                  border: "none",
-                  borderRadius: 5,
-                  cursor: "pointer",
-                  transition: "all 0.3s"
-                }}
-              />
-            ))}
+      <div style={{ display: "flex", height: "100vh", fontFamily: "'Arial Hebrew', 'DM Sans', sans-serif", alignItems: "center", justifyContent: "center", position: "relative", overflow: "hidden" }}>
+        {/* FULL SCREEN VIDEO BACKGROUND */}
+        <video
+          autoPlay
+          muted
+          loop
+          style={{
+            position: "absolute",
+            top: 0,
+            left: 0,
+            width: "100%",
+            height: "100%",
+            objectFit: "cover",
+            zIndex: 0
+          }}
+        >
+          <source src={videoUrl} type="video/mp4" />
+        </video>
+
+        {/* DARK OVERLAY (Optional - for better text visibility) */}
+        <div
+          style={{
+            position: "absolute",
+            top: 0,
+            left: 0,
+            width: "100%",
+            height: "100%",
+            background: "rgba(0, 0, 0, 0.3)",
+            zIndex: 1
+          }}
+        />
+
+        {/* LOGIN/SIGNUP FORM ON TOP */}
+        <div style={{ width: "100%", maxWidth: 420, position: "relative", transition: "transform 0.6s cubic-bezier(0.4,0,0.2,1)", transformStyle: "preserve-3d", transform: isLogin ? "rotateY(0deg)" : "rotateY(-180deg)", zIndex: 2 }}>
+
+          {/* FRONT: LOGIN */}
+          <div style={{ background: "rgba(255, 255, 255, 0.25)", backdropFilter: "blur(10px)", padding: 40, borderRadius: 20, boxShadow: "0 8px 32px rgba(0, 0, 0, 0.15)", backfaceVisibility: "hidden", position: isLogin ? "relative" : "absolute", top: 0, left: 0, width: "100%", border: "1px solid rgba(255, 255, 255, 0.4)", fontFamily: "'Arial Hebrew', sans-serif", color: "#000" }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 10, marginBottom: 30 }}>
+              <div style={{ width: 44, height: 44, background: "linear-gradient(135deg,#3b82f6,#8b5cf6)", borderRadius: 12, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 22, color: "#fff" }}>⚡</div>
+              <div style={{ fontSize: 24, fontWeight: 700, color: "#000" }}>DeskFlow</div>
+            </div>
+            <div style={{ display: "flex", background: "rgba(255, 255, 255, 0.15)", borderRadius: 10, padding: 4, marginBottom: 24, border: "1px solid rgba(255, 255, 255, 0.2)" }}>
+              <button onClick={() => { setIsLogin(true); setAuthError(""); setAuthMessage(""); }} style={{ flex: 1, padding: "8px", border: "none", borderRadius: 8, background: "#3b82f6", boxShadow: "0 2px 4px rgba(0,0,0,0.1)", cursor: "pointer", fontWeight: 600, color: "#fff", fontFamily: "'Arial Hebrew', sans-serif" }}>Login</button>
+              <button onClick={() => { setIsLogin(false); setAuthError(""); setAuthMessage(""); }} style={{ flex: 1, padding: "8px", border: "none", borderRadius: 8, background: "transparent", cursor: "pointer", fontWeight: 600, color: "#000", fontFamily: "'Arial Hebrew', sans-serif" }}>Signup</button>
+            </div>
+            {authError && <div style={{ padding: "10px 14px", background: "rgba(239, 68, 68, 0.2)", color: "#000", borderRadius: 8, fontSize: 13, marginBottom: 16, fontWeight: 500, border: "1px solid rgba(239, 68, 68, 0.3)", fontFamily: "'Arial Hebrew', sans-serif" }}>{authError}</div>}
+            {authMessage && <div style={{ padding: "10px 14px", background: "rgba(34, 197, 94, 0.2)", color: "#000", borderRadius: 8, fontSize: 13, marginBottom: 16, fontWeight: 500, border: "1px solid rgba(34, 197, 94, 0.3)", fontFamily: "'Arial Hebrew', sans-serif" }}>{authMessage}</div>}
+            <form onSubmit={handleLogin}>
+              <FF label="Email"><input type="email" required style={{ ...iS, background: "rgba(255, 255, 255, 0.1)", color: "#000", border: "1px solid rgba(255, 255, 255, 0.2)", fontFamily: "'Arial Hebrew', sans-serif" }} value={authForm.email} onChange={e => setAuthForm({ ...authForm, email: e.target.value })} placeholder="your@email.com" /></FF>
+              <FF label="Password"><input type="password" required style={{ ...iS, background: "rgba(255, 255, 255, 0.1)", color: "#000", border: "1px solid rgba(255, 255, 255, 0.2)", fontFamily: "'Arial Hebrew', sans-serif" }} value={authForm.password} onChange={e => setAuthForm({ ...authForm, password: e.target.value })} placeholder="••••••••" /></FF>
+              <button type="submit" style={{ ...bP, width: "100%", marginTop: 10, padding: 12, background: "linear-gradient(135deg,#3b82f6,#8b5cf6)", color: "#fff", border: "none", fontFamily: "'Arial Hebrew', sans-serif", fontWeight: 600 }}>Log In</button>
+              <div style={{ marginTop: 16, textAlign: "center" }}><button type="button" onClick={() => { setIsLogin(false); setAuthError(""); setAuthMessage(""); }} style={{ ...bG, border: "none", color: "#000", padding: 0, fontSize: 12, background: "transparent", fontFamily: "'Arial Hebrew', sans-serif" }}>Need an account? Sign up</button></div>
+            </form>
           </div>
-        </div>
 
-        {/* RIGHT: LOGIN/SIGNUP FORM (40%) */}
-        <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", background: "#f8fafc", position: "relative", overflow: "hidden" }}>
-          <div style={{ width: "100%", maxWidth: 380, position: "relative", transition: "transform 0.6s cubic-bezier(0.4,0,0.2,1)", transformStyle: "preserve-3d", transform: isLogin ? "rotateY(0deg)" : "rotateY(-180deg)", zIndex: 1 }}>
-
-            {/* FRONT: LOGIN */}
-            <div style={{ background: "rgba(255, 255, 255, 0.95)", padding: 40, borderRadius: 20, boxShadow: "0 10px 40px rgba(0,0,0,0.12)", backfaceVisibility: "hidden", position: isLogin ? "relative" : "absolute", top: 0, left: 0, width: "100%", border: "1px solid #e2e8f0" }}>
-              <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 10, marginBottom: 30 }}>
-                <div style={{ width: 44, height: 44, background: "linear-gradient(135deg,#3b82f6,#8b5cf6)", borderRadius: 12, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 22, color: "#fff" }}>⚡</div>
-                <div style={{ fontSize: 24, fontWeight: 700, color: "#0f172a" }}>DeskFlow</div>
-              </div>
-              <div style={{ display: "flex", background: "#f1f5f9", borderRadius: 10, padding: 4, marginBottom: 24 }}>
-                <button onClick={() => { setIsLogin(true); setAuthError(""); setAuthMessage(""); }} style={{ flex: 1, padding: "8px", border: "none", borderRadius: 8, background: "#fff", boxShadow: "0 2px 4px rgba(0,0,0,0.05)", cursor: "pointer", fontWeight: 600, color: "#0f172a" }}>Login</button>
-                <button onClick={() => { setIsLogin(false); setAuthError(""); setAuthMessage(""); }} style={{ flex: 1, padding: "8px", border: "none", borderRadius: 8, background: "transparent", cursor: "pointer", fontWeight: 600, color: "#64748b" }}>Signup</button>
-              </div>
-              {authError && <div style={{ padding: "10px 14px", background: "#fee2e2", color: "#ef4444", borderRadius: 8, fontSize: 13, marginBottom: 16, fontWeight: 500 }}>{authError}</div>}
-              {authMessage && <div style={{ padding: "10px 14px", background: "#dcfce7", color: "#15803d", borderRadius: 8, fontSize: 13, marginBottom: 16, fontWeight: 500 }}>{authMessage}</div>}
-              <form onSubmit={handleLogin}>
-                <FF label="Email"><input type="email" required style={iS} value={authForm.email} onChange={e => setAuthForm({ ...authForm, email: e.target.value })} /></FF>
-                <FF label="Password"><input type="password" required style={iS} value={authForm.password} onChange={e => setAuthForm({ ...authForm, password: e.target.value })} /></FF>
-                <button type="submit" style={{ ...bP, width: "100%", marginTop: 10, padding: 12 }}>Log In</button>
-                <div style={{ marginTop: 16, textAlign: "center" }}><button type="button" onClick={() => { setIsLogin(false); setAuthError(""); setAuthMessage(""); }} style={{ ...bG, border: "none", color: "#64748b", padding: 0, fontSize: 12 }}>Need an account? Sign up</button></div>
-              </form>
+          {/* BACK: SIGNUP */}
+          <div style={{ background: "rgba(255, 255, 255, 0.25)", backdropFilter: "blur(10px)", padding: 40, borderRadius: 20, boxShadow: "0 8px 32px rgba(0, 0, 0, 0.15)", backfaceVisibility: "hidden", transform: "rotateY(180deg)", position: !isLogin ? "relative" : "absolute", top: 0, left: 0, width: "100%", border: "1px solid rgba(255, 255, 255, 0.4)", fontFamily: "'Arial Hebrew', sans-serif", color: "#000" }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 10, marginBottom: 30 }}>
+              <div style={{ width: 44, height: 44, background: "linear-gradient(135deg,#3b82f6,#8b5cf6)", borderRadius: 12, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 22, color: "#fff" }}>⚡</div>
+              <div style={{ fontSize: 24, fontWeight: 700, color: "#000" }}>DeskFlow</div>
             </div>
-
-            {/* BACK: SIGNUP */}
-            <div style={{ background: "rgba(255, 255, 255, 0.95)", padding: 40, borderRadius: 20, boxShadow: "0 10px 40px rgba(0,0,0,0.12)", backfaceVisibility: "hidden", transform: "rotateY(180deg)", position: !isLogin ? "relative" : "absolute", top: 0, left: 0, width: "100%", border: "1px solid #e2e8f0" }}>
-              <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 10, marginBottom: 30 }}>
-                <div style={{ width: 44, height: 44, background: "linear-gradient(135deg,#3b82f6,#8b5cf6)", borderRadius: 12, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 22, color: "#fff" }}>⚡</div>
-                <div style={{ fontSize: 24, fontWeight: 700, color: "#0f172a" }}>DeskFlow</div>
-              </div>
-              <div style={{ display: "flex", background: "#f1f5f9", borderRadius: 10, padding: 4, marginBottom: 24 }}>
-                <button onClick={() => { setIsLogin(true); setAuthError(""); setAuthMessage(""); }} style={{ flex: 1, padding: "8px", border: "none", borderRadius: 8, background: "transparent", cursor: "pointer", fontWeight: 600, color: "#64748b" }}>Login</button>
-                <button onClick={() => { setIsLogin(false); setAuthError(""); setAuthMessage(""); }} style={{ flex: 1, padding: "8px", border: "none", borderRadius: 8, background: "#fff", boxShadow: "0 2px 4px rgba(0,0,0,0.05)", cursor: "pointer", fontWeight: 600, color: "#0f172a" }}>Signup</button>
-              </div>
-              {authError && <div style={{ padding: "10px 14px", background: "#fee2e2", color: "#ef4444", borderRadius: 8, fontSize: 13, marginBottom: 16, fontWeight: 500 }}>{authError}</div>}
-              {authMessage && <div style={{ padding: "10px 14px", background: "#dcfce7", color: "#15803d", borderRadius: 8, fontSize: 13, marginBottom: 16, fontWeight: 500 }}>{authMessage}</div>}
-              <form onSubmit={handleSignup}>
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0 10px" }}>
-                  <FF label="First Name" required><input required style={iS} value={authForm.firstName} onChange={e => setAuthForm({ ...authForm, firstName: e.target.value })} /></FF>
-                  <FF label="Last Name" required><input required style={iS} value={authForm.lastName} onChange={e => setAuthForm({ ...authForm, lastName: e.target.value })} /></FF>
-                </div>
-                <FF label="Middle Name (Optional)"><input style={iS} value={authForm.middleName} onChange={e => setAuthForm({ ...authForm, middleName: e.target.value })} /></FF>
-                <FF label="Phone"><div style={{ display: "flex", gap: 6 }}>
-                  <select style={{ ...sS, width: 70, padding: "9px 6px" }} value={authForm.countryCode} onChange={e => setAuthForm({ ...authForm, countryCode: e.target.value })}>
-                    <option value="+1">+1</option><option value="+44">+44</option><option value="+91">+91</option><option value="+61">+61</option><option value="+81">+81</option>
-                  </select>
-                  <input style={{ ...iS, flex: 1 }} value={authForm.phone} onChange={e => setAuthForm({ ...authForm, phone: e.target.value })} />
-                </div></FF>
-                <FF label="Email"><input type="email" required style={iS} value={authForm.email} onChange={e => setAuthForm({ ...authForm, email: e.target.value })} /></FF>
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0 10px" }}>
-                  <FF label="Password" required>
-                    <input type="password" required style={{ ...iS, border: authForm.password && authForm.password !== authForm.confirm ? "1px solid #ef4444" : "1px solid #e2e8f0" }} value={authForm.password} onChange={e => setAuthForm({ ...authForm, password: e.target.value })} />
-                    <div style={{ marginTop: 4, height: 4, background: "#e2e8f0", borderRadius: 2, overflow: "hidden" }}><div style={{ height: "100%", width: `${pwdStr}%`, background: pwdColor, transition: "all 0.3s" }} /></div>
-                  </FF>
-                  <FF label="Confirm" required><input type="password" required style={{ ...iS, border: authForm.confirm && authForm.password !== authForm.confirm ? "1px solid #ef4444" : "1px solid #e2e8f0" }} value={authForm.confirm} onChange={e => setAuthForm({ ...authForm, confirm: e.target.value })} /></FF>
-                </div>
-                {authForm.confirm && authForm.password !== authForm.confirm && <div style={{ color: "#ef4444", fontSize: 11, marginTop: -6, marginBottom: 10 }}>Passwords do not match</div>}
-                <button type="submit" disabled={authForm.password !== authForm.confirm} style={{ ...bP, width: "100%", marginTop: 4, padding: 12, opacity: authForm.password !== authForm.confirm ? 0.5 : 1 }}>Sign Up</button>
-                <div style={{ marginTop: 12, textAlign: "center" }}><button type="button" onClick={() => { setIsLogin(true); setAuthError(""); setAuthMessage(""); }} style={{ ...bG, border: "none", color: "#64748b", padding: 0, fontSize: 12 }}>Already have an account? Log in</button></div>
-              </form>
+            <div style={{ display: "flex", background: "rgba(255, 255, 255, 0.15)", borderRadius: 10, padding: 4, marginBottom: 24, border: "1px solid rgba(255, 255, 255, 0.2)" }}>
+              <button onClick={() => { setIsLogin(true); setAuthError(""); setAuthMessage(""); }} style={{ flex: 1, padding: "8px", border: "none", borderRadius: 8, background: "transparent", cursor: "pointer", fontWeight: 600, color: "#000", fontFamily: "'Arial Hebrew', sans-serif" }}>Login</button>
+              <button onClick={() => { setIsLogin(false); setAuthError(""); setAuthMessage(""); }} style={{ flex: 1, padding: "8px", border: "none", borderRadius: 8, background: "#3b82f6", boxShadow: "0 2px 4px rgba(0,0,0,0.1)", cursor: "pointer", fontWeight: 600, color: "#fff", fontFamily: "'Arial Hebrew', sans-serif" }}>Signup</button>
             </div>
+            {authError && <div style={{ padding: "10px 14px", background: "rgba(239, 68, 68, 0.2)", color: "#000", borderRadius: 8, fontSize: 13, marginBottom: 16, fontWeight: 500, border: "1px solid rgba(239, 68, 68, 0.3)", fontFamily: "'Arial Hebrew', sans-serif" }}>{authError}</div>}
+            {authMessage && <div style={{ padding: "10px 14px", background: "rgba(34, 197, 94, 0.2)", color: "#000", borderRadius: 8, fontSize: 13, marginBottom: 16, fontWeight: 500, border: "1px solid rgba(34, 197, 94, 0.3)", fontFamily: "'Arial Hebrew', sans-serif" }}>{authMessage}</div>}
+            <form onSubmit={handleSignup}>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0 10px" }}>
+                <FF label="First Name" required><input required style={{ ...iS, background: "rgba(255, 255, 255, 0.1)", color: "#000", border: "1px solid rgba(255, 255, 255, 0.2)", fontFamily: "'Arial Hebrew', sans-serif" }} value={authForm.firstName} onChange={e => setAuthForm({ ...authForm, firstName: e.target.value })} placeholder="First" /></FF>
+                <FF label="Last Name" required><input required style={{ ...iS, background: "rgba(255, 255, 255, 0.1)", color: "#000", border: "1px solid rgba(255, 255, 255, 0.2)", fontFamily: "'Arial Hebrew', sans-serif" }} value={authForm.lastName} onChange={e => setAuthForm({ ...authForm, lastName: e.target.value })} placeholder="Last" /></FF>
+              </div>
+              <FF label="Middle Name (Optional)"><input style={{ ...iS, background: "rgba(255, 255, 255, 0.1)", color: "#000", border: "1px solid rgba(255, 255, 255, 0.2)", fontFamily: "'Arial Hebrew', sans-serif" }} value={authForm.middleName} onChange={e => setAuthForm({ ...authForm, middleName: e.target.value })} placeholder="Middle" /></FF>
+              <FF label="Phone"><div style={{ display: "flex", gap: 6 }}>
+                <select style={{ ...sS, width: 70, padding: "9px 6px", background: "rgba(255, 255, 255, 0.1)", color: "#000", border: "1px solid rgba(255, 255, 255, 0.2)", fontFamily: "'Arial Hebrew', sans-serif" }} value={authForm.countryCode} onChange={e => setAuthForm({ ...authForm, countryCode: e.target.value })}>
+                  <option value="+1">+1</option><option value="+44">+44</option><option value="+91">+91</option><option value="+61">+61</option><option value="+81">+81</option>
+                </select>
+                <input style={{ ...iS, flex: 1, background: "rgba(255, 255, 255, 0.1)", color: "#000", border: "1px solid rgba(255, 255, 255, 0.2)", fontFamily: "'Arial Hebrew', sans-serif" }} value={authForm.phone} onChange={e => setAuthForm({ ...authForm, phone: e.target.value })} placeholder="Phone" />
+              </div></FF>
+              <FF label="Email"><input type="email" required style={{ ...iS, background: "rgba(255, 255, 255, 0.1)", color: "#000", border: "1px solid rgba(255, 255, 255, 0.2)", fontFamily: "'Arial Hebrew', sans-serif" }} value={authForm.email} onChange={e => setAuthForm({ ...authForm, email: e.target.value })} placeholder="your@email.com" /></FF>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0 10px" }}>
+                <FF label="Password" required>
+                  <input type="password" required style={{ ...iS, background: "rgba(255, 255, 255, 0.1)", color: "#000", border: authForm.password && authForm.password !== authForm.confirm ? "1px solid #ef4444" : "1px solid rgba(255, 255, 255, 0.2)", fontFamily: "'Arial Hebrew', sans-serif" }} value={authForm.password} onChange={e => setAuthForm({ ...authForm, password: e.target.value })} placeholder="••••••••" />
+                  <div style={{ marginTop: 4, height: 4, background: "rgba(255, 255, 255, 0.2)", borderRadius: 2, overflow: "hidden" }}><div style={{ height: "100%", width: `${pwdStr}%`, background: pwdColor, transition: "all 0.3s" }} /></div>
+                </FF>
+                <FF label="Confirm" required><input type="password" required style={{ ...iS, background: "rgba(255, 255, 255, 0.1)", color: "#000", border: authForm.confirm && authForm.password !== authForm.confirm ? "1px solid #ef4444" : "1px solid rgba(255, 255, 255, 0.2)", fontFamily: "'Arial Hebrew', sans-serif" }} value={authForm.confirm} onChange={e => setAuthForm({ ...authForm, confirm: e.target.value })} placeholder="••••••••" /></FF>
+              </div>
+              {authForm.confirm && authForm.password !== authForm.confirm && <div style={{ color: "#000", fontSize: 11, marginTop: -6, marginBottom: 10, fontFamily: "'Arial Hebrew', sans-serif" }}>Passwords do not match</div>}
+              <button type="submit" disabled={authForm.password !== authForm.confirm} style={{ ...bP, width: "100%", marginTop: 4, padding: 12, background: "linear-gradient(135deg,#3b82f6,#8b5cf6)", color: "#fff", border: "none", fontFamily: "'Arial Hebrew', sans-serif", fontWeight: 600, opacity: authForm.password !== authForm.confirm ? 0.5 : 1 }}>Sign Up</button>
+              <div style={{ marginTop: 12, textAlign: "center" }}><button type="button" onClick={() => { setIsLogin(true); setAuthError(""); setAuthMessage(""); }} style={{ ...bG, border: "none", color: "#000", padding: 0, fontSize: 12, background: "transparent", fontFamily: "'Arial Hebrew', sans-serif" }}>Already have an account? Log in</button></div>
+            </form>
           </div>
         </div>
       </div>
@@ -5046,7 +5034,7 @@ export default function HelpDesk() {
           )}
 
           {selTicket.customAttrs && Object.keys(selTicket.customAttrs).length > 0 && <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 9, marginBottom: 14 }}>
-            {Object.entries(selTicket.customAttrs).map(([k, v]) => <div key={k} style={{ background: "#fffbeb", padding: "9px 13px", borderRadius: 9, border: "1px solid #fde68a" }}><div style={{ fontSize: 10, fontWeight: 600, color: "#92400e", textTransform: "uppercase", marginBottom: 3 }}>{k}</div><div style={{ fontSize: 13, fontWeight: 500 }}>{String(v) || "—"}</div></div>)}
+            {Object.entries(selTicket.customAttrs).map(([k, v]) => <div key={k} style={{ background: "#fffbeb", padding: "9px 13px", borderRadius: 9, border: "1px solid #fde68a" }}><div style={{ fontSize: 10, fontWeight: 600, color: "#92400e", textTransform: "uppercase", marginBottom: 3 }}>{k}</div><div style={{ fontSize: 13, fontWeight: 500 }}>{String(v) || "-"}</div></div>)}
           </div>}
           <div style={{ marginBottom: 14, padding: "11px 13px", background: "#f8fafc", borderRadius: 9 }}>
             <div style={{ fontSize: 10, fontWeight: 600, color: "#94a3b8", textTransform: "uppercase", marginBottom: 7 }}>Assignees</div>
@@ -5323,8 +5311,8 @@ export default function HelpDesk() {
           </div>
           <p style={{ margin: "0 0 16px", color: "#64748b", fontSize: 14, lineHeight: 1.6 }}>{selProject.description}</p>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 9, marginBottom: 14 }}>
-            {[{ l: "Organisation", v: selProject.org }, { l: "Department", v: selProject.department }, { l: "Reported By", v: selProject.reportedBy }, { l: "Category", v: selProject.category }, { l: "Location", v: selProject.location }, { l: "Due Date", v: selProject.dueDate?.toLocaleDateString() || "—" }].map(f => (
-              <div key={f.l} style={{ background: "#f8fafc", padding: "9px 13px", borderRadius: 9 }}><div style={{ fontSize: 10, fontWeight: 600, color: "#94a3b8", textTransform: "uppercase", marginBottom: 3 }}>{f.l}</div><div style={{ fontSize: 13, fontWeight: 500 }}>{f.v || "—"}</div></div>
+            {[{ l: "Organisation", v: selProject.org }, { l: "Department", v: selProject.department }, { l: "Reported By", v: selProject.reportedBy }, { l: "Category", v: selProject.category }, { l: "Location", v: selProject.location }, { l: "Due Date", v: selProject.dueDate?.toLocaleDateString() || "-" }].map(f => (
+              <div key={f.l} style={{ background: "#f8fafc", padding: "9px 13px", borderRadius: 9 }}><div style={{ fontSize: 10, fontWeight: 600, color: "#94a3b8", textTransform: "uppercase", marginBottom: 3 }}>{f.l}</div><div style={{ fontSize: 13, fontWeight: 500 }}>{f.v || "-"}</div></div>
             ))}
           </div>
           <div style={{ marginBottom: 14, padding: "11px 13px", background: "#f8fafc", borderRadius: 9 }}>
