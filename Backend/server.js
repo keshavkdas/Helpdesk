@@ -1179,10 +1179,53 @@ async function migrateWebcastsOnStartup() {
     }
 }
 
+// ─── TEMPORARY MIGRATION: Link every Org to every Dept ───────────────────────
+async function temporaryLinkAllDeptsToAllOrgs() {
+    try {
+        console.log("🔄 Starting Temporary Org-Dept Migration...");
+
+        // 1. Get all unique organization names and all unique department names
+        const orgs = await Org.findAll({ attributes: ['name'] });
+        const allDepts = await Department.findAll({ attributes: ['name'], group: ['name'] });
+
+        if (orgs.length === 0 || allDepts.length === 0) {
+            console.log("⏭️ No Orgs or Depts found to migrate.");
+            return;
+        }
+
+        let createdCount = 0;
+
+        for (const org of orgs) {
+            for (const dept of allDepts) {
+                // 2. Check if this department already exists for this specific org
+                const [record, created] = await Department.findOrCreate({
+                    where: {
+                        name: dept.name,
+                        orgName: org.name
+                    },
+                    defaults: {
+                        name: dept.name,
+                        orgName: org.name,
+                        sortOrder: 99 // Temporary high sort order
+                    }
+                });
+                if (created) createdCount++;
+            }
+        }
+
+        console.log(`✅ Migration Complete: Created ${createdCount} new Org-Dept links.`);
+    } catch (err) {
+        console.error("⚠️ Migration Error:", err.message);
+    }
+}
+
 // ─── START ────────────────────────────────────────────────────────────────────
 const PORT = process.env.PORT || 5000;
 sequelize.sync({ alter: true }).then(async () => {
     console.log("✅ MySQL Synced & Connected");
+
+    // 👇 ADD THIS LINE HERE 👇
+    await temporaryLinkAllDeptsToAllOrgs();
 
     // Data Migration: Normalize user statuses
     try {
