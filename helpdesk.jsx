@@ -19,6 +19,7 @@ const IMPORT_API = `${BASE_URL}/import`;
 const PROJECTS_API = `${BASE_URL}/projects`;
 const VALIDATE_SESSIONS_API = `${BASE_URL}/validate-sessions`;
 const NOTIFICATIONS_API = `${BASE_URL}/notifications`;
+const LOGOUT_API = `${BASE_URL}/auth/logout`;
 
 // ─── CONSTANTS ────────────────────────────────────────────────────────────────
 const PRIORITIES = ["Critical", "High", "Low", "Medium"];
@@ -1389,6 +1390,65 @@ export default function HelpDesk() {
     const interval = setInterval(validateSessions, 45000);
     return () => clearInterval(interval);
   }, [currentUser]);
+
+  // ✅ NEW: Monitor user role changes and auto-logout if role is changed by admin
+  const previousRoleRef = useRef(currentUser?.role);
+
+  useEffect(() => {
+    if (!currentUser) return;
+
+    const checkRoleChange = async () => {
+      try {
+        // Fetch the current user's latest data from the server
+        const response = await axios.get(`${USERS_API}/${currentUser.id}`);
+        const serverUser = response.data;
+
+        // Check if role has changed
+        if (serverUser && serverUser.role !== previousRoleRef.current) {
+          console.warn(
+            `User role changed from ${previousRoleRef.current} to ${serverUser.role}. Logging out...`
+          );
+
+          // Log the user out
+          try {
+            await axios.post(LOGOUT_API, { userId: currentUser.id });
+          } catch (e) {
+            console.error("Logout API call failed:", e);
+          }
+
+          // Clear session and redirect to login
+          try {
+            localStorage.removeItem("deskflow_session");
+            localStorage.removeItem("deskflow_view");
+            localStorage.removeItem("deskflow_tvFilter");
+            localStorage.removeItem("deskflow_pvFilter");
+          } catch (e) {
+            console.error("Failed to clear localStorage:", e);
+          }
+
+          // Update state to show login screen
+          setCurrentUser(null);
+          setView("dashboard");
+
+          // Show toast notification
+          showToast("Your role has been changed. Please log in again.", "info", 5000);
+        }
+
+        // Update the ref to current role
+        previousRoleRef.current = serverUser?.role || currentUser.role;
+      } catch (e) {
+        console.error("Error checking role changes:", e);
+      }
+    };
+
+    // Check role change every 30 seconds
+    const roleCheckInterval = setInterval(checkRoleChange, 30000);
+
+    // Also check immediately on mount
+    checkRoleChange();
+
+    return () => clearInterval(roleCheckInterval);
+  }, [currentUser?.id]);
 
   // ── Inbox polling: fetch notifications from DB every 10s ──
   // Use a ref to track which DB activity IDs we've already merged into the bell

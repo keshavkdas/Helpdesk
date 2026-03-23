@@ -249,6 +249,22 @@ app.post("/api/auth/signup", async (req, res) => {
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+// ✅ NEW: Logout endpoint - update user status to "Logged-Out"
+app.post("/api/auth/logout", async (req, res) => {
+    try {
+        const { userId } = req.body;
+        if (!userId) return res.status(400).json({ error: "User ID is required" });
+
+        const user = await User.findByPk(userId);
+        if (!user) return res.status(404).json({ error: "User not found" });
+
+        // Update user status to indicate logout
+        await user.update({ status: "Logged-Out" });
+
+        res.json({ success: true, message: "User logged out successfully" });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 // ─── 4. USERS, ORGS, CATEGORIES, ATTRS (FULL CRUD) ───────────────────────────
 
 app.get("/api/users", async (req, res) => {
@@ -262,6 +278,14 @@ app.post("/api/users", async (req, res) => {
         const hashed = await bcrypt.hash(password, 10);
         const user = await User.create({ ...rest, email: email.toLowerCase(), password: hashed });
         res.status(201).json(fmt(user));
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.get("/api/users/:id", async (req, res) => {
+    try {
+        const user = await User.findByPk(req.params.id);
+        if (!user) return res.status(404).json({ error: "User not found" });
+        res.json(fmt(user));
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
