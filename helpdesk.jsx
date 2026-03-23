@@ -1175,12 +1175,14 @@ export default function HelpDesk() {
   const [currentLocation, setCurrentLocation] = useState("");
   const [showLocationModal, setShowLocationModal] = useState(false);
   const [showTicketDropdown, setShowTicketDropdown] = useState(false);
+  const [showRemarkModal, setShowRemarkModal] = useState(false);
+  const [closingTicketId, setClosingTicketId] = useState(null);
+  const [ticketRemark, setTicketRemark] = useState("");
 
   // ✅ NEW: Confirmation Modal State
   const [confirmModal, setConfirmModal] = useState({ show: false, title: "", message: "", onConfirm: null, onCancel: null });
   const [selectedTickets, setSelectedTickets] = useState(new Set());
   const [ticketsPerPage, setTicketsPerPage] = useState(10);
-  const [showOtherActions, setShowOtherActions] = useState(false);
   const [sortOrder, setSortOrder] = useState("desc"); // "desc" = newest first, "asc" = oldest first
 
   // ── Per-table sort state ──
@@ -1199,7 +1201,11 @@ export default function HelpDesk() {
   const [editUserOpen, setEditUserOpen] = useState(null); // Holds the user being edited
   const [editUserForm, setEditUserForm] = useState({ name: "", email: "", password: "" });
 
-  const statusOpts = [{ l: "On Duty", c: "#22c55e", bg: "#dcfce7" }, { l: "Off Duty", c: "#f59e0b", bg: "#fef3c7" }];
+  const statusOpts = [
+    { l: "On Duty", c: "#22c55e", bg: "#dcfce7" },      // 🟢 Green - In office
+    { l: "On Ticket", c: "#06b6d4", bg: "#cffafe" },    // 🔵 Cyan - On ticket/location
+    { l: "Off Duty", c: "#f59e0b", bg: "#fef3c7" }      // 🟠 Orange - Break/Meeting
+  ];
 
   // ── Password strength ──
   const calcPwdStr = (pwd) => { if (!pwd) return 0; let s = 0; if (pwd.length >= 8) s += 25; if (/[A-Z]/.test(pwd)) s += 25; if (/[a-z]/.test(pwd)) s += 25; if (/[^A-Za-z0-9]/.test(pwd)) s += 25; return s; };
@@ -1371,6 +1377,44 @@ export default function HelpDesk() {
     if (currentUser) silentRefresh();
   }, [view]);
 
+  // ✅ NEW: Check if current user was deleted or deactivated
+  useEffect(() => {
+    if (!currentUser) return;
+    const checkUserStatus = async () => {
+      try {
+        const response = await axios.get(DB_API);
+        const users = response.data.users || [];
+        const user = users.find(u => u.id === currentUser.id);
+
+        if (!user) {
+          clearSession();
+          setCurrentUser(null);
+          setCustomAlert({ show: true, message: "❌ Your account has been deleted by an administrator", type: "error" });
+          return;
+        }
+
+        if (!user.active) {
+          clearSession();
+          setCurrentUser(null);
+          setCustomAlert({ show: true, message: "❌ Your account has been deactivated by an administrator", type: "error" });
+          return;
+        }
+
+        if (user.role !== currentUser.role) {
+          clearSession();
+          setCurrentUser(null);
+          setCustomAlert({ show: true, message: "⚠️ Your role has been changed. Please log in again.", type: "warning" });
+          return;
+        }
+      } catch (e) {
+        console.error("Failed to check user status:", e);
+      }
+    };
+
+    const interval = setInterval(checkUserStatus, 5000);
+    return () => clearInterval(interval);
+  }, [currentUser]);
+
   // ✅ NEW: Validate sessions periodically and update user statuses
   const validateSessions = async () => {
     try {
@@ -1397,9 +1441,21 @@ export default function HelpDesk() {
   }, [currentUser]);
 
   // ── Inbox polling: fetch notifications from DB every 10s ──
-  // Use a ref to track which DB activity IDs we've already merged into the bell
-  // so stale closures in the polling interval never cause duplicates
+  // Use a ref to track which DB activity IDs we've already seen
+  // Persist to localStorage so it survives page reloads
   const seenActivityIds = useRef(new Set());
+
+  // Load seen IDs from localStorage on mount
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem("seenActivityIds");
+      if (saved) {
+        seenActivityIds.current = new Set(JSON.parse(saved));
+      }
+    } catch (e) {
+      console.error("Failed to load seenActivityIds:", e);
+    }
+  }, []);
 
   const fetchInbox = async () => {
     if (!currentUser) return;
@@ -1467,7 +1523,7 @@ export default function HelpDesk() {
 
   useEffect(() => {
     if (!currentUser) return;
-    seenActivityIds.current = new Set(); // reset on login/user-change
+    // ✅ REMOVED: seenActivityIds.current = new Set(); // Don't reset - keep persistent across reloads
     fetchInbox();
     const interval = setInterval(fetchInbox, 10000);
     return () => clearInterval(interval);
@@ -2063,6 +2119,14 @@ export default function HelpDesk() {
   const addCC = () => { if (ccInput && !form.cc.includes(ccInput)) { setForm({ ...form, cc: [...form.cc, ccInput] }); setCcInput(""); } };
 
   const updateStatus = async (id, status) => {
+    // ✅ NEW: If closing ticket, ask for remark first
+    if (status === "Closed") {
+      setClosingTicketId(id);
+      setTicketRemark("");
+      setShowRemarkModal(true);
+      return;
+    }
+
     const t = tickets.find(x => x.id === id); if (!t) return;
     try {
       const nowISO = new Date().toISOString();
@@ -2071,12 +2135,40 @@ export default function HelpDesk() {
       await axios.put(`${TICKETS_API}/${id}`, updatedT);
       setTickets(p => p.map(x => x.id === id ? { ...updatedT, updated: new Date(nowISO) } : x));
       if (selTicket?.id === id) setSelTicket({ ...updatedT, updated: new Date(nowISO) });
-      if (status === "Closed" || status === "Resolved") {
-        addDailyNotif({ type: "ticket_closed", icon: "✅", text: `${currentUser.name} ${status.toLowerCase()} ticket ${id}`, ticketId: id, by: currentUser.name });
+      if (status === "Resolved") {
+        addDailyNotif({ type: "ticket_closed", icon: "✅", text: `${currentUser.name} resolved ticket ${id}`, ticketId: id, by: currentUser.name });
       } else {
         addDailyNotif({ type: "ticket_status", icon: "🔄", text: `${currentUser.name} changed ${id} to ${status}`, ticketId: id, by: currentUser.name });
       }
     } catch (e) { alert("Failed to update"); }
+  };
+
+  // ✅ NEW: Close ticket with remark
+  const closeTicketWithRemark = async () => {
+    if (!ticketRemark.trim()) {
+      alert("Remark is mandatory before closing the ticket");
+      return;
+    }
+
+    const t = tickets.find(x => x.id === closingTicketId); if (!t) return;
+    try {
+      const nowISO = new Date().toISOString();
+      const newTimelineEvent = { action: "Status changed to Closed", by: currentUser.name, date: nowISO, note: `Remark: ${ticketRemark}` };
+      const updatedT = { ...t, status: "Closed", updated: nowISO, timeline: [...(t.timeline || []), newTimelineEvent] };
+      await axios.put(`${TICKETS_API}/${closingTicketId}`, updatedT);
+      setTickets(p => p.map(x => x.id === closingTicketId ? { ...updatedT, updated: new Date(nowISO) } : x));
+      if (selTicket?.id === closingTicketId) setSelTicket({ ...updatedT, updated: new Date(nowISO) });
+      addDailyNotif({ type: "ticket_closed", icon: "✅", text: `${currentUser.name} closed ticket ${closingTicketId}`, ticketId: closingTicketId, by: currentUser.name });
+
+      // Reset and close modal
+      setShowRemarkModal(false);
+      setClosingTicketId(null);
+      setTicketRemark("");
+      setCustomAlert({ show: true, message: "✅ Ticket closed with remark", type: "success" });
+    } catch (e) {
+      alert("Failed to close ticket");
+      console.error(e);
+    }
   };
 
   const toggleSel = id => { const s = new Set(selectedIds); s.has(id) ? s.delete(id) : s.add(id); setSelectedIds(s); };
@@ -2430,7 +2522,6 @@ export default function HelpDesk() {
   // --- USERS ---
   const deleteUser = async (id) => {
     const user = users.find(u => u.id === id);
-    // Guard: only Admin/Manager can delete users
     if (!["Admin", "Manager"].includes(currentUser?.role)) {
       setCustomAlert({ show: true, message: "You don't have permission to delete users.", type: "error" });
       return;
@@ -2438,18 +2529,25 @@ export default function HelpDesk() {
     setConfirmModal({
       show: true,
       title: `Delete ${user?.name}?`,
-      message: `Are you sure you want to delete ${user?.name}? This user account will be removed. Any tickets assigned to this user will be marked as unassigned. This action cannot be undone.`,
+      message: `Delete ${user?.name}? Tickets unassigned. All personal data removed. Cannot undo.`,
       onConfirm: async () => {
         try {
-          // Find all tickets assigned to this user and mark them as unassigned
+          // ✅ 1. Unassign all tickets
           const ticketsToUpdate = tickets.filter(t => t.assignees?.some(a => a.id === id));
-
           for (const ticket of ticketsToUpdate) {
             const updatedAssignees = (ticket.assignees || []).filter(a => a.id !== id);
             await axios.put(`${TICKETS_API}/${ticket.id}`, { ...ticket, assignees: updatedAssignees });
           }
 
-          // Delete the user
+          // ✅ 2. Delete personal notifications
+          try {
+            const personalNotifs = await axios.get(`${NOTIFICATIONS_API}?userId=${id}`);
+            for (const notif of personalNotifs.data || []) {
+              await axios.delete(`${NOTIFICATIONS_API}/${notif.id}`).catch(() => { });
+            }
+          } catch (e) { }
+
+          // ✅ 3. Delete user
           await axios.delete(`${USERS_API}/${id}`);
 
           // Update local state
@@ -2460,7 +2558,7 @@ export default function HelpDesk() {
               : t
           ));
 
-          setCustomAlert({ show: true, message: `${user?.name} deleted successfully. ${ticketsToUpdate.length} ticket(s) marked as unassigned.`, type: "success" });
+          setCustomAlert({ show: true, message: `✅ ${user?.name} deleted. ${ticketsToUpdate.length} ticket(s) unassigned.`, type: "success" });
           setConfirmModal({ show: false, title: "", message: "", onConfirm: null, onCancel: null });
         } catch (err) {
           console.error("Error deleting user:", err);
@@ -2903,6 +3001,12 @@ export default function HelpDesk() {
   const markBellRead = () => {
     // Mark all current bell items as seen in the ref so next poll doesn't re-count them
     dailyNotifs.forEach(n => { if (n.dbId) seenActivityIds.current.add(n.dbId); });
+    // ✅ NEW: Persist to localStorage so it survives page reloads
+    try {
+      localStorage.setItem("seenActivityIds", JSON.stringify(Array.from(seenActivityIds.current)));
+    } catch (e) {
+      console.error("Failed to save seenActivityIds:", e);
+    }
     setBellUnread(0);
   };
 
@@ -3377,14 +3481,16 @@ export default function HelpDesk() {
           {profileOpen && (
             <div style={{ marginTop: 8, background: "#1e293b", borderRadius: 8, padding: "8px" }}>
               <button onClick={() => { setProfileForm({ name: currentUser.name, phone: currentUser.phone || "" }); setEditProfileOpen(true); }} style={{ width: "100%", padding: "6px 10px", background: "#334155", border: "none", borderRadius: 6, color: "#f8fafc", fontSize: 12, fontWeight: 600, cursor: "pointer", marginBottom: 8, textAlign: "left" }}>👤 View Profile</button>
-              <div style={{ fontSize: 10, fontWeight: 600, color: "#94a3b8", marginBottom: 6, textTransform: "uppercase", padding: "0 4px" }}>Set Status</div>
+              <div style={{ fontSize: 10, fontWeight: 600, color: "#94a3b8", marginBottom: 6, textTransform: "uppercase", padding: "0 4px" }}>Status</div>
               <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-                {statusOpts.map(s => (
+                {/* ✅ Only show Off Duty option - On Duty is automatic on login */}
+                {statusOpts.filter(s => s.l === "Off Duty").map(s => (
                   <button key={s.l} onClick={() => updateStatusDirect(s.l)} style={{ display: "flex", alignItems: "center", gap: 6, background: "transparent", border: "none", padding: "4px 8px", borderRadius: 4, cursor: "pointer", color: currentUser.status === s.l ? s.c : "#cbd5e1" }}>
                     <span style={{ width: 8, height: 8, borderRadius: "50%", background: s.c, boxShadow: currentUser.status === s.l ? `0 0 0 2px ${s.bg}` : "none" }} />
                     <span style={{ fontSize: 11, fontWeight: currentUser.status === s.l ? 700 : 500 }}>{s.l}</span>
                   </button>
                 ))}
+                <div style={{ fontSize: 9, color: "#94a3b8", padding: "4px 8px", fontStyle: "italic" }}>🟢 On Duty is automatic when you log in</div>
               </div>
 
               <button onClick={handleLogout} style={{ width: "100%", padding: "6px 10px", background: "transparent", border: "none", color: "#ef4444", fontSize: 12, fontWeight: 600, cursor: "pointer", marginTop: 8, textAlign: "left", borderTop: "1px solid #334155", paddingTop: 8 }}>Log Out</button>
@@ -3598,8 +3704,9 @@ export default function HelpDesk() {
                     </div>
                     <div style={{ maxHeight: 420, overflowY: "auto" }}>
                       {dailyNotifs.length === 0 && <div style={{ padding: 28, textAlign: "center", color: "#94a3b8", fontSize: 13 }}>No activity yet today</div>}
+                      {/* ✅ Show ALL notifications, but only count NEW ones on badge */}
                       {dailyNotifs.map(n => (
-                        <div key={n.id} style={{ padding: "10px 16px", borderBottom: "1px solid #f8fafc", display: "flex", alignItems: "flex-start", gap: 10, background: n.read ? "#fff" : (n.fromBroadcast ? "#fff7ed" : "#f0f9ff") }}>
+                        <div key={n.id} style={{ padding: "10px 16px", borderBottom: "1px solid #f8fafc", display: "flex", alignItems: "flex-start", gap: 10, background: seenActivityIds.current.has(n.dbId) ? "#fff" : (n.fromBroadcast ? "#fff7ed" : "#f0f9ff"), opacity: seenActivityIds.current.has(n.dbId) ? 0.7 : 1 }}>
                           <span style={{ fontSize: 16, flexShrink: 0, marginTop: 1 }}>{n.icon}</span>
                           <div style={{ flex: 1, minWidth: 0 }}>
                             {n.fromBroadcast && n.by && n.by !== currentUser?.name && (
@@ -3607,7 +3714,7 @@ export default function HelpDesk() {
                             )}
                             <div style={{ fontSize: 12, fontWeight: 500, color: "#1e293b", lineHeight: 1.4 }}>{n.text}</div>
                             {n.ticketId && <div style={{ fontSize: 10, color: "#3b82f6", marginTop: 2, fontFamily: "monospace" }}>{n.ticketId}</div>}
-                            <div style={{ fontSize: 10, color: "#94a3b8", marginTop: 2 }}>{new Date(n.time).toLocaleTimeString()}</div>
+                            <div style={{ fontSize: 10, color: "#94a3b8", marginTop: 2 }}>{new Date(n.time).toLocaleTimeString()} {seenActivityIds.current.has(n.dbId) && <span style={{ marginLeft: 8, color: "#22c55e", fontWeight: 600 }}>✓ Read</span>}</div>
                           </div>
                         </div>
                       ))}
@@ -3780,113 +3887,49 @@ export default function HelpDesk() {
                 <button onClick={() => { setForm(emptyForm()); setShowNewTicket(true); }} style={{ ...bP, padding: "7px 13px", fontSize: 12 }}>+ New Ticket</button>
                 {selectedIds.size > 0 && <span style={{ fontSize: 12, color: "#3b82f6", fontWeight: 600, background: "#eff6ff", padding: "4px 10px", borderRadius: 99 }}>{selectedIds.size} selected</span>}
 
-                {/* Mark All as Closed Button */}
-                {selectedIds.size > 0 && (
-                  <button onClick={async () => {
-                    if (!window.confirm(`Close ${selectedIds.size} ticket(s)?`)) return;
-                    const nowISO = new Date().toISOString();
-                    try {
-                      for (const id of selectedIds) {
-                        const t = tickets.find(x => x.id === id);
-                        if (t) {
-                          const update = { ...t, status: "Closed", updated: nowISO };
-                          await axios.put(`${TICKETS_API}/${id}`, update);
-                        }
-                      }
-                      setTickets(p => p.map(x => selectedIds.has(x.id) ? { ...x, status: "Closed", updated: new Date(nowISO) } : x));
-                      setSelectedIds(new Set());
-                    } catch (e) { alert("Failed to close tickets"); }
-                  }} style={{ ...bP, padding: "7px 13px", fontSize: 12, background: "#22c55e", color: "#fff" }}>✓ Mark All Closed</button>
+                {/* ✅ Mark All as Closed Button - ADMIN ONLY */}
+                {selectedIds.size > 0 && currentUser?.role === "Admin" && (
+                  <button onClick={() => {
+                    // ✅ NEW: Show popup for mass close with remarks
+                    setConfirmModal({
+                      show: true,
+                      title: `Close ${selectedIds.size} Ticket(s)?`,
+                      message: `Are you sure you want to close ${selectedIds.size} ticket(s)? Each ticket will need a closing remark.`,
+                      fields: [
+                        { name: "remark", label: "📝 Closing Remark (for all)", type: "textarea", placeholder: "Describe what was done...", value: "" }
+                      ],
+                      onConfirm: async (data) => {
+                        const remark = data.remark || "Batch closed by admin";
+                        const nowISO = new Date().toISOString();
+                        try {
+                          for (const id of selectedIds) {
+                            const t = tickets.find(x => x.id === id);
+                            if (t) {
+                              const newTimelineEvent = { action: "Status changed to Closed", by: currentUser.name, date: nowISO, note: `Remark: ${remark}` };
+                              const update = { ...t, status: "Closed", updated: nowISO, timeline: [...(t.timeline || []), newTimelineEvent] };
+                              await axios.put(`${TICKETS_API}/${id}`, update);
+                            }
+                          }
+                          setTickets(p => p.map(x => selectedIds.has(x.id) ? { ...x, status: "Closed", updated: new Date(nowISO) } : x));
+                          setSelectedIds(new Set());
+                          setCustomAlert({ show: true, message: `✅ ${selectedIds.size} ticket(s) closed with remark`, type: "success" });
+                        } catch (e) { alert("Failed to close tickets"); }
+                      },
+                      onCancel: () => setConfirmModal({ show: false })
+                    });
+                  }} style={{ ...bP, padding: "7px 13px", fontSize: 12, background: "#22c55e", color: "#fff" }}>✓ Close Multiple</button>
                 )}
 
-                {/* Other Actions Dropdown */}
-                <div style={{ position: "relative" }}>
-                  <button onClick={() => setShowOtherActions(!showOtherActions)} style={{ ...bG, display: "flex", alignItems: "center", gap: 6, padding: "7px 13px", fontSize: 12 }}>⚙ Other Actions <span style={{ fontSize: 10 }}>▾</span></button>
-                  {showOtherActions && <><div style={{ position: "fixed", inset: 0, zIndex: 149 }} onClick={() => setShowOtherActions(false)} />
-                    <div style={{ position: "absolute", right: 0, top: "calc(100% + 4px)", background: "#fff", border: "1.5px solid #e2e8f0", borderRadius: 10, zIndex: 150, boxShadow: "0 8px 24px rgba(0,0,0,0.12)", minWidth: 220, overflow: "hidden" }}>
-                      <button onClick={() => {
-                        const pageTicketIds = new Set(currentTickets.map(t => t.id));
-                        setSelectedIds(pageTicketIds);
-                        setShowOtherActions(false);
-                      }} style={{ display: "block", width: "100%", padding: "10px 14px", border: "none", background: "#fff", cursor: "pointer", fontSize: 13, textAlign: "left", fontFamily: "'DM Sans',sans-serif", borderBottom: "1px solid #f8fafc" }}>☑ Select All on Page</button>
-
-                      {selectedIds.size > 0 && <>
-                        <button onClick={async () => {
-                          if (!window.confirm(`Mark ${selectedIds.size} as Open?`)) return;
-                          const nowISO = new Date().toISOString();
-                          try {
-                            for (const id of selectedIds) {
-                              const t = tickets.find(x => x.id === id);
-                              if (t) {
-                                const update = { ...t, status: "Open", updated: nowISO };
-                                await axios.put(`${TICKETS_API}/${id}`, update);
-                              }
-                            }
-                            setTickets(p => p.map(x => selectedIds.has(x.id) ? { ...x, status: "Open", updated: new Date(nowISO) } : x));
-                            setShowOtherActions(false);
-                          } catch (e) { alert("Failed to update tickets"); }
-                        }} style={{ display: "block", width: "100%", padding: "10px 14px", border: "none", background: "#fff", cursor: "pointer", fontSize: 13, textAlign: "left", fontFamily: "'DM Sans',sans-serif", borderBottom: "1px solid #f8fafc" }}>📂 Mark as Open</button>
-
-                        <button onClick={async () => {
-                          if (!window.confirm(`Mark ${selectedIds.size} as In Progress?`)) return;
-                          const nowISO = new Date().toISOString();
-                          try {
-                            for (const id of selectedIds) {
-                              const t = tickets.find(x => x.id === id);
-                              if (t) {
-                                const update = { ...t, status: "In Progress", updated: nowISO };
-                                await axios.put(`${TICKETS_API}/${id}`, update);
-                              }
-                            }
-                            setTickets(p => p.map(x => selectedIds.has(x.id) ? { ...x, status: "In Progress", updated: new Date(nowISO) } : x));
-                            setShowOtherActions(false);
-                          } catch (e) { alert("Failed to update tickets"); }
-                        }} style={{ display: "block", width: "100%", padding: "10px 14px", border: "none", background: "#fff", cursor: "pointer", fontSize: 13, textAlign: "left", fontFamily: "'DM Sans',sans-serif", borderBottom: "1px solid #f8fafc" }}>⚙ Mark as In Progress</button>
-
-                        <button onClick={async () => {
-                          if (!window.confirm(`Mark ${selectedIds.size} as Pending?`)) return;
-                          const nowISO = new Date().toISOString();
-                          try {
-                            for (const id of selectedIds) {
-                              const t = tickets.find(x => x.id === id);
-                              if (t) {
-                                const update = { ...t, status: "Pending", updated: nowISO };
-                                await axios.put(`${TICKETS_API}/${id}`, update);
-                              }
-                            }
-                            setTickets(p => p.map(x => selectedIds.has(x.id) ? { ...x, status: "Pending", updated: new Date(nowISO) } : x));
-                            setShowOtherActions(false);
-                          } catch (e) { alert("Failed to update tickets"); }
-                        }} style={{ display: "block", width: "100%", padding: "10px 14px", border: "none", background: "#fff", cursor: "pointer", fontSize: 13, textAlign: "left", fontFamily: "'DM Sans',sans-serif", borderBottom: "1px solid #f8fafc" }}>⏳ Mark as Pending</button>
-
-                        <button onClick={async () => {
-                          if (!window.confirm(`Mark ${selectedIds.size} as Resolved?`)) return;
-                          const nowISO = new Date().toISOString();
-                          try {
-                            for (const id of selectedIds) {
-                              const t = tickets.find(x => x.id === id);
-                              if (t) {
-                                const update = { ...t, status: "Resolved", updated: nowISO };
-                                await axios.put(`${TICKETS_API}/${id}`, update);
-                              }
-                            }
-                            setTickets(p => p.map(x => selectedIds.has(x.id) ? { ...x, status: "Resolved", updated: new Date(nowISO) } : x));
-                            setShowOtherActions(false);
-                          } catch (e) { alert("Failed to update tickets"); }
-                        }} style={{ display: "block", width: "100%", padding: "10px 14px", border: "none", background: "#fff", cursor: "pointer", fontSize: 13, textAlign: "left", fontFamily: "'DM Sans',sans-serif", borderBottom: "1px solid #f8fafc" }}>✅ Mark as Resolved</button>
-
-
-                      </>}
-                    </div>
-                  </>}
-                </div>
               </div>
             </div>
 
             <div style={{ overflowX: "auto" }}>
               <table style={{ width: "100%", borderCollapse: "collapse" }}>
                 <thead><tr style={{ background: "#f8fafc" }}>
-                  <th style={{ ...thStyle, width: 40 }}><input type="checkbox" checked={selectedIds.size === filtered.length && filtered.length > 0} onChange={toggleAll} style={{ cursor: "pointer" }} /></th>
+                  {/* ✅ Checkboxes only for Admin */}
+                  {currentUser?.role === "Admin" && (
+                    <th style={{ ...thStyle, width: 40 }}><input type="checkbox" checked={selectedIds.size === filtered.length && filtered.length > 0} onChange={toggleAll} style={{ cursor: "pointer" }} /></th>
+                  )}
                   <FilterableHeader label="ID" field="id" data={filtered} filters={ticketSort} onFilter={setTicketSort} style={thStyle} />
                   <FilterableHeader label="Summary" field="summary" data={filtered} filters={ticketSort} onFilter={setTicketSort} style={thStyle} />
                   <FilterableHeader label="Org" field="org" data={filtered} filters={ticketSort} onFilter={setTicketSort} style={thStyle} />
@@ -3901,7 +3944,10 @@ export default function HelpDesk() {
                 </tr></thead>
                 <tbody>{currentTickets.map(t => (
                   <tr key={t.id} className="rh" style={{ cursor: "pointer", background: selectedIds.has(t.id) ? "#eff6ff" : "#fff" }}>
-                    <td style={tdStyle} onClick={e => e.stopPropagation()}><input type="checkbox" checked={selectedIds.has(t.id)} onChange={() => toggleSel(t.id)} style={{ cursor: "pointer" }} /></td>
+                    {/* ✅ Checkboxes only for Admin */}
+                    {currentUser?.role === "Admin" && (
+                      <td style={tdStyle} onClick={e => e.stopPropagation()}><input type="checkbox" checked={selectedIds.has(t.id)} onChange={() => toggleSel(t.id)} style={{ cursor: "pointer" }} /></td>
+                    )}
                     <td style={tdStyle} onClick={() => setSelTicket(t)}><span style={{ fontFamily: "'DM Mono',monospace", fontSize: 11.5, color: "#3b82f6", fontWeight: 500 }}>{t.id}</span>{t.isWebcast && <span style={{ marginLeft: 5, fontSize: 10, background: "#fff7ed", color: "#f97316", padding: "1px 5px", borderRadius: 4, fontWeight: 600 }}>📡</span>}</td>
                     <td style={{ ...tdStyle, maxWidth: 180 }} onClick={() => setSelTicket(t)}><div style={{ fontWeight: 500, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{t.summary}</div></td>
                     <td style={tdStyle} onClick={() => setSelTicket(t)}><div style={{ fontSize: 12, fontWeight: 500 }}>{t.org}</div></td>
@@ -4303,10 +4349,12 @@ export default function HelpDesk() {
                           const rawStatus = foundUser?.status;
                           const statusValue = rawStatus || "Off Duty";
                           const statusStyle = statusOpts.find(s => s.l === statusValue);
+                          // ✅ ALWAYS show a badge - default to Off Duty if status not found
                           if (statusStyle) {
                             return <Badge label={statusStyle.l} style={{ background: statusStyle.bg, color: statusStyle.c }} />;
                           }
-                          return null;
+                          // If no matching status, show Off Duty as fallback
+                          return <Badge label="Off Duty" style={{ background: "#fef3c7", color: "#f59e0b" }} />;
                         })()}
                       </div>
                     </div>
@@ -4635,7 +4683,12 @@ export default function HelpDesk() {
                         // Check DB status field which is updated on login/logout
                         const statusValue = u.status || "Off Duty";
                         const sStyle = statusOpts.find(s => s.l === statusValue);
-                        return sStyle ? <Badge label={sStyle.l} style={{ background: sStyle.bg, color: sStyle.c }} /> : <Badge label={statusValue} />;
+                        // ✅ Always show a badge - default to Off Duty if not found
+                        if (sStyle) {
+                          return <Badge label={sStyle.l} style={{ background: sStyle.bg, color: sStyle.c }} />;
+                        }
+                        // If no matching status, show Off Duty as fallback
+                        return <Badge label="Off Duty" style={{ background: "#fef3c7", color: "#f59e0b" }} />;
                       })()}</td>
                       <td style={tdStyle}><Badge label={u.active ? "Activated" : "Deactivated"} style={{ background: u.active ? "#dcfce7" : "#fee2e2", color: u.active ? "#15803d" : "#ef4444" }} /></td>
                       {(currentUser?.role === "Admin") && (() => {
@@ -4647,19 +4700,19 @@ export default function HelpDesk() {
                               setConfirmModal({
                                 show: true,
                                 title: `Change ${u.name}'s Role?`,
-                                message: `Are you sure you want to change ${u.name}'s role to ${newRole}? This will take effect immediately and cannot be undone.`,
+                                message: `Change ${u.name}'s role to ${newRole}? User will be logged out.`,
                                 onConfirm: async () => {
                                   try {
-                                    const updated = { ...u, role: newRole };
+                                    const updated = { ...u, role: newRole, status: "Logged-Out" };
                                     await axios.put(`${USERS_API}/${u.id}`, updated);
                                     setUsers(users.map(x => x.id === u.id ? updated : x));
                                     if (u.id === currentUser.id) {
-                                      setCurrentUser({ ...currentUser, role: newRole });
-                                      setCustomAlert({ show: true, message: `Your role has been changed to ${newRole}. Page will refresh automatically.`, type: "success" });
+                                      clearSession();
+                                      setCurrentUser(null);
+                                      setCustomAlert({ show: true, message: `⚠️ Your role changed to ${newRole}. Log in again.`, type: "warning" });
                                       setTimeout(() => window.location.reload(), 2000);
                                     } else {
-                                      localStorage.setItem(`role_change_${u.id}`, JSON.stringify({ newRole, timestamp: Date.now() }));
-                                      setCustomAlert({ show: true, message: `${u.name}'s role has been changed to ${newRole}.`, type: "success" });
+                                      setCustomAlert({ show: true, message: `✅ ${u.name} role → ${newRole}. User logged out.`, type: "success" });
                                     }
                                     setConfirmModal({ show: false, title: "", message: "", onConfirm: null, onCancel: null });
                                   } catch (err) {
@@ -4673,7 +4726,7 @@ export default function HelpDesk() {
                                 }
                               });
                             }} style={{ ...sS, fontSize: 11, padding: "4px 8px", width: 110, flexShrink: 0 }}>{ROLES.map(r => <option key={r}>{r}</option>)}</select>
-                            <button onClick={async () => { try { const updated = { ...u, active: !u.active }; await axios.put(`${USERS_API}/${u.id}`, updated); setUsers(users.map(x => x.id === u.id ? updated : x)); } catch (err) { alert("Failed to update user"); } }} style={{ border: "none", background: u.active ? "#fef9c3" : "#dcfce7", color: u.active ? "#854d0e" : "#15803d", borderRadius: 6, padding: "4px 9px", cursor: "pointer", fontSize: 12, fontWeight: 600 }}>{u.active ? "Deactivate" : "Activate"}</button>
+                            <button onClick={async () => { try { const updated = { ...u, active: !u.active, status: !u.active ? u.status : "Logged-Out" }; await axios.put(`${USERS_API}/${u.id}`, updated); setUsers(users.map(x => x.id === u.id ? updated : x)); if (u.id === currentUser.id && !u.active) { clearSession(); setCurrentUser(null); setCustomAlert({ show: true, message: "❌ You've been deactivated. Logged out.", type: "error" }); setTimeout(() => window.location.reload(), 2000); } else if (!u.active) { setCustomAlert({ show: true, message: `✅ ${u.name} deactivated.`, type: "success" }); } else { setCustomAlert({ show: true, message: `✅ ${u.name} activated.`, type: "success" }); } } catch (err) { alert("Failed to update user"); } }} style={{ border: "none", background: u.active ? "#fef9c3" : "#dcfce7", color: u.active ? "#854d0e" : "#15803d", borderRadius: 6, padding: "4px 9px", cursor: "pointer", fontSize: 12, fontWeight: 600 }}>{u.active ? "Deactivate" : "Activate"}</button>
                             {u.id !== currentUser.id && <button onClick={() => deleteUser(u.id)} style={{ border: "none", background: "#fee2e2", color: "#ef4444", borderRadius: 6, padding: "4px 9px", cursor: "pointer", fontSize: 12, fontWeight: 600 }}>Delete</button>}
                             <button onClick={() => { setEditUserOpen(u); setEditUserForm({ name: u.name, email: u.email, password: "" }); }} style={{ border: "none", background: "#dbeafe", color: "#1e40af", borderRadius: 6, padding: "4px 9px", cursor: "pointer", fontSize: 12, fontWeight: 600 }}>Edit</button>
                           </div></td>
@@ -5565,34 +5618,132 @@ export default function HelpDesk() {
               </select>
             </div>
 
-            <div style={{ display: "flex", gap: 8 }}>
-              <button onClick={async () => {
-                try {
-                  const u = users.find(x => x.id === selAgent.id);
-                  const updated = {
-                    ...u,
-                    currentTicketId: currentTicketId || null,
-                    currentLocation: currentLocation || null
-                  };
-                  await axios.put(`${USERS_API}/${selAgent.id}`, updated);
-                  setUsers(users.map(x => x.id === selAgent.id ? updated : x));
-                  setSelAgent(updated);
-                  setCustomAlert({ show: true, message: "✅ Agent activity updated", type: "success" });
+            <div style={{ display: "flex", gap: 8, flexDirection: "column" }}>
+              {/* ✅ NEW: Back to Office button - clears location and sets On Duty */}
+              {currentLocation && (
+                <button onClick={async () => {
+                  try {
+                    const u = users.find(x => x.id === selAgent.id);
+                    const updated = {
+                      ...u,
+                      currentTicketId: null,
+                      currentLocation: null,
+                      status: "On Duty"  // ✅ Auto set to On Duty
+                    };
+                    await axios.put(`${USERS_API}/${selAgent.id}`, updated);
+                    setUsers(users.map(x => x.id === selAgent.id ? updated : x));
+                    setSelAgent(updated);
+                    setCustomAlert({ show: true, message: "✅ Welcome back to office! On Duty", type: "success" });
+                    setCurrentTicketId("");
+                    setCurrentLocation("");
+                    setShowLocationModal(false);
+                  } catch (e) {
+                    setCustomAlert({ show: true, message: "Failed to update", type: "error" });
+                  }
+                }} style={{ padding: "10px 12px", background: "#3b82f6", border: "none", borderRadius: 6, color: "#fff", fontWeight: 600, cursor: "pointer", fontSize: 12 }}>🏢 Back to Office - On Duty</button>
+              )}
+
+              <div style={{ display: "flex", gap: 8 }}>
+                <button onClick={async () => {
+                  try {
+                    const u = users.find(x => x.id === selAgent.id);
+                    // ✅ NEW: Auto set to "On Ticket" if location is assigned
+                    const newStatus = currentLocation ? "On Ticket" : u.status;
+                    const updated = {
+                      ...u,
+                      currentTicketId: currentTicketId || null,
+                      currentLocation: currentLocation || null,
+                      status: newStatus  // ✅ Auto-update status based on location
+                    };
+                    await axios.put(`${USERS_API}/${selAgent.id}`, updated);
+                    setUsers(users.map(x => x.id === selAgent.id ? updated : x));
+                    setSelAgent(updated);
+                    const statusMsg = currentLocation ? " - Now On Ticket" : "";
+                    setCustomAlert({ show: true, message: `✅ Agent activity updated${statusMsg}`, type: "success" });
+                    setCurrentTicketId("");
+                    setCurrentLocation("");
+                    setShowLocationModal(false);
+                  } catch (e) {
+                    setCustomAlert({ show: true, message: "Failed to update", type: "error" });
+                  }
+                }} style={{ flex: 1, padding: "10px 12px", background: "#10b981", border: "none", borderRadius: 6, color: "#fff", fontWeight: 600, cursor: "pointer", fontSize: 12 }}>💾 Save Activity</button>
+                <button onClick={() => {
+                  setShowLocationModal(false);
                   setCurrentTicketId("");
                   setCurrentLocation("");
-                  setShowLocationModal(false);
-                } catch (e) {
-                  setCustomAlert({ show: true, message: "Failed to update", type: "error" });
-                }
-              }} style={{ flex: 1, padding: "10px 12px", background: "#10b981", border: "none", borderRadius: 6, color: "#fff", fontWeight: 600, cursor: "pointer", fontSize: 12 }}>💾 Save</button>
-              <button onClick={() => {
-                setShowLocationModal(false);
-                setCurrentTicketId("");
-                setCurrentLocation("");
-              }} style={{ flex: 1, padding: "10px 12px", background: "#f3f4f6", border: "none", borderRadius: 6, color: "#374151", fontWeight: 600, cursor: "pointer", fontSize: 12 }}>Cancel</button>
+                }} style={{ flex: 1, padding: "10px 12px", background: "#f3f4f6", border: "none", borderRadius: 6, color: "#374151", fontWeight: 600, cursor: "pointer", fontSize: 12 }}>Cancel</button>
+              </div>
             </div>
           </div>
         )}
+      </Modal>
+
+      {/* ✅ NEW: Close Ticket with Remark Modal */}
+      <Modal open={showRemarkModal} onClose={() => { setShowRemarkModal(false); setTicketRemark(""); }} title="Close Ticket - Add Remark" width={500}>
+        <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+          <div>
+            <label style={{ fontSize: 12, fontWeight: 600, color: "#374151", marginBottom: 8, display: "block" }}>📝 What have you done? (Mandatory)</label>
+            <textarea
+              value={ticketRemark}
+              onChange={e => setTicketRemark(e.target.value)}
+              placeholder="Describe what you did to resolve this ticket..."
+              style={{
+                width: "100%",
+                minHeight: 120,
+                padding: "12px",
+                fontSize: 12,
+                borderRadius: 6,
+                border: "1px solid #e2e8f0",
+                background: "#f8fafc",
+                color: "#1e293b",
+                fontFamily: "'DM Sans', sans-serif",
+                resize: "vertical"
+              }}
+            />
+            {!ticketRemark.trim() && (
+              <div style={{ marginTop: 8, fontSize: 11, color: "#ef4444" }}>⚠️ Remark is mandatory before closing</div>
+            )}
+          </div>
+
+          <div style={{ display: "flex", gap: 8 }}>
+            <button
+              onClick={closeTicketWithRemark}
+              disabled={!ticketRemark.trim()}
+              style={{
+                flex: 1,
+                padding: "10px 12px",
+                background: ticketRemark.trim() ? "#22c55e" : "#cbd5e1",
+                border: "none",
+                borderRadius: 6,
+                color: "#fff",
+                fontWeight: 600,
+                cursor: ticketRemark.trim() ? "pointer" : "not-allowed",
+                fontSize: 12
+              }}
+            >
+              ✅ Close & Save Remark
+            </button>
+            <button
+              onClick={() => {
+                setShowRemarkModal(false);
+                setTicketRemark("");
+              }}
+              style={{
+                flex: 1,
+                padding: "10px 12px",
+                background: "#f3f4f6",
+                border: "none",
+                borderRadius: 6,
+                color: "#374151",
+                fontWeight: 600,
+                cursor: "pointer",
+                fontSize: 12
+              }}
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
       </Modal>
 
       {/* ── Toast Notifications ── */}
