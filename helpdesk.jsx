@@ -269,7 +269,7 @@ const CustomAlert = ({ show, message, type, onDismiss }) => {
 };
 
 // ✅ NEW: Full-Screen Confirmation Modal
-const ConfirmationModal = ({ show, title, message, onConfirm, onCancel, fields, showLunchButton, onLunch }) => {
+const ConfirmationModal = ({ show, title, message, onConfirm, onCancel, fields, showLunchButton, onLunch, confirmLabel, confirmDanger }) => {
   const [fieldValues, setFieldValues] = React.useState({});
 
   React.useEffect(() => {
@@ -443,23 +443,23 @@ const ConfirmationModal = ({ show, title, message, onConfirm, onCancel, fields, 
             padding: "10px 24px",
             borderRadius: 8,
             border: "none",
-            background: "linear-gradient(135deg, #3b82f6, #6366f1)",
+            background: confirmDanger ? "linear-gradient(135deg, #ef4444, #dc2626)" : "linear-gradient(135deg, #3b82f6, #6366f1)",
             color: "#fff",
             cursor: "pointer",
             fontSize: 13,
             fontWeight: 600,
             transition: "all 0.2s",
             fontFamily: "'DM Sans', sans-serif",
-            boxShadow: "0 4px 12px rgba(59, 130, 246, 0.3)",
+            boxShadow: confirmDanger ? "0 4px 12px rgba(239,68,68,0.3)" : "0 4px 12px rgba(59, 130, 246, 0.3)",
             flex: showLunchButton ? "0" : "1"
           }} onMouseOver={e => {
-            e.target.style.boxShadow = "0 6px 16px rgba(59, 130, 246, 0.4)";
+            e.target.style.boxShadow = confirmDanger ? "0 6px 16px rgba(239,68,68,0.4)" : "0 6px 16px rgba(59, 130, 246, 0.4)";
             e.target.style.transform = "translateY(-2px)";
           }} onMouseOut={e => {
-            e.target.style.boxShadow = "0 4px 12px rgba(59, 130, 246, 0.3)";
+            e.target.style.boxShadow = confirmDanger ? "0 4px 12px rgba(239,68,68,0.3)" : "0 4px 12px rgba(59, 130, 246, 0.3)";
             e.target.style.transform = "translateY(0)";
           }}>
-            Logout
+            {confirmLabel || "Confirm"}
           </button>
         </div>
       </div>
@@ -1014,9 +1014,13 @@ export default function HelpDesk() {
     }
   });
   const [range, setRange] = useState("all");
+  const [customDateFrom, setCustomDateFrom] = useState("");
+  const [customDateTo, setCustomDateTo] = useState("");
   const [dashboardOrg, setDashboardOrg] = useState("all");
   const [dashboardOrgSearch, setDashboardOrgSearch] = useState("");
   const [showDashboardOrgDD, setShowDashboardOrgDD] = useState(false);
+  // ✅ NEW: Dashboard time period filter
+  const [dashboardTimePeriod, setDashboardTimePeriod] = useState("1m");  // 1d, 7d, 1m, 3m, 6m, 1y, all
 
   // ✅ NEW: Departments and filters
   const [departments, setDepartments] = useState([]);
@@ -1027,7 +1031,7 @@ export default function HelpDesk() {
   const [orgFilterSearch, setOrgFilterSearch] = useState("");
   const [showOrgFilterDD, setShowOrgFilterDD] = useState(false);
   const [orgClassifyType, setOrgClassifyType] = useState("all");
-  const [newDept, setNewDept] = useState({ name: "" });
+  const [newDept, setNewDept] = useState({ name: "", orgName: "" });
 
   // ✅ NEW: Locations (from database)
   const [locations, setLocations] = useState([]);
@@ -1093,6 +1097,7 @@ export default function HelpDesk() {
   const [selTicket, setSelTicket] = useState(null);
   const [selProject, setSelProject] = useState(null);
   const [selAgent, setSelAgent] = useState(null);
+  const [agentStatusFilter, setAgentStatusFilter] = useState("all");
   const [agentTicketFilter, setAgentTicketFilter] = useState(null);
 
   // ── Satsangs ──
@@ -1313,7 +1318,8 @@ export default function HelpDesk() {
   const statusOpts = [
     { l: "On Duty", c: "#22c55e", bg: "#dcfce7" },      // 🟢 Green - In office
     { l: "On Ticket", c: "#06b6d4", bg: "#cffafe" },    // 🔵 Cyan - On ticket/location
-    { l: "Off Duty", c: "#f59e0b", bg: "#fef3c7" }      // 🟠 Orange - Break/Meeting
+    { l: "On Lunch", c: "#f97316", bg: "#ffedd5" },     // 🟠 Orange - On lunch break
+    { l: "Off Duty", c: "#f59e0b", bg: "#fef3c7" }      // 🟡 Yellow - Off duty
   ];
 
   // ── Password strength ──
@@ -1728,6 +1734,7 @@ export default function HelpDesk() {
   const now = Date.now(), dayMs = 86400000;
   const rangeMs = (() => {
     if (range === "all") return Infinity;
+    if (range === "custom") return Infinity; // handled separately in fbr
     if (range === "last_month") {
       // last 6 calendar months back from today
       const d = new Date(); d.setHours(0, 0, 0, 0);
@@ -1740,6 +1747,16 @@ export default function HelpDesk() {
     let inRange;
     if (range === "all") {
       inRange = tickets;
+    } else if (range === "custom") {
+      const from = customDateFrom ? new Date(customDateFrom) : null;
+      const to = customDateTo ? new Date(customDateTo) : null;
+      if (to) to.setHours(23, 59, 59, 999); // include full end day
+      inRange = tickets.filter(t => {
+        const tc = t.created instanceof Date ? t.created : new Date(t.created);
+        if (from && tc < from) return false;
+        if (to && tc > to) return false;
+        return true;
+      });
     } else if (range === "last_month") {
       const d = new Date(); d.setHours(0, 0, 0, 0);
       const start6mo = new Date(d); start6mo.setMonth(start6mo.getMonth() - 6);
@@ -1749,16 +1766,48 @@ export default function HelpDesk() {
     }
     if (currentUser?.role === "Admin" || currentUser?.role === "Manager") return inRange;
     return inRange.filter(t => t.reportedBy === currentUser?.name || t.assignees?.some(a => a.id === currentUser?.id));
-  }, [tickets, range, rangeMs, now, currentUser]);
+  }, [tickets, range, rangeMs, now, currentUser, customDateFrom, customDateTo]);
 
-  // ✅ NEW: Dashboard data filtered by organization
+  // ✅ NEW: Dashboard data filtered by organization AND time period
   const dashboardData = useMemo(() => {
     let data = fbr;
     if (dashboardOrg !== "all") {
       data = data.filter(t => t.org === dashboardOrg);
     }
-    return data;
-  }, [fbr, dashboardOrg]);
+
+    // ✅ NEW: Filter by time period
+    const now = new Date();
+    const cutoffDate = new Date();
+
+    switch (dashboardTimePeriod) {
+      case "1d":
+        cutoffDate.setHours(0, 0, 0, 0);
+        break;
+      case "7d":
+        cutoffDate.setDate(cutoffDate.getDate() - 7);
+        break;
+      case "1m":
+        cutoffDate.setMonth(cutoffDate.getMonth() - 1);
+        break;
+      case "3m":
+        cutoffDate.setMonth(cutoffDate.getMonth() - 3);
+        break;
+      case "6m":
+        cutoffDate.setMonth(cutoffDate.getMonth() - 6);
+        break;
+      case "1y":
+        cutoffDate.setFullYear(cutoffDate.getFullYear() - 1);
+        break;
+      case "all":
+      default:
+        return data;  // No time filtering
+    }
+
+    return data.filter(t => {
+      const td = t.created instanceof Date ? t.created : new Date(t.created);
+      return td >= cutoffDate;
+    });
+  }, [fbr, dashboardOrg, dashboardTimePeriod]);
 
   // ✅ NEW: Classified reports data based on filters
   const classifiedReportsData = useMemo(() => {
@@ -1921,7 +1970,11 @@ export default function HelpDesk() {
       if (!t.assignees || t.assignees.length === 0) {
         statusCounts["Unassigned"]++;
       } else {
-        statusCounts[t.status] = (statusCounts[t.status] || 0) + 1;
+        // Treat "Resolved" as "Closed" — no separate classification
+        const status = t.status === "Resolved" ? "Closed" : t.status;
+        if (STATUSES.includes(status)) {
+          statusCounts[status] = (statusCounts[status] || 0) + 1;
+        }
       }
     });
 
@@ -2094,13 +2147,28 @@ export default function HelpDesk() {
           users: USERS_API,
           orgs: ORGS_API,
           categories: CATEGORIES_API,
-          projects: PROJECTS_API
+          projects: PROJECTS_API,
+          departments: `${BASE_URL}/departments`
         };
 
         const apiEndpoint = API_MAP[targetTable];
         if (!apiEndpoint) {
           setCustomAlert({ show: true, message: `Unknown table: ${targetTable}`, type: "error" });
           return;
+        }
+
+        // For departments: deduplicate — skip if same name + same orgName already exists
+        if (targetTable === "departments") {
+          const existingKeys = new Set(departments.map(d => `${(d.orgName || "General").toLowerCase()}::${d.name.trim().toLowerCase()}`));
+          payload = payload.filter(row => {
+            const key = `${(row.orgName || row.org_name || "General").toLowerCase()}::${(row.name || "").trim().toLowerCase()}`;
+            return !existingKeys.has(key);
+          });
+          // Normalize field names
+          payload = payload.map(row => ({
+            name: (row.name || "").trim(),
+            orgName: (row.orgName || row.org_name || row.org || "General").trim(),
+          })).filter(row => row.name);
         }
 
         // Import each item individually to the database
@@ -2146,7 +2214,8 @@ export default function HelpDesk() {
       tickets: tickets,
       users: users,
       orgs: orgs,
-      categories: categories
+      categories: categories,
+      departments: departments
     };
 
     let dataToExport = DATA_MAP[targetTable] || [];
@@ -2154,15 +2223,12 @@ export default function HelpDesk() {
     // Apply filters based on export filter type
     if (targetTable === "tickets") {
       if (exportFilterType === "assignee" && exportFilterValue) {
-        // Filter by assigned user
         dataToExport = dataToExport.filter(t =>
           t.assignees?.some(a => a.id === exportFilterValue || a.name === exportFilterValue)
         );
       } else if (exportFilterType === "category" && exportFilterValue) {
-        // Filter by category
         dataToExport = dataToExport.filter(t => t.category === exportFilterValue);
       } else if (exportFilterType === "type" && exportFilterValue) {
-        // Filter by type (ticket, webcast, project)
         if (exportFilterValue === "webcast") {
           dataToExport = dataToExport.filter(t => t.isWebcast === true);
         } else if (exportFilterValue === "ticket") {
@@ -2170,18 +2236,17 @@ export default function HelpDesk() {
         }
       }
     } else if (targetTable === "users" && exportFilterType === "role" && exportFilterValue) {
-      // Filter users by role
       dataToExport = dataToExport.filter(u => u.role === exportFilterValue);
     } else if (targetTable === "orgs" && exportFilterType === "domain" && exportFilterValue) {
-      // Filter orgs by domain
       dataToExport = dataToExport.filter(o => o.domain === exportFilterValue);
     } else if (targetTable === "categories" && exportFilterType === "color" && exportFilterValue) {
-      // Filter categories by color
       dataToExport = dataToExport.filter(c => c.color === exportFilterValue);
+    } else if (targetTable === "departments" && exportFilterType === "org" && exportFilterValue) {
+      dataToExport = dataToExport.filter(d => (d.orgName || "General") === exportFilterValue);
     }
 
     if (dataToExport.length === 0) {
-      alert(`No ${targetTable} data found with selected filter.`);
+      setCustomAlert({ show: true, message: `No ${targetTable} data found with selected filter`, type: "error" });
       return;
     }
 
@@ -2232,6 +2297,7 @@ export default function HelpDesk() {
     setConfirmModal({
       show: true,
       title: "Delete Ticket?",
+      confirmLabel: "Delete", confirmDanger: true,
       message: "Are you sure you want to delete this ticket? This action cannot be undone and all associated data will be lost.",
       onConfirm: async () => {
         try {
@@ -2273,16 +2339,29 @@ export default function HelpDesk() {
       if (selTicket?.id === id) setSelTicket({ ...updatedT, updated: new Date(nowISO) });
       if (status === "Closed") {
         addDailyNotif({ type: "ticket_closed", icon: "✅", text: `${currentUser.name} closed ticket ${id}`, ticketId: id, by: currentUser.name });
+        // Notify all other assignees that ticket was closed
+        const otherAssignees = (t.assignees || []).filter(a => a.id !== currentUser.id);
+        for (const assignee of otherAssignees) {
+          await axios.post(NOTIFICATIONS_API, {
+            userId: assignee.id,
+            type: "ticket_closed",
+            title: `Ticket ${id} Closed`,
+            message: `${currentUser.name} closed ticket "${t.summary}" which was also assigned to you.`,
+            ticketId: id,
+            read: false,
+            createdAt: nowISO,
+          }).catch(() => { });
+        }
       } else {
         addDailyNotif({ type: "ticket_status", icon: "🔄", text: `${currentUser.name} changed ${id} to ${status}`, ticketId: id, by: currentUser.name });
       }
-    } catch (e) { alert("Failed to update"); }
+    } catch (e) { setCustomAlert({ show: true, message: "Failed to update", type: "error" }); }
   };
 
   // ✅ NEW: Close ticket with remark
   const closeTicketWithRemark = async () => {
     if (!ticketRemark.trim()) {
-      alert("Remark is mandatory before closing the ticket");
+      setCustomAlert({ show: true, message: "⚠️ Remark is mandatory before closing the ticket", type: "error" });
       return;
     }
 
@@ -2296,13 +2375,27 @@ export default function HelpDesk() {
       if (selTicket?.id === closingTicketId) setSelTicket({ ...updatedT, updated: new Date(nowISO) });
       addDailyNotif({ type: "ticket_closed", icon: "✅", text: `${currentUser.name} closed ticket ${closingTicketId}`, ticketId: closingTicketId, by: currentUser.name });
 
+      // Notify all other assignees that the ticket was closed
+      const otherAssignees = (t.assignees || []).filter(a => a.id !== currentUser.id);
+      for (const assignee of otherAssignees) {
+        await axios.post(NOTIFICATIONS_API, {
+          userId: assignee.id,
+          type: "ticket_closed",
+          title: `Ticket ${closingTicketId} Closed`,
+          message: `${currentUser.name} closed ticket "${t.summary}" which was also assigned to you.`,
+          ticketId: closingTicketId,
+          read: false,
+          createdAt: nowISO,
+        }).catch(() => { });
+      }
+
       // Reset and close modal
       setShowRemarkModal(false);
       setClosingTicketId(null);
       setTicketRemark("");
       setCustomAlert({ show: true, message: "✅ Ticket closed with remark", type: "success" });
     } catch (e) {
-      alert("Failed to close ticket");
+      setCustomAlert({ show: true, message: "Failed to close ticket", type: "error" });
       console.error(e);
     }
   };
@@ -2481,8 +2574,8 @@ export default function HelpDesk() {
   };
 
   const handleSendForRepair = async (vendorName, contactInfo) => {
-    if (!vendorName) return alert("Vendor name is required.");
-    if (!fwdReason.trim()) return alert("Reason is required.");
+    if (!vendorName) { setCustomAlert({ show: true, message: "⚠️ Vendor name is required", type: "error" }); return; }
+    if (!fwdReason.trim()) { setCustomAlert({ show: true, message: "⚠️ Reason is required", type: "error" }); return; }
     const t = selTicket;
     try {
       const nowISO = new Date().toISOString();
@@ -2490,7 +2583,7 @@ export default function HelpDesk() {
       await axios.put(`${TICKETS_API}/${t.id}`, update);
       setTickets(p => p.map(x => x.id === t.id ? { ...update, updated: new Date(nowISO) } : x));
       setSelTicket({ ...update, updated: new Date(nowISO) });
-    } catch (e) { alert("Repair update failed"); }
+    } catch (e) { setCustomAlert({ show: true, message: "Repair update failed", type: "error" }); }
   };
 
   const handleForward = () => {
@@ -2501,24 +2594,32 @@ export default function HelpDesk() {
   // ─── SETTINGS HANDLERS (v1 API) ────────────────────────────────────────────
   const addOrg = async () => {
     if (!newOrg.name) return;
+    if (orgs.some(o => o.name.trim().toLowerCase() === newOrg.name.trim().toLowerCase())) {
+      setCustomAlert({ show: true, message: `⚠️ Organisation "${newOrg.name.trim()}" already exists`, type: "error" });
+      return;
+    }
     try {
       const res = await axios.post(ORGS_API, newOrg);
       const created = res.data; // ✅ Extract the actual data
       setOrgs([...orgs, created]);
       setNewOrg({ name: "", domain: "", phone: "" });
       addDailyNotif({ type: "org_added", icon: "🏢", text: `${currentUser.name} added organisation "${created.name}"`, by: currentUser.name });
-    } catch (err) { console.error(err); }
+    } catch (err) { setCustomAlert({ show: true, message: "Failed to add organisation", type: "error" }); }
   };
 
   const addCat = async () => {
     if (!newCat.name) return;
+    if (categories.some(c => c.name.trim().toLowerCase() === newCat.name.trim().toLowerCase())) {
+      setCustomAlert({ show: true, message: `⚠️ Category "${newCat.name.trim()}" already exists`, type: "error" });
+      return;
+    }
     try {
       const res = await axios.post(CATEGORIES_API, newCat);
       const created = res.data; // ✅ Extract the actual data
       setCategories([...categories, created]);
       setNewCat({ name: "", color: "#3b82f6" });
       addDailyNotif({ type: "category_added", icon: "🏷", text: `${currentUser.name} added category "${created.name}"`, by: currentUser.name });
-    } catch (err) { console.error(err); }
+    } catch (err) { setCustomAlert({ show: true, message: "Failed to add category", type: "error" }); }
   };
   const addUser = async () => {
     if (!newUser.name || !newUser.email || !newUser.password) {
@@ -2527,6 +2628,10 @@ export default function HelpDesk() {
     }
     if (newUser.password.length < 6) {
       setCustomAlert({ show: true, message: "Password must be at least 6 characters", type: "error" });
+      return;
+    }
+    if (users.some(u => u.email.trim().toLowerCase() === newUser.email.trim().toLowerCase())) {
+      setCustomAlert({ show: true, message: `⚠️ A user with email "${newUser.email.trim()}" already exists`, type: "error" });
       return;
     }
     try {
@@ -2575,6 +2680,7 @@ export default function HelpDesk() {
     setConfirmModal({
       show: true,
       title: "Change Password?",
+      confirmLabel: "Change Password",
       message: "Are you sure you want to change your password? This action cannot be undone.",
       onConfirm: async () => {
         try {
@@ -2606,6 +2712,7 @@ export default function HelpDesk() {
     setConfirmModal({
       show: true,
       title: "Delete Organization?",
+      confirmLabel: "Delete", confirmDanger: true,
       message: "Are you sure you want to delete this organization? All associated data will be permanently removed. This action cannot be undone.",
       onConfirm: async () => {
         try {
@@ -2635,6 +2742,7 @@ export default function HelpDesk() {
     setConfirmModal({
       show: true,
       title: "Delete Category?",
+      confirmLabel: "Delete", confirmDanger: true,
       message: "Are you sure you want to delete this category? All tickets associated with this category will be affected. This action cannot be undone.",
       onConfirm: async () => {
         try {
@@ -2665,6 +2773,7 @@ export default function HelpDesk() {
     setConfirmModal({
       show: true,
       title: `Delete ${user?.name}?`,
+      confirmLabel: "Delete", confirmDanger: true,
       message: `Delete ${user?.name}? Tickets unassigned. All personal data removed. Cannot undo.`,
       onConfirm: async () => {
         try {
@@ -2711,11 +2820,11 @@ export default function HelpDesk() {
   // ✅ NEW: Admin can edit user name and password
   const editUser = async () => {
     if (!editUserForm.name) {
-      alert("Name is required");
+      setCustomAlert({ show: true, message: "⚠️ Name is required", type: "error" });
       return;
     }
     if (editUserForm.password && editUserForm.password.length < 6) {
-      alert("Password must be at least 6 characters");
+      setCustomAlert({ show: true, message: "⚠️ Password must be at least 6 characters", type: "error" });
       return;
     }
     // Guard: only Admin/Manager can edit users
@@ -2737,12 +2846,12 @@ export default function HelpDesk() {
       await axios.put(`${USERS_API}/${editUserOpen.id}`, updates);
       setUsers(users.map(u => u.id === editUserOpen.id ? { ...u, ...updates } : u));
 
-      alert(`${editUserForm.name}'s profile has been updated.`);
+      setCustomAlert({ show: true, message: `✅ ${editUserForm.name}'s profile has been updated`, type: "success" });
       setEditUserOpen(null);
       setEditUserForm({ name: "", email: "", password: "" });
     } catch (err) {
       console.error("Error editing user:", err);
-      alert("Failed to update user.");
+      setCustomAlert({ show: true, message: "Failed to update user", type: "error" });
     }
   };
 
@@ -2764,21 +2873,28 @@ export default function HelpDesk() {
       setNewAttr({ name: "", type: "text", options: "", required: false });
     } catch (err) {
       console.error("Error adding attribute:", err);
-      alert("Failed to add attribute.");
+      setCustomAlert({ show: true, message: "Failed to add attribute", type: "error" });
     }
   };
 
   // ✅ NEW: Delete Custom Attribute
   const deleteAttr = async (id) => {
-    if (!window.confirm("Delete this custom attribute?")) return;
-    try {
-      await axios.delete(`${CUSTOM_ATTRS_API}/${id}`);
-      setCustomAttrs(customAttrs.filter(a => a.id !== id));
-      setCustomAlert({ show: true, message: "✅ Attribute deleted!", type: "success" });
-    } catch (err) {
-      console.error("Error deleting attribute:", err);
-      setCustomAlert({ show: true, message: "Failed to delete attribute", type: "error" });
-    }
+    setConfirmModal({
+      show: true, title: "Delete Attribute",
+      confirmLabel: "Delete", confirmDanger: true, message: "Are you sure you want to delete this custom attribute? This cannot be undone.",
+      onConfirm: async () => {
+        try {
+          await axios.delete(`${CUSTOM_ATTRS_API}/${id}`);
+          setCustomAttrs(customAttrs.filter(a => a.id !== id));
+          setCustomAlert({ show: true, message: "✅ Attribute deleted!", type: "success" });
+        } catch (err) {
+          console.error("Error deleting attribute:", err);
+          setCustomAlert({ show: true, message: "Failed to delete attribute", type: "error" });
+        }
+        setConfirmModal({ show: false, title: "", message: "", onConfirm: null, onCancel: null });
+      },
+      onCancel: () => setConfirmModal({ show: false, title: "", message: "", onConfirm: null, onCancel: null })
+    });
   };
 
   // ─── PROJECT HANDLERS (v1 API) ────────────────────────────────────────────
@@ -2818,18 +2934,26 @@ export default function HelpDesk() {
       await axios.put(`${PROJECTS_API}/${id}`, updated);
       setProjects(prev => prev.map(x => x.id === id ? { ...updated, updated: new Date(nowISO) } : x));
       if (selProject?.id === id) setSelProject(s => ({ ...s, status, updated: new Date(nowISO) }));
-    } catch (e) { alert("Failed to update project status"); }
+    } catch (e) { setCustomAlert({ show: true, message: "Failed to update project status", type: "error" }); }
   };
 
   const deleteProject = async (id) => {
-    if (!window.confirm("Delete this project? This cannot be undone.")) return;
-    try {
-      await axios.delete(`${PROJECTS_API}/${id}`);
-      setProjects(prev => prev.filter(p => p.id !== id));
-      setSelProject(null);
-    } catch (e) {
-      alert("Failed to delete project: " + (e.response?.data?.error || e.message));
-    }
+    setConfirmModal({
+      show: true, title: "Delete Project",
+      confirmLabel: "Delete", confirmDanger: true, message: "Are you sure you want to delete this project? This cannot be undone.",
+      onConfirm: async () => {
+        try {
+          await axios.delete(`${PROJECTS_API}/${id}`);
+          setProjects(prev => prev.filter(p => p.id !== id));
+          setSelProject(null);
+          setCustomAlert({ show: true, message: "✅ Project deleted!", type: "success" });
+        } catch (e) {
+          setCustomAlert({ show: true, message: "Failed to delete project: " + (e.response?.data?.error || e.message), type: "error" });
+        }
+        setConfirmModal({ show: false, title: "", message: "", onConfirm: null, onCancel: null });
+      },
+      onCancel: () => setConfirmModal({ show: false, title: "", message: "", onConfirm: null, onCancel: null })
+    });
   };
 
   // ✅ NEW: Department management functions
@@ -2838,32 +2962,51 @@ export default function HelpDesk() {
       setCustomAlert({ show: true, message: "Department name required", type: "error" });
       return;
     }
+    if (!newDept?.orgName?.trim()) {
+      setCustomAlert({ show: true, message: "Please select an organisation for this department", type: "error" });
+      return;
+    }
+    if (departments.some(d => d.name.trim().toLowerCase() === newDept.name.trim().toLowerCase() && d.orgName === newDept.orgName.trim())) {
+      setCustomAlert({ show: true, message: `⚠️ Department "${newDept.name.trim()}" already exists under ${newDept.orgName.trim()}`, type: "error" });
+      return;
+    }
     try {
-      const dept = await axios.post(`${BASE_URL}/departments`, newDept);
+      const dept = await axios.post(`${BASE_URL}/departments`, { name: newDept.name.trim(), orgName: newDept.orgName.trim() });
       setDepartments([...departments, dept.data]);
-      setNewDept({ name: "" });
+      setNewDept({ name: "", orgName: "" });
       setCustomAlert({ show: true, message: "✅ Department added!", type: "success" });
-      addDailyNotif({ type: "dept_added", icon: "🏛", text: `${currentUser.name} added department "${dept.data.name}"`, by: currentUser.name });
+      addDailyNotif({ type: "dept_added", icon: "🏛", text: `${currentUser.name} added department "${dept.data.name}" under ${dept.data.orgName}`, by: currentUser.name });
     } catch (e) {
       setCustomAlert({ show: true, message: "Failed to add department", type: "error" });
     }
   };
 
   const deleteDept = async (id) => {
-    if (!window.confirm("Delete this department?")) return;
-    try {
-      await axios.delete(`${BASE_URL}/departments/${id}`);
-      setDepartments(departments.filter(d => d.id !== id));
-      setCustomAlert({ show: true, message: "✅ Department deleted!", type: "success" });
-    } catch (e) {
-      setCustomAlert({ show: true, message: "Failed to delete department", type: "error" });
-    }
+    setConfirmModal({
+      show: true, title: "Delete Department",
+      confirmLabel: "Delete", confirmDanger: true, message: "Are you sure you want to delete this department?",
+      onConfirm: async () => {
+        try {
+          await axios.delete(`${BASE_URL}/departments/${id}`);
+          setDepartments(departments.filter(d => d.id !== id));
+          setCustomAlert({ show: true, message: "✅ Department deleted!", type: "success" });
+        } catch (e) {
+          setCustomAlert({ show: true, message: "Failed to delete department", type: "error" });
+        }
+        setConfirmModal({ show: false, title: "", message: "", onConfirm: null, onCancel: null });
+      },
+      onCancel: () => setConfirmModal({ show: false, title: "", message: "", onConfirm: null, onCancel: null })
+    });
   };
 
   // ── LOCATION MANAGEMENT ──
   const addLocation = async () => {
     if (!newLocation?.name?.trim()) {
       setCustomAlert({ show: true, message: "Location name required", type: "error" });
+      return;
+    }
+    if (locations.some(l => l.name.trim().toLowerCase() === newLocation.name.trim().toLowerCase())) {
+      setCustomAlert({ show: true, message: `⚠️ Location "${newLocation.name.trim()}" already exists`, type: "error" });
       return;
     }
     try {
@@ -2878,20 +3021,31 @@ export default function HelpDesk() {
   };
 
   const deleteLocation = async (id) => {
-    if (!window.confirm("Delete this location?")) return;
-    try {
-      await axios.delete(`${LOCATIONS_API}/${id}`);
-      setLocations(locations.filter(l => l.id !== id));
-      setCustomAlert({ show: true, message: "✅ Location deleted!", type: "success" });
-    } catch (e) {
-      setCustomAlert({ show: true, message: "Failed to delete location", type: "error" });
-    }
+    setConfirmModal({
+      show: true, title: "Delete Location",
+      confirmLabel: "Delete", confirmDanger: true, message: "Are you sure you want to delete this location?",
+      onConfirm: async () => {
+        try {
+          await axios.delete(`${LOCATIONS_API}/${id}`);
+          setLocations(locations.filter(l => l.id !== id));
+          setCustomAlert({ show: true, message: "✅ Location deleted!", type: "success" });
+        } catch (e) {
+          setCustomAlert({ show: true, message: "Failed to delete location", type: "error" });
+        }
+        setConfirmModal({ show: false, title: "", message: "", onConfirm: null, onCancel: null });
+      },
+      onCancel: () => setConfirmModal({ show: false, title: "", message: "", onConfirm: null, onCancel: null })
+    });
   };
 
   // ✅ NEW: Vendor Management Functions
   const addVendor = async () => {
     if (!newVendor?.name?.trim()) {
       setCustomAlert({ show: true, message: "Vendor name required", type: "error" });
+      return;
+    }
+    if (vendors.some(v => v.name.trim().toLowerCase() === newVendor.name.trim().toLowerCase())) {
+      setCustomAlert({ show: true, message: `⚠️ Vendor "${newVendor.name.trim()}" already exists`, type: "error" });
       return;
     }
     try {
@@ -2906,14 +3060,21 @@ export default function HelpDesk() {
   };
 
   const deleteVendor = async (id) => {
-    if (!window.confirm("Delete this vendor?")) return;
-    try {
-      await axios.delete(`${VENDORS_API}/${id}`);
-      setVendors(vendors.filter(v => v.id !== id));
-      setCustomAlert({ show: true, message: "✅ Vendor deleted!", type: "success" });
-    } catch (e) {
-      setCustomAlert({ show: true, message: "Failed to delete vendor", type: "error" });
-    }
+    setConfirmModal({
+      show: true, title: "Delete Vendor",
+      confirmLabel: "Delete", confirmDanger: true, message: "Are you sure you want to delete this vendor?",
+      onConfirm: async () => {
+        try {
+          await axios.delete(`${VENDORS_API}/${id}`);
+          setVendors(vendors.filter(v => v.id !== id));
+          setCustomAlert({ show: true, message: "✅ Vendor deleted!", type: "success" });
+        } catch (e) {
+          setCustomAlert({ show: true, message: "Failed to delete vendor", type: "error" });
+        }
+        setConfirmModal({ show: false, title: "", message: "", onConfirm: null, onCancel: null });
+      },
+      onCancel: () => setConfirmModal({ show: false, title: "", message: "", onConfirm: null, onCancel: null })
+    });
   };
 
   const toggleProjSel = id => { const s = new Set(selectedProjIds); s.has(id) ? s.delete(id) : s.add(id); setSelectedProjIds(s); };
@@ -2921,26 +3082,38 @@ export default function HelpDesk() {
   const selProjects = filteredProjects.filter(p => selectedProjIds.has(p.id));
   const addTicketCat = async () => {
     if (!newTicketCat.name) return;
+    if (ticketCategories.some(c => c.name.trim().toLowerCase() === newTicketCat.name.trim().toLowerCase())) {
+      setCustomAlert({ show: true, message: `⚠️ Category "${newTicketCat.name.trim()}" already exists`, type: "error" });
+      return;
+    }
     try {
       const res = await axios.post(CATEGORIES_API, newTicketCat);
       const created = res.data;
       setTicketCategories(prev => [...prev, created]);
       setCategories(prev => [...prev, created]);
       setNewTicketCat({ name: "", color: "#3b82f6" });
-    } catch (e) { alert("Failed to add category"); }
+    } catch (e) { setCustomAlert({ show: true, message: "Failed to add category", type: "error" }); }
   };
   const addProjCat = async () => {
     if (!newProjCat.name) return;
+    if (projectCategories.some(c => c.name.trim().toLowerCase() === newProjCat.name.trim().toLowerCase())) {
+      setCustomAlert({ show: true, message: `⚠️ Category "${newProjCat.name.trim()}" already exists`, type: "error" });
+      return;
+    }
     try {
       const res = await axios.post(CATEGORIES_API, newProjCat);
       const created = res.data;
       setProjectCategories(prev => [...prev, created]);
       setCategories(prev => [...prev, created]);
       setNewProjCat({ name: "", color: "#8b5cf6" });
-    } catch (e) { alert("Failed to add project category"); }
+    } catch (e) { setCustomAlert({ show: true, message: "Failed to add project category", type: "error" }); }
   };
   const addTicketAttr = async () => {
     if (!newTicketAttr.name) return;
+    if (ticketCustomAttrs.some(a => a.name.trim().toLowerCase() === newTicketAttr.name.trim().toLowerCase())) {
+      setCustomAlert({ show: true, message: `⚠️ Attribute "${newTicketAttr.name.trim()}" already exists`, type: "error" });
+      return;
+    }
     try {
       const payload = { ...newTicketAttr, options: typeof newTicketAttr.options === "string" ? newTicketAttr.options.split(",").map(s => s.trim()).filter(Boolean) : [] };
       const res = await axios.post(CUSTOM_ATTRS_API, payload);
@@ -2948,10 +3121,14 @@ export default function HelpDesk() {
       setTicketCustomAttrs(prev => [...prev, created]);
       setCustomAttrs(prev => [...prev, created]);
       setNewTicketAttr({ name: "", type: "text", options: "", required: false });
-    } catch (e) { alert("Failed to add attribute"); }
+    } catch (e) { setCustomAlert({ show: true, message: "Failed to add attribute", type: "error" }); }
   };
   const addProjAttr = async () => {
     if (!newProjAttr.name) return;
+    if (projectCustomAttrs.some(a => a.name.trim().toLowerCase() === newProjAttr.name.trim().toLowerCase())) {
+      setCustomAlert({ show: true, message: `⚠️ Attribute "${newProjAttr.name.trim()}" already exists`, type: "error" });
+      return;
+    }
     try {
       const payload = { ...newProjAttr, options: typeof newProjAttr.options === "string" ? newProjAttr.options.split(",").map(s => s.trim()).filter(Boolean) : [] };
       const res = await axios.post(CUSTOM_ATTRS_API, payload);
@@ -2959,7 +3136,7 @@ export default function HelpDesk() {
       setProjectCustomAttrs(prev => [...prev, created]);
       setCustomAttrs(prev => [...prev, created]);
       setNewProjAttr({ name: "", type: "text", options: "", required: false });
-    } catch (e) { alert("Failed to add project attribute"); }
+    } catch (e) { setCustomAlert({ show: true, message: "Failed to add project attribute", type: "error" }); }
   };
 
   // ─── AUTH HANDLERS (v1) ────────────────────────────────────────────────────
@@ -2983,18 +3160,26 @@ export default function HelpDesk() {
         return;
       }
 
-      // 3. ✅ Update status to On Duty in DB when user logs in
-      const updatedUser = { ...u, status: "On Duty" };
-      await axios.put(`${USERS_API}/${u.id}`, updatedUser);
+      // 3. Set status to On Duty immediately on login
+      const onDutyUser = {
+        ...u,
+        status: "On Duty",
+        currentTicketId: null,
+        currentLocation: null,
+        lunchStatus: false,
+      };
+      try {
+        await axios.put(`${USERS_API}/${u.id}`, onDutyUser);
+      } catch (e) { console.error("Failed to set On Duty on login"); }
 
       // 4. Cache in session and local state
-      saveSession(updatedUser);
-      setCurrentUser(updatedUser);
+      saveSession(onDutyUser);
+      setCurrentUser(onDutyUser);
 
       // 5. Show welcome popup with On Duty status
       setCustomAlert({
         show: true,
-        message: `✅ Welcome ${updatedUser.name}! You are now On Duty`,
+        message: `✅ Welcome ${u.name}! You are now On Duty`,
         type: "success"
       });
 
@@ -3013,6 +3198,7 @@ export default function HelpDesk() {
       setConfirmModal({
         show: true,
         title: "Mark Your Activity Before Logout",
+        confirmLabel: "Log Out",
         message: "Please tell us which ticket you're working on, where you'll be going, and your status so the team knows",
         fields: [
           { name: "ticket", label: "🎫 Ticket ID", type: "text", placeholder: "e.g., TICKET-001", value: currentTicketId },
@@ -3020,10 +3206,11 @@ export default function HelpDesk() {
         ],
         showLunchButton: true,
         onConfirm: async (data) => {
-          // Update tracking before logout
+          // Update tracking with status to Off Duty before logout
           try {
             const up = {
               ...currentUser,
+              status: "Off Duty",  // ✅ Set to Off Duty on logout
               currentTicketId: data.ticket || null,
               currentLocation: data.location || null,
               lunchStatus: data.lunchStatus || false
@@ -3041,10 +3228,11 @@ export default function HelpDesk() {
           setConfirmModal({ show: false });
         },
         onLunch: async () => {
-          // Mark as lunch and logout
+          // Mark as On Lunch and logout
           try {
             const up = {
               ...currentUser,
+              status: "On Lunch",
               currentTicketId: null,
               currentLocation: null,
               lunchStatus: true
@@ -3066,15 +3254,20 @@ export default function HelpDesk() {
       return;
     }
 
-    // If already Off Duty or something else, just logout
+    // If already Off Duty or anything else — skip all prompts, just logout immediately
     if (currentUser) {
       try {
-        await axios.put(`${USERS_API}/${currentUser.id}`, { ...currentUser });
-      }
-      catch (e) { console.error("Logout status update failed"); }
+        await axios.put(`${USERS_API}/${currentUser.id}`, {
+          ...currentUser,
+          status: "Off Duty",
+          currentTicketId: null,
+          currentLocation: null,
+        });
+      } catch (e) { console.error("Logout status update failed"); }
     }
     clearSession();
-    setCurrentUser(null); setProfileOpen(false);
+    setCurrentUser(null);
+    setProfileOpen(false);
   };
 
   const handleSignup = async (e) => {
@@ -3127,14 +3320,14 @@ export default function HelpDesk() {
       const up = { ...currentUser, phone: profileForm.phone, name: profileForm.name };
       await axios.put(`${USERS_API}/${currentUser.id}`, up);
       saveSession(up); setCurrentUser(up); setUsers(users.map(u => u.id === currentUser.id ? up : u)); setEditProfileOpen(false);
-    } catch (err) { alert("Failed to save profile"); }
+    } catch (err) { setCustomAlert({ show: true, message: "Failed to save profile", type: "error" }); }
   };
   const updateStatusDirect = async (st) => {
     try {
       const up = { ...currentUser, status: st };
       await axios.put(`${USERS_API}/${currentUser.id}`, up);
       saveSession(up); setCurrentUser(up); setUsers(users.map(u => u.id === currentUser.id ? up : u));
-    } catch (err) { alert("Failed to update status"); }
+    } catch (err) { setCustomAlert({ show: true, message: "Failed to update status", type: "error" }); }
   };
 
   // ✅ NEW: Update location and ticket tracking
@@ -3506,6 +3699,8 @@ export default function HelpDesk() {
         message={confirmModal.message}
         fields={confirmModal.fields}
         showLunchButton={confirmModal.showLunchButton}
+        confirmLabel={confirmModal.confirmLabel}
+        confirmDanger={confirmModal.confirmDanger}
         onConfirm={confirmModal.onConfirm}
         onLunch={confirmModal.onLunch}
         onCancel={confirmModal.onCancel}
@@ -4000,45 +4195,70 @@ export default function HelpDesk() {
             {view === "projects" && <p style={{ margin: 0, fontSize: 11, color: "#94a3b8" }}>{cpv.desc}</p>}
           </div>
           <div style={{ display: "flex", gap: 9, alignItems: "center" }}>
-            {(view === "reports" || view === "dashboard") && (
-              <select value={range} onChange={e => setRange(e.target.value)} style={{ ...sS, width: 140, fontSize: 13, padding: "7px 10px" }}>
-                {view === "reports" ? (
+            {view === "reports" && (
+              <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                <select value={range} onChange={e => { setRange(e.target.value); if (e.target.value !== "custom") { setCustomDateFrom(""); setCustomDateTo(""); } }} style={{ ...sS, width: 150, fontSize: 13, padding: "7px 10px" }}>
+                  <option value="all">All Time</option>
+                  <option value="1">Today</option>
+                  <option value="7">Last 7 Days</option>
+                  <option value="30">Last 30 Days</option>
+                  <option value="last_month">Last 6 Months</option>
+                  <option value="custom">📅 Custom Range</option>
+                </select>
+                {range === "custom" && (
                   <>
-                    <option value="all">All Time</option>
-                    <option value="1">Today</option>
-                    <option value="7">Last 7 Days</option>
-                    <option value="30">Last 30 Days</option>
-                    <option value="last_month">Last 6 Months</option>
-                  </>
-                ) : (
-                  <>
-                    <option value="1">Today</option>
-                    <option value="7">Last 7 Days</option>
+                    <input
+                      type="date"
+                      value={customDateFrom}
+                      onChange={e => setCustomDateFrom(e.target.value)}
+                      style={{ ...sS, fontSize: 12, padding: "7px 9px", width: 135 }}
+                    />
+                    <span style={{ fontSize: 12, color: "#94a3b8", fontWeight: 500 }}>to</span>
+                    <input
+                      type="date"
+                      value={customDateTo}
+                      onChange={e => setCustomDateTo(e.target.value)}
+                      max={new Date().toISOString().split("T")[0]}
+                      style={{ ...sS, fontSize: 12, padding: "7px 9px", width: 135 }}
+                    />
                   </>
                 )}
-              </select>
+              </div>
             )}
             {view === "dashboard" && (
-              <div style={{ position: "relative", width: 180 }}>
-                <input type="text" placeholder="Select org..." value={dashboardOrgSearch ? dashboardOrgSearch : (dashboardOrg !== "all" ? dashboardOrg : "")} onChange={e => setDashboardOrgSearch(e.target.value)} onFocus={() => { setDashboardOrgSearch(""); setShowDashboardOrgDD(true); }} style={{ ...sS, width: "100%", fontSize: 13, padding: "7px 10px" }} />
-                {showDashboardOrgDD && <>
-                  <div style={{ position: "fixed", inset: 0, zIndex: 199 }} onClick={() => { setShowDashboardOrgDD(false); setDashboardOrgSearch(""); }} />
-                  <div style={{ position: "absolute", top: "calc(100% + 3px)", left: 0, right: 0, background: "#fff", border: "1.5px solid #e2e8f0", borderRadius: 8, zIndex: 200, boxShadow: "0 4px 12px rgba(0,0,0,0.1)", maxHeight: 200, overflowY: "auto" }}>
-                    <div style={{ padding: 8, borderBottom: "1px solid #f1f5f9", position: "sticky", top: 0, background: "#fff" }}>
-                      <input type="text" placeholder="Search orgs..." value={dashboardOrgSearch} onChange={e => setDashboardOrgSearch(e.target.value)} onClick={e => e.stopPropagation()} autoFocus style={{ ...sS, width: "100%", fontSize: 12 }} />
-                    </div>
-                    <div onClick={() => { setDashboardOrg("all"); setShowDashboardOrgDD(false); setDashboardOrgSearch(""); }} style={{ padding: "8px 12px", cursor: "pointer", borderBottom: "1px solid #f1f5f9", background: dashboardOrg === "all" ? "#f0f9ff" : "#fff", fontWeight: dashboardOrg === "all" ? 600 : 400 }}>
-                      <div style={{ fontSize: 12 }}>All Organizations</div>
-                    </div>
-                    {orgs.filter(o => dashboardOrgSearch === "" || o.name.toLowerCase().includes(dashboardOrgSearch.toLowerCase())).map(o => (
-                      <div key={o.id} onClick={() => { setDashboardOrg(o.name); setShowDashboardOrgDD(false); setDashboardOrgSearch(""); }} style={{ padding: "8px 12px", cursor: "pointer", borderBottom: "1px solid #f1f5f9", background: dashboardOrg === o.name ? "#f0f9ff" : "#fff", fontWeight: dashboardOrg === o.name ? 600 : 400 }}>
-                        <div style={{ fontSize: 12 }}>{o.name}</div>
+              <>
+                <div style={{ position: "relative", width: 180 }}>
+                  <input type="text" placeholder="Select org..." value={dashboardOrgSearch ? dashboardOrgSearch : (dashboardOrg !== "all" ? dashboardOrg : "")} onChange={e => setDashboardOrgSearch(e.target.value)} onFocus={() => { setDashboardOrgSearch(""); setShowDashboardOrgDD(true); }} style={{ ...sS, width: "100%", fontSize: 13, padding: "7px 10px" }} />
+                  {showDashboardOrgDD && <>
+                    <div style={{ position: "fixed", inset: 0, zIndex: 199 }} onClick={() => { setShowDashboardOrgDD(false); setDashboardOrgSearch(""); }} />
+                    <div style={{ position: "absolute", top: "calc(100% + 3px)", left: 0, right: 0, background: "#fff", border: "1.5px solid #e2e8f0", borderRadius: 8, zIndex: 200, boxShadow: "0 4px 12px rgba(0,0,0,0.1)", maxHeight: 200, overflowY: "auto" }}>
+                      <div style={{ padding: 8, borderBottom: "1px solid #f1f5f9", position: "sticky", top: 0, background: "#fff" }}>
+                        <input type="text" placeholder="Search orgs..." value={dashboardOrgSearch} onChange={e => setDashboardOrgSearch(e.target.value)} onClick={e => e.stopPropagation()} autoFocus style={{ ...sS, width: "100%", fontSize: 12 }} />
                       </div>
-                    ))}
-                    {orgs.filter(o => dashboardOrgSearch === "" || o.name.toLowerCase().includes(dashboardOrgSearch.toLowerCase())).length === 0 && <div style={{ padding: "12px", textAlign: "center", fontSize: 12, color: "#94a3b8" }}>No orgs found</div>}
-                  </div>
-                </>}
-              </div>
+                      <div onClick={() => { setDashboardOrg("all"); setShowDashboardOrgDD(false); setDashboardOrgSearch(""); }} style={{ padding: "8px 12px", cursor: "pointer", borderBottom: "1px solid #f1f5f9", background: dashboardOrg === "all" ? "#f0f9ff" : "#fff", fontWeight: dashboardOrg === "all" ? 600 : 400 }}>
+                        <div style={{ fontSize: 12 }}>All Organizations</div>
+                      </div>
+                      {orgs.filter(o => dashboardOrgSearch === "" || o.name.toLowerCase().includes(dashboardOrgSearch.toLowerCase())).map(o => (
+                        <div key={o.id} onClick={() => { setDashboardOrg(o.name); setShowDashboardOrgDD(false); setDashboardOrgSearch(""); }} style={{ padding: "8px 12px", cursor: "pointer", borderBottom: "1px solid #f1f5f9", background: dashboardOrg === o.name ? "#f0f9ff" : "#fff", fontWeight: dashboardOrg === o.name ? 600 : 400 }}>
+                          <div style={{ fontSize: 12 }}>{o.name}</div>
+                        </div>
+                      ))}
+                      {orgs.filter(o => dashboardOrgSearch === "" || o.name.toLowerCase().includes(dashboardOrgSearch.toLowerCase())).length === 0 && <div style={{ padding: "12px", textAlign: "center", fontSize: 12, color: "#94a3b8" }}>No orgs found</div>}
+                    </div>
+                  </>}
+                </div>
+
+                {/* Time Period Dropdown */}
+                <select value={dashboardTimePeriod} onChange={e => setDashboardTimePeriod(e.target.value)} style={{ ...sS, width: 160, fontSize: 13, padding: "7px 10px" }}>
+                  <option value="1d">📅 Today</option>
+                  <option value="7d">📅 Last 7 Days</option>
+                  <option value="1m">📊 Last Month</option>
+                  <option value="3m">📊 Last 3 Months</option>
+                  <option value="6m">📊 Last 6 Months</option>
+                  <option value="1y">📊 Last Year</option>
+                  <option value="all">📊 All Time</option>
+                </select>
+              </>
             )}
             {/* Bell + Inbox Icons */}
             <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
@@ -4267,7 +4487,7 @@ export default function HelpDesk() {
                           setTickets(p => p.map(x => selectedIds.has(x.id) ? { ...x, status: "Closed", updated: new Date(nowISO) } : x));
                           setSelectedIds(new Set());
                           setCustomAlert({ show: true, message: `✅ ${selectedIds.size} ticket(s) closed with remark`, type: "success" });
-                        } catch (e) { alert("Failed to close tickets"); }
+                        } catch (e) { setCustomAlert({ show: true, message: "Failed to close tickets", type: "error" }); }
                       },
                       onCancel: () => setConfirmModal({ show: false })
                     });
@@ -4668,7 +4888,7 @@ export default function HelpDesk() {
                   <th style={thStyle}>Assigned</th>
                   <th style={thStyle}>Closed</th>
                   <th style={thStyle}>Open</th>
-                  <th style={thStyle}>Rate</th>
+                  <th style={{ ...thStyle, minWidth: 160 }}>Progress</th>
                 </tr></thead>
                 <tbody>{applySort(agentStats.map(a => ({ ...a, open: a.assigned - a.closed, rate: a.assigned ? Math.round(a.closed / a.assigned * 100) : 0 })), agentSort).map(a => {
                   const rate = a.rate ?? (a.assigned ? Math.round(a.closed / a.assigned * 100) : 0); return (
@@ -4678,7 +4898,14 @@ export default function HelpDesk() {
                       <td style={{ ...tdStyle, fontWeight: 700 }}>{a.assigned}</td>
                       <td style={{ ...tdStyle, color: "#22c55e", fontWeight: 700 }}>{a.closed}</td>
                       <td style={{ ...tdStyle, color: "#f59e0b", fontWeight: 700 }}>{a.assigned - a.closed}</td>
-                      <td style={tdStyle}><div style={{ display: "flex", alignItems: "center", gap: 8 }}><div style={{ flex: 1, height: 5, background: "#f1f5f9", borderRadius: 3, overflow: "hidden" }}><div style={{ width: `${rate}%`, height: "100%", background: rate > 70 ? "#22c55e" : rate > 40 ? "#f59e0b" : "#ef4444", borderRadius: 3 }} /></div><span style={{ fontSize: 12, fontWeight: 600, width: 34 }}>{rate}%</span></div></td>
+                      <td style={{ ...tdStyle, minWidth: 160 }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                          <div style={{ flex: 1, height: 10, background: "#f1f5f9", borderRadius: 99, overflow: "hidden", minWidth: 100 }}>
+                            <div style={{ width: `${rate}%`, height: "100%", background: rate > 70 ? "#22c55e" : rate > 40 ? "#f59e0b" : "#ef4444", borderRadius: 99, transition: "width 0.4s ease" }} />
+                          </div>
+                          <span style={{ fontSize: 12, fontWeight: 700, minWidth: 36, color: rate > 70 ? "#22c55e" : rate > 40 ? "#f59e0b" : "#ef4444" }}>{rate}%</span>
+                        </div>
+                      </td>
                     </tr>);
                 })}</tbody>
               </table>
@@ -4690,33 +4917,37 @@ export default function HelpDesk() {
             <>
               {/* ✅ NEW: User Statistics Boxes */}
               <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 12, marginBottom: 20 }}>
-                <div style={{ background: "#fff", borderRadius: 12, padding: "16px 16px", boxShadow: "0 2px 6px rgba(0,0,0,0.1)", borderLeft: `5px solid #3b82f6`, transition: "all 0.2s ease" }}
-                  onMouseEnter={e => { e.currentTarget.style.boxShadow = "0 6px 20px rgba(0,0,0,0.15)"; e.currentTarget.style.transform = "translateY(-2px)"; }}
-                  onMouseLeave={e => { e.currentTarget.style.boxShadow = "0 2px 6px rgba(0,0,0,0.1)"; e.currentTarget.style.transform = "translateY(0)"; }}>
-                  <div style={{ fontSize: 20, marginBottom: 6 }}>👥</div>
-                  <div style={{ fontSize: 32, fontWeight: 900, color: "#3b82f6", lineHeight: 1 }}>{users.length}</div>
-                  <div style={{ fontSize: 12, fontWeight: 700, color: "#1e293b", marginTop: 4 }}>Total Users</div>
-                </div>
-
-                <div style={{ background: "#fff", borderRadius: 12, padding: "16px 16px", boxShadow: "0 2px 6px rgba(0,0,0,0.1)", borderLeft: `5px solid #22c55e`, transition: "all 0.2s ease" }}
-                  onMouseEnter={e => { e.currentTarget.style.boxShadow = "0 6px 20px rgba(0,0,0,0.15)"; e.currentTarget.style.transform = "translateY(-2px)"; }}
-                  onMouseLeave={e => { e.currentTarget.style.boxShadow = "0 2px 6px rgba(0,0,0,0.1)"; e.currentTarget.style.transform = "translateY(0)"; }}>
-                  <div style={{ fontSize: 20, marginBottom: 6 }}>🟢</div>
-                  <div style={{ fontSize: 32, fontWeight: 900, color: "#22c55e", lineHeight: 1 }}>{users.filter(u => u.status === "On Duty" || u.status === "On Ticket").length}</div>
-                  <div style={{ fontSize: 12, fontWeight: 700, color: "#1e293b", marginTop: 4 }}>On Duty Users</div>
-                </div>
-
-                <div style={{ background: "#fff", borderRadius: 12, padding: "16px 16px", boxShadow: "0 2px 6px rgba(0,0,0,0.1)", borderLeft: `5px solid #f59e0b`, transition: "all 0.2s ease" }}
-                  onMouseEnter={e => { e.currentTarget.style.boxShadow = "0 6px 20px rgba(0,0,0,0.15)"; e.currentTarget.style.transform = "translateY(-2px)"; }}
-                  onMouseLeave={e => { e.currentTarget.style.boxShadow = "0 2px 6px rgba(0,0,0,0.1)"; e.currentTarget.style.transform = "translateY(0)"; }}>
-                  <div style={{ fontSize: 20, marginBottom: 6 }}>⚪</div>
-                  <div style={{ fontSize: 32, fontWeight: 900, color: "#f59e0b", lineHeight: 1 }}>{users.filter(u => u.status !== "On Duty" && u.status !== "On Ticket").length}</div>
-                  <div style={{ fontSize: 12, fontWeight: 700, color: "#1e293b", marginTop: 4 }}>Off Duty Users</div>
-                </div>
+                {[
+                  { key: "all", icon: "👥", color: "#3b82f6", label: "Total Users", count: users.length },
+                  { key: "On Duty", icon: "🟢", color: "#22c55e", label: "On Duty", count: users.filter(u => u.status === "On Duty").length },
+                  { key: "On Ticket", icon: "🎫", color: "#6366f1", label: "On Ticket", count: users.filter(u => u.status === "On Ticket").length },
+                  { key: "On Lunch", icon: "🍽️", color: "#f97316", label: "On Lunch", count: users.filter(u => u.status === "On Lunch").length },
+                  { key: "off", icon: "⚪", color: "#f59e0b", label: "Off Duty", count: users.filter(u => u.status !== "On Duty" && u.status !== "On Ticket" && u.status !== "On Lunch").length },
+                ].map(s => {
+                  const isActive = agentStatusFilter === s.key;
+                  return (
+                    <div key={s.key}
+                      onClick={() => setAgentStatusFilter(isActive ? "all" : s.key)}
+                      style={{ background: isActive ? `${s.color}18` : "#fff", borderRadius: 12, padding: "16px 16px", boxShadow: isActive ? `0 0 0 2px ${s.color}` : "0 2px 6px rgba(0,0,0,0.1)", borderLeft: `5px solid ${s.color}`, transition: "all 0.2s ease", cursor: "pointer" }}
+                      onMouseEnter={e => { e.currentTarget.style.boxShadow = isActive ? `0 0 0 2px ${s.color}` : "0 6px 20px rgba(0,0,0,0.15)"; e.currentTarget.style.transform = "translateY(-2px)"; }}
+                      onMouseLeave={e => { e.currentTarget.style.boxShadow = isActive ? `0 0 0 2px ${s.color}` : "0 2px 6px rgba(0,0,0,0.1)"; e.currentTarget.style.transform = "translateY(0)"; }}>
+                      <div style={{ fontSize: 20, marginBottom: 6 }}>{s.icon}</div>
+                      <div style={{ fontSize: 32, fontWeight: 900, color: s.color, lineHeight: 1 }}>{s.count}</div>
+                      <div style={{ fontSize: 12, fontWeight: 700, color: "#1e293b", marginTop: 4 }}>
+                        {s.label}
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
 
               <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(240px,1fr))", gap: 12 }}>
-                {agentStats.map(a => {
+                {agentStats.filter(a => {
+                  if (agentStatusFilter === "all") return true;
+                  const userStatus = users.find(u => u.id === a.id)?.status || "Off Duty";
+                  if (agentStatusFilter === "off") return userStatus !== "On Duty" && userStatus !== "On Ticket" && userStatus !== "On Lunch";
+                  return userStatus === agentStatusFilter;
+                }).map(a => {
                   const userInfo = users.find(u => u.id === a.id);
                   return (
                     <div key={a.id} style={{ background: "#fff", borderRadius: 12, padding: 18, boxShadow: "0 1px 4px rgba(0,0,0,0.06)", transition: "all 0.2s", border: "1.5px solid transparent" }}
@@ -4747,6 +4978,23 @@ export default function HelpDesk() {
                           <div key={s.l} style={{ textAlign: "center", padding: "8px 4px", background: "#f8fafc", borderRadius: 8 }}><div style={{ fontSize: 17, fontWeight: 700, color: s.c }}>{s.v}</div><div style={{ fontSize: 10, color: "#94a3b8" }}>{s.l}</div></div>
                         ))}
                       </div>
+
+                      {/* Closure rate progress bar */}
+                      {(() => {
+                        const rate = a.assigned ? Math.round(a.closed / a.assigned * 100) : 0;
+                        const barColor = rate > 70 ? "#22c55e" : rate > 40 ? "#f59e0b" : "#ef4444";
+                        return (
+                          <div style={{ marginBottom: 12 }}>
+                            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 5 }}>
+                              <span style={{ fontSize: 10, fontWeight: 600, color: "#64748b", textTransform: "uppercase", letterSpacing: "0.04em" }}>Closure Rate</span>
+                              <span style={{ fontSize: 12, fontWeight: 700, color: barColor }}>{rate}%</span>
+                            </div>
+                            <div style={{ height: 7, background: "#f1f5f9", borderRadius: 99, overflow: "hidden" }}>
+                              <div style={{ width: `${rate}%`, height: "100%", background: barColor, borderRadius: 99, transition: "width 0.4s ease" }} />
+                            </div>
+                          </div>
+                        );
+                      })()}
 
                       {/* ✅ NEW: View and Manage buttons only */}
                       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
@@ -4934,7 +5182,12 @@ export default function HelpDesk() {
                     <td style={{ ...tdStyle, fontWeight: 600 }}>{o.name}</td>
                     <td style={{ ...tdStyle, color: "#64748b" }}>{o.domain || "—"}</td>
                     <td style={{ ...tdStyle, color: "#64748b" }}>{o.phone || "—"}</td>
-                    {currentUser?.role === "Admin" && <td style={tdStyle}><button onClick={async () => { if (window.confirm("Delete this organization?")) { try { await axios.delete(`${ORGS_API}/${o.id}`); setOrgs(orgs.filter(x => x.id !== o.id)); } catch (err) { console.error("Delete failed:", err); } } }} style={{ border: "none", background: "#fee2e2", color: "#ef4444", borderRadius: 6, padding: "4px 10px", cursor: "pointer", fontSize: 12, fontWeight: 600 }}>Delete</button></td>}
+                    {currentUser?.role === "Admin" && <td style={tdStyle}><button onClick={() => {
+                      setConfirmModal({
+                        show: true, title: "Delete Organisation",
+                        confirmLabel: "Delete", confirmDanger: true, message: `Are you sure you want to delete "${o.name}"?`, onConfirm: async () => { try { await axios.delete(`${ORGS_API}/${o.id}`); setOrgs(orgs.filter(x => x.id !== o.id)); setCustomAlert({ show: true, message: "✅ Organisation deleted!", type: "success" }); } catch (err) { setCustomAlert({ show: true, message: "Failed to delete organisation", type: "error" }); } setConfirmModal({ show: false, title: "", message: "", onConfirm: null, onCancel: null }); }, onCancel: () => setConfirmModal({ show: false, title: "", message: "", onConfirm: null, onCancel: null })
+                      });
+                    }} style={{ border: "none", background: "#fee2e2", color: "#ef4444", borderRadius: 6, padding: "4px 10px", cursor: "pointer", fontSize: 12, fontWeight: 600 }}>Delete</button></td>}
                   </tr>)}</tbody>
                 </table>
               </div>}
@@ -4961,35 +5214,118 @@ export default function HelpDesk() {
                   })}
                 </div>
               </div>}
-              {/* ✅ NEW: Departments Management */}
+              {/* ✅ Departments Management — org-grouped */}
               {settingsTab === "departments" && <div style={{ background: "#fff", borderRadius: 12, padding: 22, boxShadow: "0 1px 4px rgba(0,0,0,0.06)" }}>
                 <h3 style={{ margin: "0 0 4px", fontSize: 15, fontWeight: 700 }}>Departments ({departments.length})</h3>
-                <p style={{ margin: "0 0 18px", fontSize: 12, color: "#64748b" }}>Manage organizational departments for tickets and projects.</p>
+                <p style={{ margin: "0 0 18px", fontSize: 12, color: "#64748b" }}>Departments are organised per organisation. Same name is allowed under different orgs. Drag a department to reorder within an org, or drop it onto a different org header to move it.</p>
                 {currentUser?.role === "Admin" ? (
-                  <div style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: 9, marginBottom: 18, padding: 14, background: "#f8fafc", borderRadius: 9 }}>
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr auto", gap: 9, marginBottom: 18, padding: 14, background: "#f8fafc", borderRadius: 9 }}>
                     <input
                       style={iS}
                       placeholder="Department name *"
                       value={newDept?.name || ""}
-                      onChange={e => setNewDept({ name: e.target.value })}
+                      onChange={e => setNewDept({ ...newDept, name: e.target.value })}
                     />
+                    <select
+                      style={{ ...sS }}
+                      value={newDept?.orgName || ""}
+                      onChange={e => setNewDept({ ...newDept, orgName: e.target.value })}
+                    >
+                      <option value="">Select organisation *</option>
+                      {[...orgs].sort((a, b) => a.name.localeCompare(b.name)).map(o => (
+                        <option key={o.id} value={o.name}>{o.name}</option>
+                      ))}
+                    </select>
                     <button onClick={addDept} style={bP}>Add</button>
                   </div>
                 ) : <div style={{ marginBottom: 18, padding: "10px 14px", background: "#fef3c7", color: "#92400e", borderRadius: 8, fontSize: 13, fontWeight: 500 }}>Read Only: Department management is restricted to Admins.</div>}
-                <div style={{ display: "grid", gridTemplateColumns: "repeat(8, 1fr)", gap: 8, justifyItems: "stretch" }}>
-                  {[...departments].sort((a, b) => (a.name || "").localeCompare(b.name || "")).map(d => {
-                    const color = getItemColor(d);
-                    const lightColor = color + "20";
-                    return (
-                      <div key={d.id} style={{ padding: 8, borderRadius: 6, background: lightColor, display: "flex", flexDirection: "column", alignItems: "center", gap: 4, cursor: currentUser?.role === "Admin" ? "pointer" : "default", transition: "all 0.2s ease", textAlign: "center", transform: "scale(1)" }} onMouseEnter={e => { if (currentUser?.role === "Admin") { e.currentTarget.style.transform = "scale(1.08)"; e.currentTarget.style.boxShadow = "0 6px 16px rgba(0,0,0,0.12)"; } }} onMouseLeave={e => { e.currentTarget.style.transform = "scale(1)"; e.currentTarget.style.boxShadow = "none"; }}>
-                        <div style={{ width: 8, height: 8, borderRadius: 2, background: color, flexShrink: 0 }} />
-                        <div style={{ fontSize: 11, fontWeight: 600, wordBreak: "break-word", flex: 1, color: "#1f2937" }}>{d.name}</div>
-                        {currentUser?.role === "Admin" && <button onClick={e => { e.stopPropagation(); deleteDept(d.id); }} style={{ border: "none", background: "rgba(0,0,0,0.08)", color: "#374151", borderRadius: 3, padding: "2px 6px", cursor: "pointer", fontSize: 9, fontWeight: 600 }}>Delete</button>}
+
+                {/* Group departments by org */}
+                {(() => {
+                  const grouped = {};
+                  [...departments].forEach(d => {
+                    const org = d.orgName || "General";
+                    if (!grouped[org]) grouped[org] = [];
+                    grouped[org].push(d);
+                  });
+                  Object.keys(grouped).forEach(org => grouped[org].sort((a, b) => (a.sortOrder || 0) - (b.sortOrder || 0)));
+                  // Also show orgs that have no departments yet (so you can drag into them)
+                  orgs.forEach(o => { if (!grouped[o.name]) grouped[o.name] = []; });
+                  const orgNames = Object.keys(grouped).sort();
+
+                  return orgNames.map(orgName => (
+                    <div key={orgName} style={{ marginBottom: 20 }}
+                      onDragOver={e => e.preventDefault()}
+                      onDrop={async e => {
+                        e.preventDefault();
+                        const raw = e.dataTransfer.getData("text/plain");
+                        if (!raw) return;
+                        const src = JSON.parse(raw);
+                        if (src.orgName === orgName) return; // same org, skip
+                        // Move department to this org
+                        try {
+                          await axios.put(`${BASE_URL}/departments/${src.id}`, { orgName });
+                          setDepartments(prev => prev.map(d => d.id === src.id ? { ...d, orgName } : d));
+                          setCustomAlert({ show: true, message: `✅ Moved to ${orgName}`, type: "success" });
+                        } catch { setCustomAlert({ show: true, message: "Failed to move department", type: "error" }); }
+                      }}
+                    >
+                      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10, padding: "6px 10px", background: "#f8fafc", borderRadius: 8, border: "1.5px dashed #e2e8f0" }}>
+                        <span style={{ fontSize: 13, fontWeight: 700, color: "#1e293b" }}>🏢 {orgName}</span>
+                        <span style={{ fontSize: 11, color: "#94a3b8", background: "#f1f5f9", borderRadius: 99, padding: "2px 8px" }}>{grouped[orgName].length}</span>
+                        {currentUser?.role === "Admin" && <span style={{ fontSize: 10, color: "#94a3b8", marginLeft: "auto" }}>Drop here to move</span>}
                       </div>
-                    );
-                  })}
-                </div>
-                {departments.length === 0 && <div style={{ textAlign: "center", color: "#94a3b8", padding: 28 }}>No departments yet. Add one to get started.</div>}
+                      <div style={{ display: "flex", flexWrap: "wrap", gap: 8, minHeight: 36, padding: "4px 6px", borderRadius: 8, border: grouped[orgName].length === 0 ? "1.5px dashed #e2e8f0" : "none", background: grouped[orgName].length === 0 ? "#fafafa" : "transparent" }}>
+                        {grouped[orgName].length === 0 && <span style={{ fontSize: 11, color: "#cbd5e1", alignSelf: "center" }}>No departments — drag one here</span>}
+                        {grouped[orgName].map((d, idx) => {
+                          const color = getItemColor(d);
+                          return (
+                            <div
+                              key={d.id}
+                              draggable={currentUser?.role === "Admin"}
+                              onDragStart={e => { e.stopPropagation(); e.dataTransfer.setData("text/plain", JSON.stringify({ id: d.id, orgName, idx })); }}
+                              onDragOver={e => e.preventDefault()}
+                              onDrop={async e => {
+                                e.preventDefault();
+                                e.stopPropagation();
+                                const raw = e.dataTransfer.getData("text/plain");
+                                if (!raw) return;
+                                const src = JSON.parse(raw);
+                                if (src.orgName !== orgName || src.id === d.id) return;
+                                // Reorder within same org
+                                const grp = [...grouped[orgName]];
+                                const fromIdx = grp.findIndex(x => x.id === src.id);
+                                const toIdx = idx;
+                                if (fromIdx === toIdx) return;
+                                const moved = grp.splice(fromIdx, 1)[0];
+                                grp.splice(toIdx, 0, moved);
+                                const orders = grp.map((x, i) => ({ id: x.id, sortOrder: i + 1 }));
+                                try {
+                                  await axios.put(`${BASE_URL}/departments/reorder`, { orders });
+                                  const updated = departments.map(dep => {
+                                    const o = orders.find(x => x.id === dep.id);
+                                    return o ? { ...dep, sortOrder: o.sortOrder } : dep;
+                                  });
+                                  setDepartments(updated);
+                                } catch { setCustomAlert({ show: true, message: "Failed to reorder", type: "error" }); }
+                              }}
+                              style={{ padding: "6px 10px", borderRadius: 8, background: color + "20", border: `1.5px solid ${color}40`, display: "flex", alignItems: "center", gap: 6, cursor: currentUser?.role === "Admin" ? "grab" : "default", transition: "all 0.15s", userSelect: "none" }}
+                              onMouseEnter={e => { e.currentTarget.style.boxShadow = `0 3px 10px ${color}40`; }}
+                              onMouseLeave={e => { e.currentTarget.style.boxShadow = "none"; }}
+                            >
+                              <div style={{ width: 8, height: 8, borderRadius: 2, background: color, flexShrink: 0 }} />
+                              <span style={{ fontSize: 12, fontWeight: 600, color: "#1f2937" }}>{d.name}</span>
+                              {currentUser?.role === "Admin" && (
+                                <button onClick={e => { e.stopPropagation(); deleteDept(d.id); }} style={{ border: "none", background: "transparent", color: "#94a3b8", cursor: "pointer", fontSize: 13, fontWeight: 700, lineHeight: 1, padding: "0 2px" }}>×</button>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  ));
+                })()}
+                {departments.length === 0 && orgs.length === 0 && <div style={{ textAlign: "center", color: "#94a3b8", padding: 28 }}>No organisations yet. Add an organisation first, then add departments.</div>}
               </div>}
               {/* ✅ NEW: Locations Management */}
               {settingsTab === "locations" && <div style={{ background: "#fff", borderRadius: 12, padding: 22, boxShadow: "0 1px 4px rgba(0,0,0,0.06)" }}>
@@ -5171,6 +5507,7 @@ export default function HelpDesk() {
                     <option value="users">Users</option>
                     <option value="orgs">Organizations</option>
                     <option value="categories">Categories</option>
+                    <option value="departments">Departments</option>
                   </select>
                 </div>
 
@@ -5194,6 +5531,7 @@ export default function HelpDesk() {
                       {targetTable === "users" && <option value="role">By Role</option>}
                       {targetTable === "orgs" && <option value="domain">By Domain</option>}
                       {targetTable === "categories" && <option value="color">By Color</option>}
+                      {targetTable === "departments" && <option value="org">By Organisation</option>}
                     </select>
 
                     {exportFilterType !== "all" && (
@@ -5223,6 +5561,9 @@ export default function HelpDesk() {
                         ))}
                         {exportFilterType === "color" && categories.map(c => (
                           <option key={c.id} value={c.color} style={{ background: c.color }}>{c.color}</option>
+                        ))}
+                        {exportFilterType === "org" && [...orgs].sort((a, b) => a.name.localeCompare(b.name)).map(o => (
+                          <option key={o.id} value={o.name}>{o.name}</option>
                         ))}
                       </select>
                     )}
@@ -5255,22 +5596,29 @@ export default function HelpDesk() {
       {/* ── NEW TICKET MODAL (v1 form + webcast fields) ── */}
       <Modal open={showNewTicket} onClose={() => { setShowNewTicket(false); setShowAssigneeDD(false); }} title="Create New Ticket" width={700}>
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0 18px" }}>
-          <FF label="Organisation" required><select style={sS} value={form.org} onChange={e => setForm({ ...form, org: e.target.value })}><option value="">Select…</option>{orgs.map(o => <option key={o.id}>{o.name}</option>)}</select></FF>
+          <FF label="Organisation" required><select style={sS} value={form.org} onChange={e => setForm({ ...form, org: e.target.value, department: "" })}><option value="">Select…</option>{orgs.map(o => <option key={o.id}>{o.name}</option>)}</select></FF>
           <FF label="Department">
             <div style={{ position: "relative" }}>
-              <input type="text" placeholder="Search department..." value={departmentSearch ? departmentSearch : (form.department ? departments.find(d => d.name === form.department)?.name || "" : "")} onChange={e => setDepartmentSearch(e.target.value)} onFocus={() => { setDepartmentSearch(""); setShowDepartmentDD(true); }} style={{ ...iS, width: "100%", fontSize: 12 }} />
+              <input type="text" placeholder={form.org ? "Search department..." : "Select org first..."} value={departmentSearch ? departmentSearch : (form.department || "")} onChange={e => setDepartmentSearch(e.target.value)} onFocus={() => { setDepartmentSearch(""); setShowDepartmentDD(true); }} style={{ ...iS, width: "100%", fontSize: 12 }} />
               {showDepartmentDD && <>
                 <div style={{ position: "fixed", inset: 0, zIndex: 199 }} onClick={() => { setShowDepartmentDD(false); setDepartmentSearch(""); }} />
-                <div style={{ position: "absolute", top: "calc(100% + 3px)", left: 0, right: 0, background: "#fff", border: "1.5px solid #e2e8f0", borderRadius: 8, zIndex: 200, boxShadow: "0 4px 12px rgba(0,0,0,0.1)", maxHeight: 200, overflowY: "auto" }}>
+                <div style={{ position: "absolute", top: "calc(100% + 3px)", left: 0, right: 0, background: "#fff", border: "1.5px solid #e2e8f0", borderRadius: 8, zIndex: 200, boxShadow: "0 4px 12px rgba(0,0,0,0.1)", maxHeight: 240, overflowY: "auto" }}>
                   <div style={{ padding: 8, borderBottom: "1px solid #f1f5f9", position: "sticky", top: 0, background: "#fff" }}>
                     <input type="text" placeholder="Search departments..." value={departmentSearch} onChange={e => setDepartmentSearch(e.target.value)} onClick={e => e.stopPropagation()} autoFocus style={{ ...iS, width: "100%", fontSize: 12 }} />
                   </div>
-                  {departments.filter(d => departmentSearch === "" || d.name.toLowerCase().includes(departmentSearch.toLowerCase())).map(d => (
-                    <div key={d.id} onClick={() => { setForm({ ...form, department: d.name }); setShowDepartmentDD(false); setDepartmentSearch(""); }} style={{ padding: "8px 12px", cursor: "pointer", borderBottom: "1px solid #f1f5f9" }}>
-                      <div style={{ fontSize: 12, fontWeight: 600 }}>{d.name}</div>
-                    </div>
-                  ))}
-                  {departments.filter(d => departmentSearch === "" || d.name.toLowerCase().includes(departmentSearch.toLowerCase())).length === 0 && <div style={{ padding: "12px", textAlign: "center", fontSize: 12, color: "#94a3b8" }}>No departments found</div>}
+                  {(() => {
+                    const filtered = departments.filter(d =>
+                      (!form.org || d.orgName === form.org) &&
+                      (departmentSearch === "" || d.name.toLowerCase().includes(departmentSearch.toLowerCase()))
+                    ).sort((a, b) => (a.sortOrder || 0) - (b.sortOrder || 0));
+                    if (filtered.length === 0) return <div style={{ padding: "12px", textAlign: "center", fontSize: 12, color: "#94a3b8" }}>{form.org ? "No departments for this org" : "Select an org to filter departments"}</div>;
+                    return filtered.map(d => (
+                      <div key={d.id} onClick={() => { setForm({ ...form, department: d.name }); setShowDepartmentDD(false); setDepartmentSearch(""); }} style={{ padding: "8px 12px", cursor: "pointer", borderBottom: "1px solid #f1f5f9" }}>
+                        <div style={{ fontSize: 12, fontWeight: 600 }}>{d.name}</div>
+                        {!form.org && <div style={{ fontSize: 10, color: "#94a3b8" }}>{d.orgName}</div>}
+                      </div>
+                    ));
+                  })()}
                 </div>
               </>}
             </div>
@@ -5370,22 +5718,29 @@ export default function HelpDesk() {
       {/* ── NEW PROJECT MODAL ── */}
       <Modal open={showNewProject} onClose={() => setShowNewProject(false)} title="Create New Project" width={700}>
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0 18px" }}>
-          <FF label="Organisation" required><select style={sS} value={projForm.org} onChange={e => setProjForm({ ...projForm, org: e.target.value })}><option value="">Select…</option>{orgs.map(o => <option key={o.id}>{o.name}</option>)}</select></FF>
+          <FF label="Organisation" required><select style={sS} value={projForm.org} onChange={e => setProjForm({ ...projForm, org: e.target.value, department: "" })}><option value="">Select…</option>{orgs.map(o => <option key={o.id}>{o.name}</option>)}</select></FF>
           <FF label="Department">
             <div style={{ position: "relative" }}>
-              <input type="text" placeholder="Search department..." value={departmentSearch ? departmentSearch : (projForm.department ? departments.find(d => d.name === projForm.department)?.name || "" : "")} onChange={e => setDepartmentSearch(e.target.value)} onFocus={() => { setDepartmentSearch(""); setShowDepartmentDD(true); }} style={{ ...iS, width: "100%", fontSize: 12 }} />
+              <input type="text" placeholder={projForm.org ? "Search department..." : "Select org first..."} value={departmentSearch ? departmentSearch : (projForm.department || "")} onChange={e => setDepartmentSearch(e.target.value)} onFocus={() => { setDepartmentSearch(""); setShowDepartmentDD(true); }} style={{ ...iS, width: "100%", fontSize: 12 }} />
               {showDepartmentDD && <>
                 <div style={{ position: "fixed", inset: 0, zIndex: 199 }} onClick={() => { setShowDepartmentDD(false); setDepartmentSearch(""); }} />
-                <div style={{ position: "absolute", top: "calc(100% + 3px)", left: 0, right: 0, background: "#fff", border: "1.5px solid #e2e8f0", borderRadius: 8, zIndex: 200, boxShadow: "0 4px 12px rgba(0,0,0,0.1)", maxHeight: 200, overflowY: "auto" }}>
+                <div style={{ position: "absolute", top: "calc(100% + 3px)", left: 0, right: 0, background: "#fff", border: "1.5px solid #e2e8f0", borderRadius: 8, zIndex: 200, boxShadow: "0 4px 12px rgba(0,0,0,0.1)", maxHeight: 240, overflowY: "auto" }}>
                   <div style={{ padding: 8, borderBottom: "1px solid #f1f5f9", position: "sticky", top: 0, background: "#fff" }}>
                     <input type="text" placeholder="Search departments..." value={departmentSearch} onChange={e => setDepartmentSearch(e.target.value)} onClick={e => e.stopPropagation()} autoFocus style={{ ...iS, width: "100%", fontSize: 12 }} />
                   </div>
-                  {departments.filter(d => departmentSearch === "" || d.name.toLowerCase().includes(departmentSearch.toLowerCase())).map(d => (
-                    <div key={d.id} onClick={() => { setProjForm({ ...projForm, department: d.name }); setShowDepartmentDD(false); setDepartmentSearch(""); }} style={{ padding: "8px 12px", cursor: "pointer", borderBottom: "1px solid #f1f5f9" }}>
-                      <div style={{ fontSize: 12, fontWeight: 600 }}>{d.name}</div>
-                    </div>
-                  ))}
-                  {departments.filter(d => departmentSearch === "" || d.name.toLowerCase().includes(departmentSearch.toLowerCase())).length === 0 && <div style={{ padding: "12px", textAlign: "center", fontSize: 12, color: "#94a3b8" }}>No departments found</div>}
+                  {(() => {
+                    const filtered = departments.filter(d =>
+                      (!projForm.org || d.orgName === projForm.org) &&
+                      (departmentSearch === "" || d.name.toLowerCase().includes(departmentSearch.toLowerCase()))
+                    ).sort((a, b) => (a.sortOrder || 0) - (b.sortOrder || 0));
+                    if (filtered.length === 0) return <div style={{ padding: "12px", textAlign: "center", fontSize: 12, color: "#94a3b8" }}>{projForm.org ? "No departments for this org" : "Select an org to filter departments"}</div>;
+                    return filtered.map(d => (
+                      <div key={d.id} onClick={() => { setProjForm({ ...projForm, department: d.name }); setShowDepartmentDD(false); setDepartmentSearch(""); }} style={{ padding: "8px 12px", cursor: "pointer", borderBottom: "1px solid #f1f5f9" }}>
+                        <div style={{ fontSize: 12, fontWeight: 600 }}>{d.name}</div>
+                        {!projForm.org && <div style={{ fontSize: 10, color: "#94a3b8" }}>{d.orgName}</div>}
+                      </div>
+                    ));
+                  })()}
                 </div>
               </>}
             </div>
@@ -5594,7 +5949,7 @@ export default function HelpDesk() {
             {(currentUser?.role === "Admin" || currentUser?.role === "Manager") ? (
               <div>
                 <div style={{ display: "flex", flexWrap: "wrap", gap: 7, marginBottom: 10 }}>
-                  {(selTicket.assignees || []).map(a => <div key={a.id} style={{ display: "flex", alignItems: "center", gap: 7, background: "#dbeafe", padding: "5px 9px", borderRadius: 7, border: "1px solid #bfdbfe" }}><Avatar name={a.name} size={24} /><div><div style={{ fontSize: 12, fontWeight: 600 }}>{a.name}</div><div style={{ fontSize: 10, color: "#64748b" }}>{a.role}</div></div><span onClick={async () => { const updated = { ...selTicket, assignees: selTicket.assignees.filter(x => x.id !== a.id), updated: new Date().toISOString() }; try { await axios.put(`${TICKETS_API}/${selTicket.id}`, updated); setTickets(t => t.map(x => x.id === selTicket.id ? { ...updated, updated: new Date(updated.updated) } : x)); setSelTicket(updated); } catch (e) { alert("Failed to remove assignee"); } }} style={{ cursor: "pointer", fontWeight: 700, marginLeft: 4, color: "#ef4444" }}>×</span></div>)}
+                  {(selTicket.assignees || []).map(a => <div key={a.id} style={{ display: "flex", alignItems: "center", gap: 7, background: "#dbeafe", padding: "5px 9px", borderRadius: 7, border: "1px solid #bfdbfe" }}><Avatar name={a.name} size={24} /><div><div style={{ fontSize: 12, fontWeight: 600 }}>{a.name}</div><div style={{ fontSize: 10, color: "#64748b" }}>{a.role}</div></div><span onClick={async () => { const updated = { ...selTicket, assignees: selTicket.assignees.filter(x => x.id !== a.id), updated: new Date().toISOString() }; try { await axios.put(`${TICKETS_API}/${selTicket.id}`, updated); setTickets(t => t.map(x => x.id === selTicket.id ? { ...updated, updated: new Date(updated.updated) } : x)); setSelTicket(updated); } catch (e) { setCustomAlert({ show: true, message: "Failed to remove assignee", type: "error" }); } }} style={{ cursor: "pointer", fontWeight: 700, marginLeft: 4, color: "#ef4444" }}>×</span></div>)}
                   {!selTicket.assignees?.length && <span style={{ fontSize: 13, color: "#94a3b8" }}>Unassigned</span>}
                 </div>
                 <div style={{ position: "relative" }}>
@@ -5605,7 +5960,7 @@ export default function HelpDesk() {
                         <input type="text" placeholder="Search assignees..." value={assigneeSearch} onChange={e => setAssigneeSearch(e.target.value)} onClick={e => e.stopPropagation()} autoFocus style={{ ...iS, width: "100%", fontSize: 12 }} />
                       </div>
                       {users.filter(u => u.active && (assigneeSearch === "" || u.name.toLowerCase().includes(assigneeSearch.toLowerCase())) && !selTicket.assignees?.find(a => a.id === u.id)).map(u => (
-                        <div key={u.id} onClick={async () => { const updated = { ...selTicket, assignees: [...(selTicket.assignees || []), u], updated: new Date().toISOString() }; try { await axios.put(`${TICKETS_API}/${selTicket.id}`, updated); setTickets(t => t.map(x => x.id === selTicket.id ? { ...updated, updated: new Date(updated.updated) } : x)); setSelTicket(updated); setAssigneeSearch(""); setShowTicketAssigneeDD(false); setCustomAlert({ show: true, message: `✅ Ticket ${selTicket.id} assigned to ${u.name}`, type: "success" }); } catch (e) { alert("Failed to add assignee"); } }} style={{ display: "flex", alignItems: "center", gap: 9, padding: "8px 12px", cursor: "pointer", borderBottom: "1px solid #f1f5f9" }}>
+                        <div key={u.id} onClick={async () => { const updated = { ...selTicket, assignees: [...(selTicket.assignees || []), u], updated: new Date().toISOString() }; try { await axios.put(`${TICKETS_API}/${selTicket.id}`, updated); setTickets(t => t.map(x => x.id === selTicket.id ? { ...updated, updated: new Date(updated.updated) } : x)); setSelTicket(updated); setAssigneeSearch(""); setShowTicketAssigneeDD(false); setCustomAlert({ show: true, message: `✅ Ticket ${selTicket.id} assigned to ${u.name}`, type: "success" }); } catch (e) { setCustomAlert({ show: true, message: "Failed to add assignee", type: "error" }); } }} style={{ display: "flex", alignItems: "center", gap: 9, padding: "8px 12px", cursor: "pointer", borderBottom: "1px solid #f1f5f9" }}>
                           <Avatar name={u.name} size={24} /><div><div style={{ fontSize: 12, fontWeight: 600 }}>{u.name}</div><div style={{ fontSize: 11, color: "#94a3b8" }}>{u.role}</div></div>
                         </div>
                       ))}
@@ -5791,7 +6146,7 @@ export default function HelpDesk() {
                 setTickets(p => p.map(x => x.id === selTicket.id ? { ...updatedT, updated: new Date(nowISO) } : x));
                 setSelTicket({ ...updatedT, updated: new Date(nowISO) });
                 setNewComment("");
-              } catch (e) { alert("Failed to post comment"); }
+              } catch (e) { setCustomAlert({ show: true, message: "Failed to post comment", type: "error" }); }
             }} style={{ ...bP, marginTop: 7, padding: "7px 15px", fontSize: 13 }}>Post Comment</button>
           </div>
         </div>}
@@ -5873,7 +6228,7 @@ export default function HelpDesk() {
             {(currentUser?.role === "Admin" || currentUser?.role === "Manager") ? (
               <div>
                 <div style={{ display: "flex", flexWrap: "wrap", gap: 7, marginBottom: 10 }}>
-                  {(selProject.assignees || []).map(a => <div key={a.id} style={{ display: "flex", alignItems: "center", gap: 7, background: "#dbeafe", padding: "5px 9px", borderRadius: 7, border: "1px solid #bfdbfe" }}><Avatar name={a.name} size={24} /><div><div style={{ fontSize: 12, fontWeight: 600 }}>{a.name}</div><div style={{ fontSize: 10, color: "#64748b" }}>{a.role}</div></div><span onClick={async () => { const updated = { ...selProject, assignees: selProject.assignees.filter(x => x.id !== a.id), updated: new Date().toISOString() }; try { await axios.put(`${PROJECTS_API}/${selProject.id}`, updated); setProjects(p => p.map(x => x.id === selProject.id ? { ...updated, updated: new Date(updated.updated) } : x)); setSelProject(updated); } catch (e) { alert("Failed to remove assignee"); } }} style={{ cursor: "pointer", fontWeight: 700, marginLeft: 4, color: "#ef4444" }}>×</span></div>)}
+                  {(selProject.assignees || []).map(a => <div key={a.id} style={{ display: "flex", alignItems: "center", gap: 7, background: "#dbeafe", padding: "5px 9px", borderRadius: 7, border: "1px solid #bfdbfe" }}><Avatar name={a.name} size={24} /><div><div style={{ fontSize: 12, fontWeight: 600 }}>{a.name}</div><div style={{ fontSize: 10, color: "#64748b" }}>{a.role}</div></div><span onClick={async () => { const updated = { ...selProject, assignees: selProject.assignees.filter(x => x.id !== a.id), updated: new Date().toISOString() }; try { await axios.put(`${PROJECTS_API}/${selProject.id}`, updated); setProjects(p => p.map(x => x.id === selProject.id ? { ...updated, updated: new Date(updated.updated) } : x)); setSelProject(updated); } catch (e) { setCustomAlert({ show: true, message: "Failed to remove assignee", type: "error" }); } }} style={{ cursor: "pointer", fontWeight: 700, marginLeft: 4, color: "#ef4444" }}>×</span></div>)}
                   {!selProject.assignees?.length && <span style={{ fontSize: 13, color: "#94a3b8" }}>Unassigned</span>}
                 </div>
                 <div style={{ position: "relative" }}>
@@ -5884,7 +6239,7 @@ export default function HelpDesk() {
                         <input type="text" placeholder="Search assignees..." value={assigneeSearch} onChange={e => setAssigneeSearch(e.target.value)} onClick={e => e.stopPropagation()} autoFocus style={{ ...iS, width: "100%", fontSize: 12 }} />
                       </div>
                       {users.filter(u => u.active && (assigneeSearch === "" || u.name.toLowerCase().includes(assigneeSearch.toLowerCase())) && !selProject.assignees?.find(a => a.id === u.id)).map(u => (
-                        <div key={u.id} onClick={async () => { const updated = { ...selProject, assignees: [...(selProject.assignees || []), u], updated: new Date().toISOString() }; try { await axios.put(`${PROJECTS_API}/${selProject.id}`, updated); setProjects(p => p.map(x => x.id === selProject.id ? { ...updated, updated: new Date(updated.updated) } : x)); setSelProject(updated); setAssigneeSearch(""); setShowProjAssigneeDD(false); } catch (e) { alert("Failed to add assignee"); } }} style={{ display: "flex", alignItems: "center", gap: 9, padding: "8px 12px", cursor: "pointer", borderBottom: "1px solid #f1f5f9" }}>
+                        <div key={u.id} onClick={async () => { const updated = { ...selProject, assignees: [...(selProject.assignees || []), u], updated: new Date().toISOString() }; try { await axios.put(`${PROJECTS_API}/${selProject.id}`, updated); setProjects(p => p.map(x => x.id === selProject.id ? { ...updated, updated: new Date(updated.updated) } : x)); setSelProject(updated); setAssigneeSearch(""); setShowProjAssigneeDD(false); } catch (e) { setCustomAlert({ show: true, message: "Failed to add assignee", type: "error" }); } }} style={{ display: "flex", alignItems: "center", gap: 9, padding: "8px 12px", cursor: "pointer", borderBottom: "1px solid #f1f5f9" }}>
                           <Avatar name={u.name} size={24} /><div><div style={{ fontSize: 12, fontWeight: 600 }}>{u.name}</div><div style={{ fontSize: 11, color: "#94a3b8" }}>{u.role}</div></div>
                         </div>
                       ))}
@@ -5917,7 +6272,7 @@ export default function HelpDesk() {
                 setProjects(p => p.map(x => x.id === selProject.id ? { ...updatedP, updated: new Date(nowISO) } : x));
                 setSelProject({ ...updatedP, updated: new Date(nowISO) });
                 setNewProjComment("");
-              } catch (e) { alert("Failed to post comment"); }
+              } catch (e) { setCustomAlert({ show: true, message: "Failed to post comment", type: "error" }); }
             }} style={{ ...bP, marginTop: 7, padding: "7px 15px", fontSize: 13, background: "linear-gradient(135deg,#8b5cf6,#6366f1)" }}>Post Comment</button>
           </div>
         </div>}

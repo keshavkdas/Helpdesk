@@ -38,7 +38,7 @@ const User = sequelize.define("User", {
     phone: { type: DataTypes.STRING, defaultValue: "" },
     role: { type: DataTypes.ENUM("Super Admin", "Admin", "Manager", "Agent", "Viewer"), defaultValue: "Agent" },
     active: { type: DataTypes.BOOLEAN, defaultValue: true },
-    status: { type: DataTypes.STRING, defaultValue: "Off Duty" },
+    status: { type: DataTypes.STRING, defaultValue: "Off Duty" }, // On Duty | On Ticket | On Lunch | Off Duty
     confirmed: { type: DataTypes.BOOLEAN, defaultValue: true },
     // ✅ NEW: Agent tracking fields
     currentTicketId: { type: DataTypes.STRING, defaultValue: null },
@@ -170,9 +170,22 @@ const Department = sequelize.define("Department", {
     name: {
         type: DataTypes.STRING,
         allowNull: false,
-        unique: true,
     },
-}, { timestamps: true });
+    orgName: {
+        type: DataTypes.STRING,
+        allowNull: false,
+        defaultValue: "General",
+    },
+    sortOrder: {
+        type: DataTypes.INTEGER,
+        defaultValue: 0,
+    },
+}, {
+    timestamps: true,
+    indexes: [
+        { unique: true, fields: ["name", "orgName"] } // Same name allowed across different orgs
+    ]
+});
 
 // ✅ NEW: Location Model
 const Location = sequelize.define("Location", {
@@ -198,7 +211,7 @@ const Notification = sequelize.define("Notification", {
     type: {
         type: DataTypes.STRING,
         allowNull: false,
-        // Values: forward_request | forward_response | ticket_assigned | ticket_created | ticket_closed | project_created
+        // Values: forward_request | forward_response | ticket_assigned | ticket_created | ticket_closed | project_created | activity
     },
     title: { type: DataTypes.STRING, allowNull: false },
     message: { type: DataTypes.TEXT, allowNull: false },
@@ -236,6 +249,13 @@ app.post("/api/auth/login", async (req, res) => {
         if (!user || !user.active) return res.status(401).json({ error: "Account not found or inactive" });
         const match = await bcrypt.compare(password, user.password);
         if (!match) return res.status(401).json({ error: "Incorrect password" });
+        // Set On Duty and clear lunch/location state on every login
+        await user.update({
+            status: "On Duty",
+            lunchStatus: false,
+            currentTicketId: null,
+            currentLocation: null,
+        });
         res.json(fmt(user));
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
@@ -427,10 +447,12 @@ app.delete("/api/customAttrs/:id", async (req, res) => {
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// ✅ NEW: Departments (Full CRUD)
+// ✅ Departments (Full CRUD — org-aware)
 app.get("/api/departments", async (req, res) => {
     try {
-        const departments = await Department.findAll({ order: [['name', 'ASC']] });
+        const departments = await Department.findAll({
+            order: [['orgName', 'ASC'], ['sortOrder', 'ASC'], ['name', 'ASC']]
+        });
         res.json(departments.map(fmt));
     } catch (err) {
         res.status(500).json({ error: err.message });
@@ -439,19 +461,56 @@ app.get("/api/departments", async (req, res) => {
 
 app.post("/api/departments", async (req, res) => {
     try {
-        const { name } = req.body;
+        const { name, orgName } = req.body;
 
         if (!name || !name.trim()) {
             return res.status(400).json({ error: "Department name is required" });
         }
 
-        const existing = await Department.findOne({ where: { name: name.trim() } });
+        const org = (orgName || "General").trim();
+
+        const existing = await Department.findOne({ where: { name: name.trim(), orgName: org } });
         if (existing) {
-            return res.status(409).json({ error: "Department already exists" });
+            return res.status(409).json({ error: `Department "${name.trim()}" already exists under ${org}` });
         }
 
-        const dept = await Department.create({ name: name.trim() });
+        // Set sortOrder to end of this org's list
+        const maxOrder = await Department.max('sortOrder', { where: { orgName: org } });
+        const dept = await Department.create({
+            name: name.trim(),
+            orgName: org,
+            sortOrder: (maxOrder || 0) + 1,
+        });
         res.status(201).json(fmt(dept));
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// PUT /api/departments/reorder — bulk update sortOrders (must come BEFORE /:id)
+app.put("/api/departments/reorder", async (req, res) => {
+    try {
+        const { orders } = req.body; // [{ id, sortOrder }, ...]
+        if (!Array.isArray(orders)) return res.status(400).json({ error: "orders array required" });
+        await Promise.all(orders.map(o => Department.update({ sortOrder: o.sortOrder }, { where: { id: o.id } })));
+        res.json({ success: true });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// PUT /api/departments/:id — update name, orgName, or sortOrder
+app.put("/api/departments/:id", async (req, res) => {
+    try {
+        const dept = await Department.findByPk(req.params.id);
+        if (!dept) return res.status(404).json({ error: "Department not found" });
+        const { name, orgName, sortOrder } = req.body;
+        const updates = {};
+        if (name !== undefined) updates.name = name.trim();
+        if (orgName !== undefined) updates.orgName = orgName.trim();
+        if (sortOrder !== undefined) updates.sortOrder = sortOrder;
+        await dept.update(updates);
+        res.json(fmt(dept));
     } catch (err) {
         res.status(500).json({ error: err.message });
     }
@@ -459,13 +518,8 @@ app.post("/api/departments", async (req, res) => {
 
 app.delete("/api/departments/:id", async (req, res) => {
     try {
-        const { id } = req.params;
-
-        const dept = await Department.findByPk(id);
-        if (!dept) {
-            return res.status(404).json({ error: "Department not found" });
-        }
-
+        const dept = await Department.findByPk(req.params.id);
+        if (!dept) return res.status(404).json({ error: "Department not found" });
         await dept.destroy();
         res.json({ success: true, message: "Department deleted" });
     } catch (err) {
@@ -554,6 +608,7 @@ app.post("/api/notifications", async (req, res) => {
             status, resolved, from,
             broadcastIcon, broadcastType,
             read = false, alerted = false,
+            createdAt,
         } = req.body;
 
         if (!type) return res.status(400).json({ error: "type is required" });
@@ -576,6 +631,7 @@ app.post("/api/notifications", async (req, res) => {
             broadcastType: broadcastType || null,
             read,
             alerted,
+            ...(createdAt ? { createdAt: new Date(createdAt) } : {}),
         };
 
         // Bulk fan-out — one DB bulkCreate instead of N separate requests
@@ -1130,11 +1186,23 @@ sequelize.sync({ alter: true }).then(async () => {
 
     // Data Migration: Normalize user statuses
     try {
-        await User.update({ status: "Logged-In" }, { where: { status: "Active" } });
-        await User.update({ status: "Logged-Out" }, { where: { status: { [Op.or]: ["Not Active", "Logged-out"] } } });
+        // Normalize legacy status values to current ones
+        await User.update({ status: "On Duty" }, { where: { status: { [Op.in]: ["Active", "Logged-In", "Logged-in"] } } });
+        await User.update({ status: "Off Duty" }, { where: { status: { [Op.in]: ["Not Active", "Logged-Out", "Logged-out", "Inactive"] } } });
+        // On Duty / Off Duty / On Ticket / On Lunch are valid — leave them as-is
         console.log("📊 User status data migrated successfully");
     } catch (migErr) {
         console.error("⚠️ Status migration warning:", migErr.message);
+    }
+
+    // Data Migration: Backfill orgName = "General" for old departments missing it
+    try {
+        const [deptCount] = await sequelize.query(
+            `UPDATE Departments SET orgName = 'General' WHERE orgName IS NULL OR orgName = ''`
+        );
+        if (deptCount > 0) console.log(`📊 Backfilled orgName for ${deptCount} departments`);
+    } catch (migErr) {
+        console.error("⚠️ Department orgName backfill warning:", migErr.message);
     }
 
     // ✅ RUN AUTOMATIC WEBCAST MIGRATION
