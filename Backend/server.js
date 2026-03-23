@@ -1179,34 +1179,50 @@ async function migrateWebcastsOnStartup() {
     }
 }
 
-// ─── TEMPORARY PATCH: Force All Depts to All Orgs ───────────────────────────
-async function patchAllDepts() {
+// ─── THE DEFINITIVE ONE-TIME PATCH ──────────────────────────────────────────
+async function finalizeDepartmentSync() {
     try {
-        console.log("🛠️  Running validation-safe Department patch...");
-        const orgs = await Org.findAll();
-        const depts = await Department.findAll({
+        console.log("🛠️  Force-syncing all unique departments to all organizations...");
+
+        // 1. Get all organizations currently in the database
+        const allOrgs = await Org.findAll();
+
+        // 2. Get every unique department name that exists anywhere in your table
+        const uniqueDeptNames = await Department.findAll({
             attributes: [[Sequelize.fn('DISTINCT', Sequelize.col('name')), 'name']]
         });
 
-        for (const org of orgs) {
-            for (const d of depts) {
-                // Check if it exists first to avoid Validation/Unique constraint errors
+        console.log(`📊 Found ${allOrgs.length} Orgs and ${uniqueDeptNames.length} unique Dept names.`);
+
+        let createdCount = 0;
+
+        for (const org of allOrgs) {
+            for (const dept of uniqueDeptNames) {
+                // Skip if name or orgName is invalid
+                if (!dept.name || !org.name) continue;
+
+                // 3. Check if this Org already has this Dept
                 const exists = await Department.findOne({
-                    where: { name: d.name, orgName: org.name }
+                    where: {
+                        name: dept.name,
+                        orgName: org.name
+                    }
                 });
 
+                // 4. If it doesn't exist, create it
                 if (!exists) {
                     await Department.create({
-                        name: d.name,
+                        name: dept.name,
                         orgName: org.name,
                         sortOrder: 0
                     });
+                    createdCount++;
                 }
             }
         }
-        console.log("✅ Patch complete. Every Org now has every Department.");
+        console.log(`✅ Success! Created ${createdCount} missing Org-Dept links.`);
     } catch (err) {
-        console.error("❌ Patch failed:", err.message);
+        console.error("❌ Final Sync Failed:", err.message);
     }
 }
 
@@ -1215,8 +1231,7 @@ const PORT = process.env.PORT || 5000;
 sequelize.sync({ alter: true }).then(async () => {
     console.log("✅ MySQL Synced & Connected");
 
-    // ADD THIS HERE
-    await patchAllDepts();
+    await finalizeDepartmentSync();
 
     // Data Migration: Normalize user statuses
     try {
