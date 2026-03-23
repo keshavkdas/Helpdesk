@@ -1179,82 +1179,34 @@ async function migrateWebcastsOnStartup() {
     }
 }
 
-// ─── TEMPORARY FORCE MIGRATION ──────────────────────────────────────────────
-async function forceLinkAllDeptsToAllOrgs() {
+// ─── TEMPORARY PATCH: Force All Depts to All Orgs ───────────────────────────
+async function patchAllDepts() {
     try {
-        console.log("🚀 FORCING Org-Dept Migration...");
-
-        // 1. Get every unique Org name
+        console.log("🛠️  Running validation-safe Department patch...");
         const orgs = await Org.findAll();
-        // 2. Get every unique Department name currently in the DB
-        const uniqueDeptNames = await Department.findAll({
+        const depts = await Department.findAll({
             attributes: [[Sequelize.fn('DISTINCT', Sequelize.col('name')), 'name']]
         });
 
-        if (orgs.length === 0 || uniqueDeptNames.length === 0) {
-            console.log("⚠️ No Orgs or Depts found to process.");
-            return;
-        }
-
         for (const org of orgs) {
-            for (const d of uniqueDeptNames) {
-                // Use a direct upsert/findOrCreate to ensure it exists for this Org
-                await Department.findOrCreate({
-                    where: {
-                        name: d.name,
-                        orgName: org.name
-                    },
-                    defaults: {
+            for (const d of depts) {
+                // Check if it exists first to avoid Validation/Unique constraint errors
+                const exists = await Department.findOne({
+                    where: { name: d.name, orgName: org.name }
+                });
+
+                if (!exists) {
+                    await Department.create({
                         name: d.name,
                         orgName: org.name,
                         sortOrder: 0
-                    }
-                });
+                    });
+                }
             }
         }
-        console.log("✅ All Orgs now have all Departments.");
+        console.log("✅ Patch complete. Every Org now has every Department.");
     } catch (err) {
-        console.error("❌ Force Migration Error:", err.message);
-    }
-}
-
-// ─── TEMPORARY MIGRATION: Link every Org to every Dept ───────────────────────
-async function temporaryLinkAllDeptsToAllOrgs() {
-    try {
-        console.log("🔄 Starting Temporary Org-Dept Migration...");
-
-        // 1. Get all unique organization names and all unique department names
-        const orgs = await Org.findAll({ attributes: ['name'] });
-        const allDepts = await Department.findAll({ attributes: ['name'], group: ['name'] });
-
-        if (orgs.length === 0 || allDepts.length === 0) {
-            console.log("⏭️ No Orgs or Depts found to migrate.");
-            return;
-        }
-
-        let createdCount = 0;
-
-        for (const org of orgs) {
-            for (const dept of allDepts) {
-                // 2. Check if this department already exists for this specific org
-                const [record, created] = await Department.findOrCreate({
-                    where: {
-                        name: dept.name,
-                        orgName: org.name
-                    },
-                    defaults: {
-                        name: dept.name,
-                        orgName: org.name,
-                        sortOrder: 99 // Temporary high sort order
-                    }
-                });
-                if (created) createdCount++;
-            }
-        }
-
-        console.log(`✅ Migration Complete: Created ${createdCount} new Org-Dept links.`);
-    } catch (err) {
-        console.error("⚠️ Migration Error:", err.message);
+        console.error("❌ Patch failed:", err.message);
     }
 }
 
@@ -1263,9 +1215,8 @@ const PORT = process.env.PORT || 5000;
 sequelize.sync({ alter: true }).then(async () => {
     console.log("✅ MySQL Synced & Connected");
 
-    await forceLinkAllDeptsToAllOrgs();
-    // 👇 ADD THIS LINE HERE 👇
-    await temporaryLinkAllDeptsToAllOrgs();
+    // ADD THIS HERE
+    await patchAllDepts();
 
     // Data Migration: Normalize user statuses
     try {
