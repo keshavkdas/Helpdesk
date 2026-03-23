@@ -22,10 +22,10 @@ const NOTIFICATIONS_API = `${BASE_URL}/notifications`;
 
 // ─── CONSTANTS ────────────────────────────────────────────────────────────────
 const PRIORITIES = ["Critical", "High", "Low", "Medium"];
-const STATUSES = ["Closed", "In Progress", "Open", "Resolved"];
+const STATUSES = ["Closed", "In Progress", "Open"];
 const ROLES = ["Admin", "Agent", "Manager", "Viewer"];
 const SATSANG_TYPES = ["Children Satsang", "G Satsang", "Special Satsang", "Weekly Satsang", "Youth Satsang"];
-const PROJECT_STATUSES = ["Closed", "In Progress", "Open", "Resolved"];
+const PROJECT_STATUSES = ["Closed", "In Progress", "Open"];
 const PROJECT_PRIORITIES = ["Critical", "High", "Low", "Medium"];
 
 
@@ -34,8 +34,7 @@ const STATUS_COLOR = {
   Open: { bg: "#dbeafe", text: "#1d4ed8" },
   "In Progress": { bg: "#fef9c3", text: "#854d0e" },
   Pending: { bg: "#ede9fe", text: "#6d28d9" },
-  Resolved: { bg: "#dcfce7", text: "#15803d" },
-  Closed: { bg: "#f1f5f9", text: "#64748b" },
+  Closed: { bg: "#dcfce7", text: "#15803d" }
 };
 
 // ✅ NEW: Color palette for departments and locations (random allocation)
@@ -55,22 +54,23 @@ const getItemColor = (item) => {
 const TICKET_VIEWS = [
   { id: "open", label: "Open Tickets", icon: "📬", desc: "All open tickets", filter: t => t.status === "Open" },
   { id: "inprogress", label: "In Progress", icon: "⚙️", desc: "Tickets being worked on", filter: t => t.status === "In Progress" },
-  { id: "closed", label: "Closed Tickets", icon: "✅", desc: "Closed & resolved tickets", filter: t => t.status === "Closed" || t.status === "Resolved" },
-  { id: "unassigned", label: "Unassigned", icon: "🔸", desc: "Tickets with no assignees", filter: t => (!t.assignees || t.assignees.length === 0) && t.status !== "Closed" && t.status !== "Resolved" },
+  { id: "closed", label: "Closed Tickets", icon: "✅", desc: "All closed tickets", filter: t => t.status === "Closed" },
+  { id: "unassigned", label: "Unassigned", icon: "🔸", desc: "Tickets with no assignees", filter: t => (!t.assignees || t.assignees.length === 0) && t.status !== "Closed" },
   { id: "mine", label: "My Tickets", icon: "🙋", desc: "Open/in progress assigned to me", filter: (t, me) => (t.status === "Open" || t.status === "In Progress") && t.assignees?.some(a => a.id === me?.id) },
   { id: "all", label: "All Tickets", icon: "◈", desc: "Every ticket in the system", filter: () => true },
-  { id: "alerts", label: "Active Alerts", icon: "🔔", desc: "Critical tickets with active alerts", filter: t => t.priority === "Critical" && t.status !== "Closed" && t.status !== "Resolved" },
-  { id: "pastdue", label: "Past Due", icon: "🔴", desc: "Open tickets older than 5 days", filter: t => t.status === "Open" && (Date.now() - new Date(t.created).getTime()) > 5 * 86400000 },
+  { id: "alerts", label: "Active Alerts", icon: "🔔", desc: "Critical tickets with active alerts", filter: t => t.priority === "Critical" && t.status !== "Closed" },
+  { id: "pastdue", label: "Past Due", icon: "🔴", desc: "Open tickets with past due date", filter: t => t.status === "Open" && t.dueDate && new Date(String(t.dueDate)) < new Date() },
+  { id: "vendor", label: "By Vendor", icon: "🏭", desc: "Tickets sent to vendors for repair", filter: t => t.status === "Pending" && t.timeline?.some(ev => ev.action?.includes("Sent for Repair")) },
 ];
 
 const PROJECT_VIEWS = [
   { id: "open", label: "Open Projects", icon: "📂", desc: "All open projects", filter: p => p.status === "Open" },
   { id: "inprogress", label: "In Progress", icon: "⚙️", desc: "Projects being worked on", filter: p => p.status === "In Progress" },
-  { id: "closed", label: "Closed Projects", icon: "✅", desc: "Closed & resolved projects", filter: p => p.status === "Closed" || p.status === "Resolved" },
-  { id: "unassigned", label: "Unassigned", icon: "👤", desc: "Projects with no assignee", filter: p => (!p.assignees || p.assignees.length === 0) && p.status !== "Closed" && p.status !== "Resolved" },
-  { id: "mine", label: "My Projects", icon: "🙋", desc: "Projects assigned to me", filter: (p, me) => p.assignees?.some(a => a.id === me?.id) && p.status !== "Closed" && p.status !== "Resolved" },
+  { id: "closed", label: "Closed Projects", icon: "✅", desc: "All closed projects", filter: p => p.status === "Closed" },
+  { id: "unassigned", label: "Unassigned", icon: "👤", desc: "Projects with no assignee", filter: p => (!p.assignees || p.assignees.length === 0) && p.status !== "Closed" },
+  { id: "mine", label: "My Projects", icon: "🙋", desc: "Projects assigned to me", filter: (p, me) => p.assignees?.some(a => a.id === me?.id) && p.status !== "Closed" },
   { id: "all", label: "All Projects", icon: "◈", desc: "Every project in the system", filter: () => true },
-  { id: "critical", label: "Critical", icon: "🔔", desc: "Critical priority projects", filter: p => p.priority === "Critical" && p.status !== "Closed" && p.status !== "Resolved" },
+  { id: "critical", label: "Critical", icon: "🔔", desc: "Critical priority projects", filter: p => p.priority === "Critical" && p.status !== "Closed" },
 ];
 
 // ─── EXPORT HELPERS ────────────────────────────────────────────────────────────
@@ -269,8 +269,28 @@ const CustomAlert = ({ show, message, type, onDismiss }) => {
 };
 
 // ✅ NEW: Full-Screen Confirmation Modal
-const ConfirmationModal = ({ show, title, message, onConfirm, onCancel }) => {
+const ConfirmationModal = ({ show, title, message, onConfirm, onCancel, fields, showLunchButton, onLunch }) => {
+  const [fieldValues, setFieldValues] = React.useState({});
+
+  React.useEffect(() => {
+    if (fields) {
+      const initial = {};
+      fields.forEach(f => {
+        initial[f.name] = f.value || "";
+      });
+      setFieldValues(initial);
+    }
+  }, [fields]);
+
   if (!show) return null;
+
+  const handleConfirm = () => {
+    onConfirm(fieldValues);
+  };
+
+  const handleLunch = () => {
+    if (onLunch) onLunch();
+  };
 
   return (
     <div style={{
@@ -290,7 +310,9 @@ const ConfirmationModal = ({ show, title, message, onConfirm, onCancel }) => {
         maxWidth: 500,
         width: "90%",
         boxShadow: "0 25px 80px rgba(0,0,0,0.3)",
-        animation: "slideDown 0.3s ease-out"
+        animation: "slideDown 0.3s ease-out",
+        maxHeight: "80vh",
+        overflow: "auto"
       }}>
         {/* Title */}
         <h2 style={{
@@ -304,7 +326,7 @@ const ConfirmationModal = ({ show, title, message, onConfirm, onCancel }) => {
 
         {/* Message */}
         <p style={{
-          margin: "0 0 28px 0",
+          margin: "0 0 24px 0",
           fontSize: 14,
           color: "#475569",
           lineHeight: 1.6
@@ -312,12 +334,89 @@ const ConfirmationModal = ({ show, title, message, onConfirm, onCancel }) => {
           {message}
         </p>
 
+        {/* Fields */}
+        {fields && fields.length > 0 && (
+          <div style={{ marginBottom: 20, display: "flex", flexDirection: "column", gap: 14 }}>
+            {fields.map(field => (
+              <div key={field.name}>
+                <label style={{ fontSize: 12, fontWeight: 600, color: "#374151", display: "block", marginBottom: 6 }}>
+                  {field.label}
+                </label>
+                {field.type === "select" ? (
+                  <select
+                    value={fieldValues[field.name] || ""}
+                    onChange={e => setFieldValues({ ...fieldValues, [field.name]: e.target.value })}
+                    style={{
+                      width: "100%",
+                      padding: "10px 12px",
+                      borderRadius: 8,
+                      border: "1.5px solid #e2e8f0",
+                      fontSize: 13,
+                      fontFamily: "'DM Sans', sans-serif",
+                      background: "#fff",
+                      color: "#1e293b",
+                      cursor: "pointer"
+                    }}
+                  >
+                    <option value="">Select {field.label}</option>
+                    {field.options && field.options.map(opt => (
+                      <option key={opt.value} value={opt.value}>{opt.label}</option>
+                    ))}
+                  </select>
+                ) : (
+                  <input
+                    type={field.type || "text"}
+                    placeholder={field.placeholder}
+                    value={fieldValues[field.name] || ""}
+                    onChange={e => setFieldValues({ ...fieldValues, [field.name]: e.target.value })}
+                    style={{
+                      width: "100%",
+                      padding: "10px 12px",
+                      borderRadius: 8,
+                      border: "1.5px solid #e2e8f0",
+                      fontSize: 13,
+                      fontFamily: "'DM Sans', sans-serif",
+                      background: "#fff",
+                      color: "#1e293b",
+                      boxSizing: "border-box"
+                    }}
+                  />
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+
         {/* Buttons */}
         <div style={{
           display: "flex",
-          gap: 12,
-          justifyContent: "flex-end"
+          gap: 10,
+          justifyContent: "flex-end",
+          flexWrap: "wrap"
         }}>
+          {showLunchButton && (
+            <button onClick={handleLunch} style={{
+              padding: "10px 20px",
+              borderRadius: 8,
+              border: "1.5px solid #f59e0b",
+              background: "#fef3c7",
+              color: "#92400e",
+              cursor: "pointer",
+              fontSize: 13,
+              fontWeight: 600,
+              transition: "all 0.2s",
+              fontFamily: "'DM Sans', sans-serif"
+            }} onMouseOver={e => {
+              e.target.style.background = "#fcd34d";
+              e.target.style.borderColor = "#f59e0b";
+            }} onMouseOut={e => {
+              e.target.style.background = "#fef3c7";
+              e.target.style.borderColor = "#f59e0b";
+            }}>
+              🍽️ Going for Lunch
+            </button>
+          )}
+
           <button onClick={onCancel} style={{
             padding: "10px 24px",
             borderRadius: 8,
@@ -328,7 +427,8 @@ const ConfirmationModal = ({ show, title, message, onConfirm, onCancel }) => {
             fontSize: 13,
             fontWeight: 600,
             transition: "all 0.2s",
-            fontFamily: "'DM Sans', sans-serif"
+            fontFamily: "'DM Sans', sans-serif",
+            flex: showLunchButton ? "0" : "1"
           }} onMouseOver={e => {
             e.target.style.background = "#f1f5f9";
             e.target.style.borderColor = "#cbd5e1";
@@ -339,7 +439,7 @@ const ConfirmationModal = ({ show, title, message, onConfirm, onCancel }) => {
             Cancel
           </button>
 
-          <button onClick={onConfirm} style={{
+          <button onClick={handleConfirm} style={{
             padding: "10px 24px",
             borderRadius: 8,
             border: "none",
@@ -350,7 +450,8 @@ const ConfirmationModal = ({ show, title, message, onConfirm, onCancel }) => {
             fontWeight: 600,
             transition: "all 0.2s",
             fontFamily: "'DM Sans', sans-serif",
-            boxShadow: "0 4px 12px rgba(59, 130, 246, 0.3)"
+            boxShadow: "0 4px 12px rgba(59, 130, 246, 0.3)",
+            flex: showLunchButton ? "0" : "1"
           }} onMouseOver={e => {
             e.target.style.boxShadow = "0 6px 16px rgba(59, 130, 246, 0.4)";
             e.target.style.transform = "translateY(-2px)";
@@ -358,7 +459,7 @@ const ConfirmationModal = ({ show, title, message, onConfirm, onCancel }) => {
             e.target.style.boxShadow = "0 4px 12px rgba(59, 130, 246, 0.3)";
             e.target.style.transform = "translateY(0)";
           }}>
-            Confirm
+            Logout
           </button>
         </div>
       </div>
@@ -578,7 +679,7 @@ const PieChart = ({ data, donut = false }) => {
     <div style={{ display: "flex", alignItems: "center", width: "100%", minHeight: VB + 16 }}>
       {/* LEFT 50%: circle with equal padding */}
       <div style={{ flex: "0 0 50%", display: "flex", alignItems: "center", justifyContent: "center", padding: 8 }}>
-        <svg width={VB} height={VB} viewBox={`0 0 ${VB} ${VB}`} style={{ display: "block", overflow: "visible" }}>
+        <svg width={VB} height={VB} viewBox={`0 0 ${VB} ${VB}`} style={{ display: "block", overflow: "visible", pointerEvents: "none" }}>
           {donut ? (
             <>
               <circle cx={cx} cy={cy} r={r} fill="none" stroke="#f1f5f9" strokeWidth={18} />
@@ -756,43 +857,47 @@ const SmartChart = ({ title, data, defaultType = "bar", defaultColor = "#3b82f6"
   if (type === "pie") {
     const pieData = data.map((d, i) => ({ ...d, color: d.color || pieCo(i, defaultColor === "#3b82f6" ? null : defaultColor) }));
     return (
-      <div style={{ width: "100%" }}>
-        {/* chart-type picker row */}
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", marginBottom: 8, position: "relative" }}>
-          <button onClick={() => setShowPicker(!showPicker)} style={{ display: "flex", alignItems: "center", gap: 5, padding: "4px 8px", borderRadius: 6, border: "1px solid #e2e8f0", background: "#f8fafc", cursor: "pointer", fontSize: 11, color: "#374151", fontFamily: "'DM Sans',sans-serif", fontWeight: 500 }}>
-            <span>{CHART_TYPES.find(t => t.id === type)?.icon}</span>
-            <span>{CHART_TYPES.find(t => t.id === type)?.label}</span>
-            <span style={{ fontSize: 9, color: "#94a3b8" }}>▾</span>
-          </button>
-          {showPicker && <><div style={{ position: "fixed", inset: 0, zIndex: 149 }} onClick={() => setShowPicker(false)} />
-            <div style={{ position: "absolute", right: 0, top: "calc(100% + 4px)", background: "#fff", border: "1.5px solid #e2e8f0", borderRadius: 10, zIndex: 150, boxShadow: "0 8px 24px rgba(0,0,0,0.14)", minWidth: 140, overflow: "hidden", padding: 4 }}>
-              {CHART_TYPES.map(ct => (
-                <button key={ct.id} onClick={() => { setType(ct.id); setShowPicker(false); setHov(null); }}
-                  style={{ display: "flex", alignItems: "center", gap: 8, width: "100%", padding: "7px 10px", border: "none", background: type === ct.id ? "#eff6ff" : "#fff", cursor: "pointer", fontSize: 12, textAlign: "left", fontFamily: "'DM Sans',sans-serif", borderRadius: 6, color: type === ct.id ? "#3b82f6" : "#374151", fontWeight: type === ct.id ? 600 : 400, marginBottom: 1 }}>
-                  <span style={{ fontSize: 13, width: 18, textAlign: "center" }}>{ct.icon}</span>{ct.label}
-                  {type === ct.id && <span style={{ marginLeft: "auto", color: "#3b82f6", fontWeight: 700 }}>✓</span>}
-                </button>
-              ))}
-            </div>
-          </>}
+      <div style={{ background: "#fff", borderRadius: 12, padding: "14px 16px", boxShadow: "0 1px 4px rgba(0,0,0,0.06)", position: "relative", zIndex: 1 }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
+          <span style={{ fontSize: 12, fontWeight: 700, color: "#374151" }}>{title}</span>
+          <div style={{ position: "relative", zIndex: 10 }}>
+            <button onClick={() => setShowPicker(!showPicker)} style={{ display: "flex", alignItems: "center", gap: 5, padding: "4px 8px", borderRadius: 6, border: "1px solid #e2e8f0", background: "#f8fafc", cursor: "pointer", fontSize: 11, color: "#374151", fontFamily: "'DM Sans',sans-serif", fontWeight: 500 }}>
+              <span>{CHART_TYPES.find(t => t.id === type)?.icon}</span>
+              <span>{CHART_TYPES.find(t => t.id === type)?.label}</span>
+              <span style={{ fontSize: 9, color: "#94a3b8" }}>▾</span>
+            </button>
+            {showPicker && (
+              <div style={{ position: "absolute", right: 0, top: "calc(100% + 4px)", background: "#fff", border: "1.5px solid #e2e8f0", borderRadius: 10, zIndex: 11, boxShadow: "0 8px 24px rgba(0,0,0,0.14)", minWidth: 140, overflow: "hidden", padding: 4 }}>
+                {CHART_TYPES.map(ct => (
+                  <button key={ct.id} onClick={() => { setType(ct.id); setShowPicker(false); setHov(null); }}
+                    style={{ display: "flex", alignItems: "center", gap: 8, width: "100%", padding: "7px 10px", border: "none", background: type === ct.id ? "#eff6ff" : "#fff", cursor: "pointer", fontSize: 12, textAlign: "left", fontFamily: "'DM Sans',sans-serif", borderRadius: 6, color: type === ct.id ? "#3b82f6" : "#374151", fontWeight: type === ct.id ? 600 : 400, marginBottom: 1 }}>
+                    <span style={{ fontSize: 13, width: 18, textAlign: "center" }}>{ct.icon}</span>{ct.label}
+                    {type === ct.id && <span style={{ marginLeft: "auto", color: "#3b82f6", fontWeight: 700 }}>✓</span>}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
         </div>
-        <PieChart data={pieData} donut={false} />
+        <div style={{ position: "relative", paddingTop: 8 }}>
+          <PieChart data={pieData} donut={false} />
+        </div>
       </div>
     );
   }
 
   return (
-    <div style={{ background: "#fff", borderRadius: 12, padding: "14px 16px", boxShadow: "0 1px 4px rgba(0,0,0,0.06)" }}>
+    <div style={{ background: "#fff", borderRadius: 12, padding: "14px 16px", boxShadow: "0 1px 4px rgba(0,0,0,0.06)", position: "relative", zIndex: 1 }}>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
         <span style={{ fontSize: 12, fontWeight: 700, color: "#374151" }}>{title}</span>
-        <div style={{ position: "relative" }}>
+        <div style={{ position: "relative", zIndex: 10 }}>
           <button onClick={() => setShowPicker(!showPicker)} style={{ display: "flex", alignItems: "center", gap: 5, padding: "4px 8px", borderRadius: 6, border: "1px solid #e2e8f0", background: "#f8fafc", cursor: "pointer", fontSize: 11, color: "#374151", fontFamily: "'DM Sans',sans-serif", fontWeight: 500 }}>
             <span>{CHART_TYPES.find(t => t.id === type)?.icon}</span>
             <span>{CHART_TYPES.find(t => t.id === type)?.label}</span>
             <span style={{ fontSize: 9, color: "#94a3b8" }}>▾</span>
           </button>
-          {showPicker && <><div style={{ position: "fixed", inset: 0, zIndex: 149 }} onClick={() => setShowPicker(false)} />
-            <div style={{ position: "absolute", right: 0, top: "calc(100% + 4px)", background: "#fff", border: "1.5px solid #e2e8f0", borderRadius: 10, zIndex: 150, boxShadow: "0 8px 24px rgba(0,0,0,0.14)", minWidth: 140, overflow: "hidden", padding: 4 }}>
+          {showPicker && (
+            <div style={{ position: "absolute", right: 0, top: "calc(100% + 4px)", background: "#fff", border: "1.5px solid #e2e8f0", borderRadius: 10, zIndex: 11, boxShadow: "0 8px 24px rgba(0,0,0,0.14)", minWidth: 140, overflow: "hidden", padding: 4 }}>
               {CHART_TYPES.map(ct => (
                 <button key={ct.id} onClick={() => { setType(ct.id); setShowPicker(false); setHov(null); }}
                   style={{ display: "flex", alignItems: "center", gap: 8, width: "100%", padding: "7px 10px", border: "none", background: type === ct.id ? "#eff6ff" : "#fff", cursor: "pointer", fontSize: 12, textAlign: "left", fontFamily: "'DM Sans',sans-serif", borderRadius: 6, color: type === ct.id ? "#3b82f6" : "#374151", fontWeight: type === ct.id ? 600 : 400, marginBottom: 1 }}>
@@ -801,7 +906,7 @@ const SmartChart = ({ title, data, defaultType = "bar", defaultColor = "#3b82f6"
                 </button>
               ))}
             </div>
-          </>}
+          )}
         </div>
       </div>
       <div style={{ position: "relative", paddingTop: 8 }}>
@@ -874,6 +979,9 @@ export default function HelpDesk() {
   });
   const [reportTimeRange, setReportTimeRange] = useState("all"); // Time range filter for reports
 
+  // ✅ NEW: User management edit modal state
+  const [userEditModal, setUserEditModal] = useState({ show: false, user: null, newRole: null });
+
   const [loginEmail, setLoginEmail] = useState("");
   const [loginPassword, setLoginPassword] = useState("");
   // Restore from localStorage session — survives page reload
@@ -915,6 +1023,7 @@ export default function HelpDesk() {
   const [deptFilter, setDeptFilter] = useState("all");
   const [categoryFilter, setCategoryFilter] = useState("all");
   const [orgFilter, setOrgFilter] = useState("all");
+  const [vendorFilter, setVendorFilter] = useState("all");
   const [orgFilterSearch, setOrgFilterSearch] = useState("");
   const [showOrgFilterDD, setShowOrgFilterDD] = useState(false);
   const [orgClassifyType, setOrgClassifyType] = useState("all");
@@ -1209,6 +1318,19 @@ export default function HelpDesk() {
 
   // ── Password strength ──
   const calcPwdStr = (pwd) => { if (!pwd) return 0; let s = 0; if (pwd.length >= 8) s += 25; if (/[A-Z]/.test(pwd)) s += 25; if (/[a-z]/.test(pwd)) s += 25; if (/[^A-Za-z0-9]/.test(pwd)) s += 25; return s; };
+
+  // ✅ NEW: Password requirement checks
+  const getPwdRequirements = (pwd) => {
+    if (!pwd) return [];
+    return [
+      { id: "length", label: "At least 8 characters", met: pwd.length >= 8 },
+      { id: "uppercase", label: "Uppercase letter (A-Z)", met: /[A-Z]/.test(pwd) },
+      { id: "lowercase", label: "Lowercase letter (a-z)", met: /[a-z]/.test(pwd) },
+      { id: "special", label: "Special character (!@#$%^&*)", met: /[^A-Za-z0-9]/.test(pwd) }
+    ];
+  };
+
+  const pwdReqs = getPwdRequirements(authForm.password);
   const pwdStr = useMemo(() => calcPwdStr(authForm.password), [authForm.password]);
   const pwdColor = pwdStr <= 25 ? "#ef4444" : pwdStr <= 50 ? "#f59e0b" : pwdStr <= 75 ? "#eab308" : "#22c55e";
 
@@ -1509,10 +1631,25 @@ export default function HelpDesk() {
       setInboxUnread(inboxOnlyItems.filter(i => !i.read).length);
 
       inboxOnlyItems
-        .filter(i => !i.read && (i.type === "forward_request" || i.type === "forward_response"))
+        .filter(i => !i.read && (i.type === "forward_request" || i.type === "forward_response") && (i.type !== "forward_request" || !i.resolved))
         .forEach(item => {
           if (!item.alerted) {
             pushFloatingAlert(item);
+            axios.put(`${NOTIFICATIONS_API}/${item.id}`, { ...item, alerted: true }).catch(() => { });
+          }
+        });
+
+      // ✅ NEW: Popup when current user gets a ticket assigned
+      inboxOnlyItems
+        .filter(i => !i.read && i.type === "ticket_assignment")
+        .forEach(item => {
+          if (!item.alerted) {
+            setCustomAlert({
+              show: true,
+              message: `🎫 ${item.title || 'New ticket assigned to you!'}`,
+              type: "success",
+              duration: 5000
+            });
             axios.put(`${NOTIFICATIONS_API}/${item.id}`, { ...item, alerted: true }).catch(() => { });
           }
         });
@@ -1567,7 +1704,6 @@ export default function HelpDesk() {
       case "Open": return 0;
       case "In Progress": return 25;
       case "Pending": return 50;
-      case "Resolved": return 90;
       case "Closed": return 100;
       default: return 0;
     }
@@ -1721,15 +1857,15 @@ export default function HelpDesk() {
     return true;
   }), [projects, cpv, currentUser, projStatusF, projPriorityF, projSearch]);
 
-  const stats = useMemo(() => ({ total: fbr.length, open: fbr.filter(x => x.status === "Open" || x.status === "In Progress").length, inProgress: fbr.filter(x => x.status === "In Progress").length, resolved: fbr.filter(x => x.status === "Resolved" || x.status === "Closed").length, critical: fbr.filter(x => x.priority === "Critical").length }), [fbr]);
+  const stats = useMemo(() => ({ total: fbr.length, open: fbr.filter(x => x.status === "Open" || x.status === "In Progress").length, inProgress: fbr.filter(x => x.status === "In Progress").length, closed: fbr.filter(x => x.status === "Closed").length, critical: fbr.filter(x => x.priority === "Critical").length }), [fbr]);
 
   // ✅ NEW: Dashboard stats (filtered by organization)
   const dashboardStats = useMemo(() => ({
     total: dashboardData.length,
     open: dashboardData.filter(x => x.status === "Open" || x.status === "In Progress").length,
     inProgress: dashboardData.filter(x => x.status === "In Progress").length,
-    resolved: dashboardData.filter(x => x.status === "Resolved" || x.status === "Closed").length,
-    critical: dashboardData.filter(x => x.priority === "Critical" && x.status !== "Closed" && x.status !== "Resolved").length
+    closed: dashboardData.filter(x => x.status === "Closed").length,
+    critical: dashboardData.filter(x => x.priority === "Critical" && x.status !== "Closed").length
   }), [dashboardData]);
 
   // For dashboard: Agents and Viewers only see stats for projects assigned to them
@@ -1740,8 +1876,8 @@ export default function HelpDesk() {
     return prbr;
   }, [prbr, currentUser]);
 
-  const projStats = useMemo(() => ({ total: dashboardProjects.length, open: dashboardProjects.filter(x => x.status === "Open").length, inProgress: dashboardProjects.filter(x => x.status === "In Progress").length, resolved: dashboardProjects.filter(x => x.status === "Resolved" || x.status === "Closed").length, critical: dashboardProjects.filter(x => x.priority === "Critical" && x.status !== "Closed" && x.status !== "Resolved").length }), [dashboardProjects]);
-  const agentStats = useMemo(() => users.map(u => ({ ...u, assigned: fbr.filter(t => t.assignees?.some(a => a.id === u.id)).length, resolved: fbr.filter(t => t.assignees?.some(a => a.id === u.id) && (t.status === "Resolved" || t.status === "Closed")).length, projAssigned: prbr.filter(p => p.assignees?.some(a => a.id === u.id)).length })), [fbr, prbr, users]);
+  const projStats = useMemo(() => ({ total: dashboardProjects.length, open: dashboardProjects.filter(x => x.status === "Open").length, inProgress: dashboardProjects.filter(x => x.status === "In Progress").length, closed: dashboardProjects.filter(x => x.status === "Closed").length, critical: dashboardProjects.filter(x => x.priority === "Critical" && x.status !== "Closed").length }), [dashboardProjects]);
+  const agentStats = useMemo(() => users.map(u => ({ ...u, assigned: fbr.filter(t => t.assignees?.some(a => a.id === u.id)).length, closed: fbr.filter(t => t.assignees?.some(a => a.id === u.id) && t.status === "Closed").length, projAssigned: prbr.filter(p => p.assignees?.some(a => a.id === u.id)).length })), [fbr, prbr, users]);
   const dailyData = useMemo(() => { const days = parseInt(range) <= 7 ? parseInt(range) : 7; return Array.from({ length: days }, (_, i) => { const d = new Date(now - (days - 1 - i) * dayMs); return { label: d.toLocaleDateString("en", { weekday: "short" }), value: fbr.filter(t => t.created.getDate() === d.getDate() && t.created.getMonth() === d.getMonth()).length }; }); }, [fbr, range, now, dayMs]);
   const priorityDist = useMemo(() => PRIORITIES.map(p => ({ label: p, value: dashboardData.filter(t => t.priority === p).length, color: PRIORITY_COLOR[p] })), [dashboardData]);
   const categoryDist = useMemo(() => categories.slice(0, 6).map(c => ({ label: c.name, value: dashboardData.filter(t => t.category === c.name).length, color: c.color })), [dashboardData, categories]);
@@ -1797,7 +1933,7 @@ export default function HelpDesk() {
   }, [dashboardData]);
 
   const dashboardClosingUsers = useMemo(() => {
-    const closedTickets = dashboardData.filter(t => t.status === "Resolved" || t.status === "Closed");
+    const closedTickets = dashboardData.filter(t => t.status === "Closed");
     const userClosures = {};
 
     closedTickets.forEach(t => {
@@ -2135,8 +2271,8 @@ export default function HelpDesk() {
       await axios.put(`${TICKETS_API}/${id}`, updatedT);
       setTickets(p => p.map(x => x.id === id ? { ...updatedT, updated: new Date(nowISO) } : x));
       if (selTicket?.id === id) setSelTicket({ ...updatedT, updated: new Date(nowISO) });
-      if (status === "Resolved") {
-        addDailyNotif({ type: "ticket_closed", icon: "✅", text: `${currentUser.name} resolved ticket ${id}`, ticketId: id, by: currentUser.name });
+      if (status === "Closed") {
+        addDailyNotif({ type: "ticket_closed", icon: "✅", text: `${currentUser.name} closed ticket ${id}`, ticketId: id, by: currentUser.name });
       } else {
         addDailyNotif({ type: "ticket_status", icon: "🔄", text: `${currentUser.name} changed ${id} to ${status}`, ticketId: id, by: currentUser.name });
       }
@@ -2872,29 +3008,52 @@ export default function HelpDesk() {
   };
 
   const handleLogout = async () => {
-    // If user is On Duty, show popup asking for ticket and location
+    // If user is On Duty, show popup asking for ticket, location, and lunch status
     if (currentUser?.status === "On Duty") {
       setConfirmModal({
         show: true,
         title: "Mark Your Activity Before Logout",
-        message: "Please tell us which ticket you're working on and where you'll be going so the team knows your status",
+        message: "Please tell us which ticket you're working on, where you'll be going, and your status so the team knows",
         fields: [
           { name: "ticket", label: "🎫 Ticket ID", type: "text", placeholder: "e.g., TICKET-001", value: currentTicketId },
           { name: "location", label: "📍 Location", type: "select", options: locations.map(l => ({ value: l.name, label: l.name })), value: currentLocation }
         ],
+        showLunchButton: true,
         onConfirm: async (data) => {
           // Update tracking before logout
           try {
             const up = {
               ...currentUser,
               currentTicketId: data.ticket || null,
-              currentLocation: data.location || null
+              currentLocation: data.location || null,
+              lunchStatus: data.lunchStatus || false
             };
             await axios.put(`${USERS_API}/${currentUser.id}`, up);
             saveSession(up);
             setCurrentUser(up);
             setUsers(users.map(u => u.id === currentUser.id ? up : u));
           } catch (e) { console.error("Failed to update tracking"); }
+
+          // Then logout
+          clearSession();
+          setCurrentUser(null);
+          setProfileOpen(false);
+          setConfirmModal({ show: false });
+        },
+        onLunch: async () => {
+          // Mark as lunch and logout
+          try {
+            const up = {
+              ...currentUser,
+              currentTicketId: null,
+              currentLocation: null,
+              lunchStatus: true
+            };
+            await axios.put(`${USERS_API}/${currentUser.id}`, up);
+            saveSession(up);
+            setCurrentUser(up);
+            setUsers(users.map(u => u.id === currentUser.id ? up : u));
+          } catch (e) { console.error("Failed to update lunch status"); }
 
           // Then logout
           clearSession();
@@ -3262,6 +3421,32 @@ export default function HelpDesk() {
                 <FF label="Password" required>
                   <input type="password" required style={{ ...iS, background: "rgba(255, 255, 255, 0.1)", color: "#000", border: authForm.password && authForm.password !== authForm.confirm ? "1px solid #ef4444" : "1px solid rgba(255, 255, 255, 0.2)", fontFamily: "'Arial Hebrew', sans-serif" }} value={authForm.password} onChange={e => setAuthForm({ ...authForm, password: e.target.value })} placeholder="••••••••" />
                   <div style={{ marginTop: 4, height: 4, background: "rgba(255, 255, 255, 0.2)", borderRadius: 2, overflow: "hidden" }}><div style={{ height: "100%", width: `${pwdStr}%`, background: pwdColor, transition: "all 0.3s" }} /></div>
+
+                  {/* ✅ NEW: Password Requirements */}
+                  {authForm.password && (
+                    <div style={{ marginTop: 8, display: "flex", flexDirection: "column", gap: 5 }}>
+                      {pwdReqs.map(req => (
+                        <div
+                          key={req.id}
+                          style={{
+                            display: "flex",
+                            alignItems: "center",
+                            gap: 6,
+                            fontSize: 11,
+                            fontWeight: 500,
+                            color: req.met ? "#22c55e" : "#000",
+                            opacity: req.met ? 0.6 : 1,
+                            textDecoration: req.met ? "line-through" : "none",
+                            animation: req.met ? "strikeThrough 0.5s ease-out" : "none",
+                            transition: "all 0.3s ease"
+                          }}
+                        >
+                          <span style={{ fontSize: 10 }}>{req.met ? "✓" : "•"}</span>
+                          <span>{req.label}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </FF>
                 <FF label="Confirm" required><input type="password" required style={{ ...iS, background: "rgba(255, 255, 255, 0.1)", color: "#000", border: authForm.confirm && authForm.password !== authForm.confirm ? "1px solid #ef4444" : "1px solid rgba(255, 255, 255, 0.2)", fontFamily: "'Arial Hebrew', sans-serif" }} value={authForm.confirm} onChange={e => setAuthForm({ ...authForm, confirm: e.target.value })} placeholder="••••••••" /></FF>
               </div>
@@ -3319,7 +3504,10 @@ export default function HelpDesk() {
         show={confirmModal.show}
         title={confirmModal.title}
         message={confirmModal.message}
+        fields={confirmModal.fields}
+        showLunchButton={confirmModal.showLunchButton}
         onConfirm={confirmModal.onConfirm}
+        onLunch={confirmModal.onLunch}
         onCancel={confirmModal.onCancel}
       />
 
@@ -3483,14 +3671,13 @@ export default function HelpDesk() {
               <button onClick={() => { setProfileForm({ name: currentUser.name, phone: currentUser.phone || "" }); setEditProfileOpen(true); }} style={{ width: "100%", padding: "6px 10px", background: "#334155", border: "none", borderRadius: 6, color: "#f8fafc", fontSize: 12, fontWeight: 600, cursor: "pointer", marginBottom: 8, textAlign: "left" }}>👤 View Profile</button>
               <div style={{ fontSize: 10, fontWeight: 600, color: "#94a3b8", marginBottom: 6, textTransform: "uppercase", padding: "0 4px" }}>Status</div>
               <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-                {/* ✅ Only show Off Duty option - On Duty is automatic on login */}
-                {statusOpts.filter(s => s.l === "Off Duty").map(s => (
+                {/* ✅ Show both On Duty and Off Duty - allow toggling */}
+                {statusOpts.filter(s => s.l === "On Duty" || s.l === "Off Duty").map(s => (
                   <button key={s.l} onClick={() => updateStatusDirect(s.l)} style={{ display: "flex", alignItems: "center", gap: 6, background: "transparent", border: "none", padding: "4px 8px", borderRadius: 4, cursor: "pointer", color: currentUser.status === s.l ? s.c : "#cbd5e1" }}>
                     <span style={{ width: 8, height: 8, borderRadius: "50%", background: s.c, boxShadow: currentUser.status === s.l ? `0 0 0 2px ${s.bg}` : "none" }} />
                     <span style={{ fontSize: 11, fontWeight: currentUser.status === s.l ? 700 : 500 }}>{s.l}</span>
                   </button>
                 ))}
-                <div style={{ fontSize: 9, color: "#94a3b8", padding: "4px 8px", fontStyle: "italic" }}>🟢 On Duty is automatic when you log in</div>
               </div>
 
               <button onClick={handleLogout} style={{ width: "100%", padding: "6px 10px", background: "transparent", border: "none", color: "#ef4444", fontSize: 12, fontWeight: 600, cursor: "pointer", marginTop: 8, textAlign: "left", borderTop: "1px solid #334155", paddingTop: 8 }}>Log Out</button>
@@ -3580,6 +3767,173 @@ export default function HelpDesk() {
             <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
               <button onClick={() => { setEditUserOpen(null); setEditUserForm({ name: "", email: "", password: "" }); }} style={bG}>Cancel</button>
               <button onClick={editUser} style={bP}>Update User</button>
+            </div>
+          </div>
+        )}
+      </Modal>
+
+      {/* ✅ NEW: User Management Edit Modal (Role Change, Deactivate, Delete) */}
+      <Modal open={userEditModal.show} onClose={() => { setUserEditModal({ show: false, user: null, newRole: null }); }} title={userEditModal.user ? `Manage User: ${userEditModal.user.name}` : "Manage User"} width={520}>
+        {userEditModal.user && (
+          <div>
+            <div style={{ marginBottom: 20, padding: "14px 16px", background: "#f8fafc", borderRadius: 10, border: "1px solid #e2e8f0" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 12 }}>
+                <Avatar name={userEditModal.user.name} size={48} />
+                <div>
+                  <div style={{ fontSize: 15, fontWeight: 700, color: "#1e293b" }}>{userEditModal.user.name}</div>
+                  <div style={{ fontSize: 12, color: "#64748b" }}>{userEditModal.user.email}</div>
+                  <div style={{ display: "flex", gap: 6, marginTop: 6 }}>
+                    <Badge label={userEditModal.user.role} style={{ background: "#ede9fe", color: "#6d28d9" }} />
+                    <Badge label={userEditModal.user.active ? "Active" : "Inactive"} style={{ background: userEditModal.user.active ? "#dcfce7" : "#fee2e2", color: userEditModal.user.active ? "#15803d" : "#991b1b" }} />
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Role Change Section */}
+            <div style={{ marginBottom: 20 }}>
+              <label style={{ display: "block", fontSize: 13, fontWeight: 700, color: "#1e293b", marginBottom: 8 }}>🔑 Change Role</label>
+              <select
+                value={userEditModal.newRole}
+                onChange={(e) => setUserEditModal({ ...userEditModal, newRole: e.target.value })}
+                style={{ ...sS, fontSize: 12, padding: "8px 10px", width: "100%" }}
+              >
+                {ROLES.map(r => <option key={r}>{r}</option>)}
+              </select>
+              {userEditModal.newRole !== userEditModal.user.role && (
+                <div style={{ fontSize: 11, color: "#f59e0b", marginTop: 6, padding: "8px 10px", background: "#fffaeb", borderRadius: 6, borderLeft: "3px solid #f59e0b" }}>
+                  ⚠️ Changing role will log out the user. They must log in again with their new permissions.
+                </div>
+              )}
+            </div>
+
+            {/* Deactivate Section */}
+            <div style={{ marginBottom: 20, padding: "14px 16px", background: userEditModal.user.active ? "#fef3c7" : "#dcfce7", borderRadius: 10, border: `1px solid ${userEditModal.user.active ? "#f59e0b" : "#22c55e"}` }}>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                <div>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: "#1e293b", marginBottom: 3 }}>{userEditModal.user.active ? "🔴 Deactivate User" : "🟢 Activate User"}</div>
+                  <div style={{ fontSize: 12, color: "#64748b" }}>
+                    {userEditModal.user.active
+                      ? "This user will be logged out and unable to access the system"
+                      : "This user will be able to log in and access the system"}
+                  </div>
+                </div>
+                <button
+                  onClick={async () => {
+                    try {
+                      const updated = { ...userEditModal.user, active: !userEditModal.user.active, status: !userEditModal.user.active ? userEditModal.user.status : "Logged-Out" };
+                      await axios.put(`${USERS_API}/${userEditModal.user.id}`, updated);
+                      setUsers(users.map(x => x.id === userEditModal.user.id ? updated : x));
+                      if (userEditModal.user.id === currentUser.id && !userEditModal.user.active) {
+                        clearSession();
+                        setCurrentUser(null);
+                        setCustomAlert({ show: true, message: "❌ You've been deactivated. Logged out.", type: "error" });
+                        setTimeout(() => window.location.reload(), 2000);
+                      } else if (!userEditModal.user.active) {
+                        setCustomAlert({ show: true, message: `✅ ${userEditModal.user.name} deactivated.`, type: "success" });
+                      } else {
+                        setCustomAlert({ show: true, message: `✅ ${userEditModal.user.name} activated.`, type: "success" });
+                      }
+                      setUserEditModal({ show: false, user: null, newRole: null });
+                    } catch (err) {
+                      setCustomAlert({ show: true, message: "Failed to update user status", type: "error" });
+                    }
+                  }}
+                  style={{ padding: "6px 12px", background: userEditModal.user.active ? "#fef3c7" : "#dcfce7", border: `1px solid ${userEditModal.user.active ? "#f59e0b" : "#22c55e"}`, borderRadius: 6, color: userEditModal.user.active ? "#854d0e" : "#15803d", fontWeight: 600, cursor: "pointer", fontSize: 12, whiteSpace: "nowrap" }}
+                >
+                  {userEditModal.user.active ? "Deactivate" : "Activate"}
+                </button>
+              </div>
+            </div>
+
+            {/* Delete Section - Only if not current user */}
+            {userEditModal.user.id !== currentUser?.id && (
+              <div style={{ marginBottom: 20, padding: "14px 16px", background: "#fee2e2", borderRadius: 10, border: "1px solid #fca5a5" }}>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                  <div>
+                    <div style={{ fontSize: 13, fontWeight: 700, color: "#991b1b", marginBottom: 3 }}>🗑️ Delete User</div>
+                    <div style={{ fontSize: 12, color: "#64748b" }}>Permanently remove this user from the system. This action cannot be undone.</div>
+                  </div>
+                  <button
+                    onClick={() => {
+                      setConfirmModal({
+                        show: true,
+                        title: "Delete User",
+                        message: `Are you sure you want to permanently delete ${userEditModal.user.name}? This action cannot be undone.`,
+                        onConfirm: async () => {
+                          try {
+                            await axios.delete(`${USERS_API}/${userEditModal.user.id}`);
+                            setUsers(prev => prev.filter(u => u.id !== userEditModal.user.id));
+                            setCustomAlert({ show: true, message: `✅ ${userEditModal.user.name} deleted.`, type: "success" });
+                            setConfirmModal({ show: false, title: "", message: "", onConfirm: null, onCancel: null });
+                            setUserEditModal({ show: false, user: null, newRole: null });
+                          } catch (err) {
+                            setCustomAlert({ show: true, message: "Failed to delete user", type: "error" });
+                            setConfirmModal({ show: false, title: "", message: "", onConfirm: null, onCancel: null });
+                          }
+                        },
+                        onCancel: () => {
+                          setConfirmModal({ show: false, title: "", message: "", onConfirm: null, onCancel: null });
+                        }
+                      });
+                    }}
+                    style={{ padding: "6px 12px", background: "#fee2e2", border: "1px solid #fca5a5", borderRadius: 6, color: "#ef4444", fontWeight: 600, cursor: "pointer", fontSize: 12, whiteSpace: "nowrap" }}
+                  >
+                    Delete
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* Modal Actions */}
+            <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", paddingTop: 16, borderTop: "1px solid #e2e8f0" }}>
+              <button
+                onClick={() => { setUserEditModal({ show: false, user: null, newRole: null }); }}
+                style={{ ...bG, padding: "8px 16px", fontSize: 12 }}
+              >
+                Cancel
+              </button>
+              {userEditModal.newRole !== userEditModal.user.role && (
+                <button
+                  onClick={async () => {
+                    try {
+                      setConfirmModal({
+                        show: true,
+                        title: "Confirm Role Change",
+                        message: `Change ${userEditModal.user.name}'s role to ${userEditModal.newRole}? They will be logged out and must log in again.`,
+                        onConfirm: async () => {
+                          try {
+                            const updated = { ...userEditModal.user, role: userEditModal.newRole };
+                            await axios.put(`${USERS_API}/${userEditModal.user.id}`, updated);
+                            setUsers(users.map(u => u.id === userEditModal.user.id ? updated : u));
+                            if (userEditModal.user.id === currentUser.id) {
+                              clearSession();
+                              setCurrentUser(null);
+                              setCustomAlert({ show: true, message: `⚠️ Your role changed to ${userEditModal.newRole}. Log in again.`, type: "warning" });
+                              setTimeout(() => window.location.reload(), 2000);
+                            } else {
+                              setCustomAlert({ show: true, message: `✅ ${userEditModal.user.name} role → ${userEditModal.newRole}. User logged out.`, type: "success" });
+                            }
+                            setConfirmModal({ show: false, title: "", message: "", onConfirm: null, onCancel: null });
+                            setUserEditModal({ show: false, user: null, newRole: null });
+                          } catch (err) {
+                            setCustomAlert({ show: true, message: "Failed to update role", type: "error" });
+                            setConfirmModal({ show: false, title: "", message: "", onConfirm: null, onCancel: null });
+                          }
+                        },
+                        onCancel: () => {
+                          setConfirmModal({ show: false, title: "", message: "", onConfirm: null, onCancel: null });
+                        }
+                      });
+                    } catch (err) {
+                      setCustomAlert({ show: true, message: "Failed to update role", type: "error" });
+                    }
+                  }}
+                  style={{ ...bP, padding: "8px 16px", fontSize: 12 }}
+                >
+                  Change Role
+                </button>
+              )}
             </div>
           </div>
         )}
@@ -3793,10 +4147,10 @@ export default function HelpDesk() {
               <div style={{ display: "grid", gridTemplateColumns: "repeat(6,1fr)", gap: 9, marginBottom: 20 }}>
                 {[
                   { label: "Open", value: dashboardStats.open, bg: "#fef3c7", accent: "#f59e0b", icon: "📬", action: () => { setView("tickets"); setTvFilter("open"); setStatusF("All"); setPriorityF("All"); } },
-                  { label: "Unassigned", value: dashboardData.filter(t => (!t.assignees || t.assignees.length === 0) && t.status !== "Closed" && t.status !== "Resolved").length, bg: "#f3e8ff", accent: "#a855f7", icon: "🔸", action: () => { setView("tickets"); setTvFilter("unassigned"); } },
+                  { label: "Unassigned", value: dashboardData.filter(t => (!t.assignees || t.assignees.length === 0) && t.status !== "Closed").length, bg: "#f3e8ff", accent: "#a855f7", icon: "🔸", action: () => { setView("tickets"); setTvFilter("unassigned"); } },
                   { label: "In Progress", value: dashboardStats.inProgress, bg: "#ede9fe", accent: "#6366f1", icon: "⚙️", action: () => { setView("tickets"); setTvFilter("all"); setStatusF("In Progress"); setPriorityF("All"); } },
                   { label: "Critical", value: dashboardStats.critical, bg: "#fee2e2", accent: "#ef4444", icon: "🔥", action: () => { setView("tickets"); setTvFilter("alerts"); setStatusF("All"); setPriorityF("Critical"); } },
-                  { label: "Resolved", value: dashboardStats.resolved, bg: "#dcfce7", accent: "#22c55e", icon: "✅", action: () => { setView("tickets"); setTvFilter("closed"); setStatusF("All"); setPriorityF("All"); } },
+                  { label: "Closed", value: dashboardStats.closed, bg: "#dcfce7", accent: "#22c55e", icon: "✅", action: () => { setView("tickets"); setTvFilter("closed"); setStatusF("All"); setPriorityF("All"); } },
                   { label: "Total", value: dashboardStats.total, bg: "#dbeafe", accent: "#3b82f6", icon: "🎫", action: () => { setView("tickets"); setTvFilter("all"); setStatusF("All"); setPriorityF("All"); } },
                 ].map(s => (
                   <div key={s.label} onClick={s.action} style={{ background: s.bg, borderRadius: 12, padding: "16px 16px", boxShadow: "0 2px 6px rgba(0,0,0,0.1)", borderLeft: `5px solid ${s.accent}`, cursor: "pointer", transition: "all 0.2s ease" }}
@@ -3928,12 +4282,13 @@ export default function HelpDesk() {
                 <thead><tr style={{ background: "#f8fafc" }}>
                   {/* ✅ Checkboxes only for Admin */}
                   {currentUser?.role === "Admin" && (
-                    <th style={{ ...thStyle, width: 40 }}><input type="checkbox" checked={selectedIds.size === filtered.length && filtered.length > 0} onChange={toggleAll} style={{ cursor: "pointer" }} /></th>
+                    <th style={{ ...thStyle, width: 40 }}></th>
                   )}
                   <FilterableHeader label="ID" field="id" data={filtered} filters={ticketSort} onFilter={setTicketSort} style={thStyle} />
                   <FilterableHeader label="Summary" field="summary" data={filtered} filters={ticketSort} onFilter={setTicketSort} style={thStyle} />
                   <FilterableHeader label="Org" field="org" data={filtered} filters={ticketSort} onFilter={setTicketSort} style={thStyle} />
                   <FilterableHeader label="Dept" field="department" data={filtered} filters={ticketSort} onFilter={setTicketSort} style={thStyle} />
+                  <FilterableHeader label="Vendor" field="vendor" data={filtered} filters={ticketSort} onFilter={setTicketSort} style={thStyle} />
                   <FilterableHeader label="Reported By" field="reportedBy" data={filtered} filters={ticketSort} onFilter={setTicketSort} style={thStyle} />
                   <FilterableHeader label="Assignees" field="assignees" data={filtered} filters={ticketSort} onFilter={setTicketSort} style={thStyle} />
                   <FilterableHeader label="Priority" field="priority" data={filtered} filters={ticketSort} onFilter={setTicketSort} style={thStyle} />
@@ -3952,6 +4307,7 @@ export default function HelpDesk() {
                     <td style={{ ...tdStyle, maxWidth: 180 }} onClick={() => setSelTicket(t)}><div style={{ fontWeight: 500, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{t.summary}</div></td>
                     <td style={tdStyle} onClick={() => setSelTicket(t)}><div style={{ fontSize: 12, fontWeight: 500 }}>{t.org}</div></td>
                     <td style={tdStyle} onClick={() => setSelTicket(t)}><div style={{ fontSize: 12, color: "#64748b" }}>{t.department || "—"}</div></td>
+                    <td style={tdStyle} onClick={() => setSelTicket(t)}><div style={{ fontSize: 12, color: "#64748b" }}>{t.vendor || "—"}</div></td>
                     <td style={tdStyle} onClick={() => setSelTicket(t)}><span style={{ fontSize: 12, color: "#64748b" }}>{t.reportedBy || "—"}</span></td>
                     <td style={tdStyle} onClick={() => setSelTicket(t)}>
                       <div style={{ display: "flex", alignItems: "center" }}>
@@ -4000,10 +4356,10 @@ export default function HelpDesk() {
               <div style={{ display: "grid", gridTemplateColumns: "repeat(6,1fr)", gap: 9, marginBottom: 20 }}>
                 {[
                   { label: "Open", value: projStats.open, bg: "#fef3c7", accent: "#f59e0b", icon: "📂", action: () => { setPvFilter("open"); setProjStatusF("All"); setProjPriorityF("All"); } },
-                  { label: "Unassigned", value: dashboardProjects.filter(p => (!p.assignees || p.assignees.length === 0) && p.status !== "Closed" && p.status !== "Resolved").length, bg: "#f3e8ff", accent: "#a855f7", icon: "👤", action: () => { setPvFilter("unassigned"); } },
+                  { label: "Unassigned", value: dashboardProjects.filter(p => (!p.assignees || p.assignees.length === 0) && p.status !== "Closed").length, bg: "#f3e8ff", accent: "#a855f7", icon: "👤", action: () => { setPvFilter("unassigned"); } },
                   { label: "In Progress", value: projStats.inProgress, bg: "#ede9fe", accent: "#6366f1", icon: "⚙️", action: () => { setPvFilter("inprogress"); setProjStatusF("All"); setProjPriorityF("All"); } },
                   { label: "Critical", value: projStats.critical, bg: "#fee2e2", accent: "#ef4444", icon: "🔥", action: () => { setPvFilter("critical"); setProjStatusF("All"); setProjPriorityF("All"); } },
-                  { label: "Resolved", value: projStats.resolved, bg: "#dcfce7", accent: "#22c55e", icon: "✅", action: () => { setPvFilter("closed"); setProjStatusF("All"); setProjPriorityF("All"); } },
+                  { label: "Closed", value: projStats.closed, bg: "#dcfce7", accent: "#22c55e", icon: "✅", action: () => { setPvFilter("closed"); setProjStatusF("All"); setProjPriorityF("All"); } },
                   { label: "Total", value: projStats.total, bg: "#ede9fe", accent: "#8b5cf6", icon: "📁", action: () => { setPvFilter("all"); setProjStatusF("All"); setProjPriorityF("All"); } },
                 ].map(s => (
                   <div key={s.label} onClick={s.action} style={{ background: s.bg, borderRadius: 12, padding: "16px 16px", boxShadow: "0 2px 6px rgba(0,0,0,0.1)", borderLeft: `5px solid ${s.accent}`, cursor: "pointer", transition: "all 0.2s ease" }}
@@ -4090,7 +4446,7 @@ export default function HelpDesk() {
                     { label: "Open", value: webcastBase.filter(t => t.status === "Open").length, color: "#3b82f6", icon: "📂" },
                     { label: "In Progress", value: webcastBase.filter(t => t.status === "In Progress").length, color: "#eab308", icon: "⚙️" },
                     { label: "Closed", value: webcastBase.filter(t => t.status === "Closed").length, color: "#64748b", icon: "✅" },
-                    { label: "Critical", value: webcastBase.filter(t => t.priority === "Critical" && t.status !== "Closed" && t.status !== "Resolved").length, color: "#ef4444", icon: "🔥" },
+                    { label: "Critical", value: webcastBase.filter(t => t.priority === "Critical" && t.status !== "Closed").length, color: "#ef4444", icon: "🔥" },
                   ].map(s => (
                     <div key={s.label} style={{ background: "#fff", borderRadius: 12, padding: "14px 16px", boxShadow: "0 1px 4px rgba(0,0,0,0.06)", borderTop: `3px solid ${s.color}` }}>
                       <div style={{ fontSize: 20, marginBottom: 5 }}>{s.icon}</div>
@@ -4190,12 +4546,12 @@ export default function HelpDesk() {
               </div>
             </div>
 
-            {/* Tickets Resolved by Person + Agent Performance - Side by Side */}
+            {/* Tickets Closed by Person + Agent Performance - Side by Side */}
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 12 }}>
-              {/* Tickets Resolved by Person Table - Left */}
+              {/* Tickets Closed by Person Table - Left */}
               <div style={{ background: "#fff", borderRadius: 12, padding: 18, boxShadow: "0 1px 4px rgba(0,0,0,0.06)", display: "flex", flexDirection: "column" }}>
                 <div style={{ marginBottom: 14 }}>
-                  <div style={{ fontSize: 14, fontWeight: 700, color: "#0f172a" }}>Tickets Resolved by Person</div>
+                  <div style={{ fontSize: 14, fontWeight: 700, color: "#0f172a" }}>Tickets Closed by Person</div>
                   <div style={{ fontSize: 11, color: "#94a3b8", marginTop: 2 }}>Per agent during selected time period</div>
                 </div>
                 <div style={{ flex: 1, overflowY: "auto" }}>
@@ -4203,7 +4559,7 @@ export default function HelpDesk() {
                     <thead>
                       <tr style={{ background: "#f8fafc", borderBottom: "1px solid #e2e8f0", position: "sticky", top: 0 }}>
                         <th style={{ padding: "10px 8px", textAlign: "left", fontWeight: 600, color: "#374151" }}>Agent</th>
-                        <th style={{ padding: "10px 8px", textAlign: "right", fontWeight: 600, color: "#374151" }}>Resolved</th>
+                        <th style={{ padding: "10px 8px", textAlign: "right", fontWeight: 600, color: "#374151" }}>Closed</th>
                         <th style={{ padding: "10px 8px", textAlign: "right", fontWeight: 600, color: "#374151" }}>%</th>
                       </tr>
                     </thead>
@@ -4211,29 +4567,29 @@ export default function HelpDesk() {
                       {(() => {
                         const agentMap = {};
                         reportFilteredData.forEach(t => {
-                          if (t.status === "Resolved" || t.status === "Closed") {
+                          if (t.status === "Closed") {
                             if (t.assignees && t.assignees.length > 0) {
                               t.assignees.forEach(a => {
                                 if (!agentMap[a.id]) {
-                                  agentMap[a.id] = { name: a.name, resolved: 0 };
+                                  agentMap[a.id] = { name: a.name, closed: 0 };
                                 }
-                                agentMap[a.id].resolved += 1;
+                                agentMap[a.id].closed += 1;
                               });
                             }
                           }
                         });
-                        const agentData = Object.values(agentMap).sort((a, b) => b.resolved - a.resolved);
-                        const total = agentData.reduce((sum, a) => sum + a.resolved, 0);
+                        const agentData = Object.values(agentMap).sort((a, b) => b.closed - a.closed);
+                        const total = agentData.reduce((sum, a) => sum + a.closed, 0);
 
                         if (agentData.length === 0) {
-                          return <tr><td colSpan="3" style={{ padding: "16px", textAlign: "center", color: "#94a3b8" }}>No resolved tickets</td></tr>;
+                          return <tr><td colSpan="3" style={{ padding: "16px", textAlign: "center", color: "#94a3b8" }}>No closed tickets</td></tr>;
                         }
 
                         return agentData.map((agent, i) => (
                           <tr key={i} style={{ borderBottom: "1px solid #f1f5f9" }}>
                             <td style={{ padding: "10px 8px", color: "#374151", fontWeight: 500 }}>{agent.name}</td>
-                            <td style={{ padding: "10px 8px", textAlign: "right", fontWeight: 600, color: "#22c55e" }}>{agent.resolved}</td>
-                            <td style={{ padding: "10px 8px", textAlign: "right", color: "#94a3b8" }}>{total > 0 ? ((agent.resolved / total) * 100).toFixed(1) : 0}%</td>
+                            <td style={{ padding: "10px 8px", textAlign: "right", fontWeight: 600, color: "#22c55e" }}>{agent.closed}</td>
+                            <td style={{ padding: "10px 8px", textAlign: "right", color: "#94a3b8" }}>{total > 0 ? ((agent.closed / total) * 100).toFixed(1) : 0}%</td>
                           </tr>
                         ));
                       })()}
@@ -4247,16 +4603,16 @@ export default function HelpDesk() {
                 <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
                   <div>
                     <div style={{ fontSize: 14, fontWeight: 700, color: "#0f172a" }}>Agent Performance Overview</div>
-                    <div style={{ fontSize: 11, color: "#94a3b8", marginTop: 2 }}>Assigned vs resolved per agent</div>
+                    <div style={{ fontSize: 11, color: "#94a3b8", marginTop: 2 }}>Assigned vs closed per agent</div>
                   </div>
                   <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                     <div style={{ display: "flex", alignItems: "center", gap: 5 }}><div style={{ width: 10, height: 10, borderRadius: 2, background: "#3b82f6" }} /><span style={{ fontSize: 10, color: "#64748b" }}>Assigned</span></div>
-                    <div style={{ display: "flex", alignItems: "center", gap: 5 }}><div style={{ width: 10, height: 10, borderRadius: 2, background: "#22c55e" }} /><span style={{ fontSize: 10, color: "#64748b" }}>Resolved</span></div>
+                    <div style={{ display: "flex", alignItems: "center", gap: 5 }}><div style={{ width: 10, height: 10, borderRadius: 2, background: "#22c55e" }} /><span style={{ fontSize: 10, color: "#64748b" }}>Closed</span></div>
                     <div style={{ display: "flex", alignItems: "center", gap: 5 }}><div style={{ width: 10, height: 10, borderRadius: 2, background: "#f59e0b" }} /><span style={{ fontSize: 10, color: "#64748b" }}>Open</span></div>
                   </div>
                 </div>
                 {(() => {
-                  const chartData = agentStats.filter(a => a.assigned > 0 || a.resolved > 0);
+                  const chartData = agentStats.filter(a => a.assigned > 0 || a.closed > 0);
                   if (chartData.length === 0) return <div style={{ textAlign: "center", color: "#94a3b8", padding: 32, fontSize: 13 }}>No agent data</div>;
                   const maxVal = Math.max(...chartData.map(a => a.assigned), 1);
                   const barH = 240;
@@ -4280,15 +4636,15 @@ export default function HelpDesk() {
                         {chartData.map((a, i) => {
                           const x = 50 + i * groupW;
                           const assignedH = Math.max(2, (a.assigned / maxVal) * barH);
-                          const resolvedH = Math.max(a.resolved > 0 ? 2 : 0, (a.resolved / maxVal) * barH);
-                          const openVal = Math.max(0, a.assigned - a.resolved);
+                          const closedH = Math.max(a.closed > 0 ? 2 : 0, (a.closed / maxVal) * barH);
+                          const openVal = Math.max(0, a.assigned - a.closed);
                           const openH = Math.max(openVal > 0 ? 2 : 0, (openVal / maxVal) * barH);
                           return (
                             <g key={a.id}>
                               <rect x={x} y={10 + barH - assignedH} width={barW} height={assignedH} fill="#3b82f6" rx={2} opacity={0.85} />
                               {a.assigned > 0 && <text x={x + barW / 2} y={10 + barH - assignedH - 2} textAnchor="middle" fontSize={8} fill="#3b82f6" fontWeight={600} fontFamily="DM Sans">{a.assigned}</text>}
-                              <rect x={x + barW + gap} y={10 + barH - resolvedH} width={barW} height={resolvedH} fill="#22c55e" rx={2} opacity={0.85} />
-                              {a.resolved > 0 && <text x={x + barW + gap + barW / 2} y={10 + barH - resolvedH - 2} textAnchor="middle" fontSize={8} fill="#22c55e" fontWeight={600} fontFamily="DM Sans">{a.resolved}</text>}
+                              <rect x={x + barW + gap} y={10 + barH - closedH} width={barW} height={closedH} fill="#22c55e" rx={2} opacity={0.85} />
+                              {a.closed > 0 && <text x={x + barW + gap + barW / 2} y={10 + barH - closedH - 2} textAnchor="middle" fontSize={8} fill="#22c55e" fontWeight={600} fontFamily="DM Sans">{a.closed}</text>}
                               <rect x={x + (barW + gap) * 2} y={10 + barH - openH} width={barW} height={openH} fill="#f59e0b" rx={2} opacity={0.85} />
                               {openVal > 0 && <text x={x + (barW + gap) * 2 + barW / 2} y={10 + barH - openH - 2} textAnchor="middle" fontSize={8} fill="#f59e0b" fontWeight={600} fontFamily="DM Sans">{openVal}</text>}
                               <text x={x + barW + gap + barW / 2} y={10 + barH + 12} textAnchor="middle" fontSize={9} fill="#374151" fontWeight={600} fontFamily="DM Sans">{a.name.split(" ")[0]}</text>
@@ -4310,18 +4666,18 @@ export default function HelpDesk() {
                   <FilterableHeader label="Agent" field="name" data={agentStats} filters={agentSort} onFilter={setAgentSort} style={thStyle} />
                   <FilterableHeader label="Role" field="role" data={agentStats} filters={agentSort} onFilter={setAgentSort} style={thStyle} />
                   <th style={thStyle}>Assigned</th>
-                  <th style={thStyle}>Resolved</th>
+                  <th style={thStyle}>Closed</th>
                   <th style={thStyle}>Open</th>
                   <th style={thStyle}>Rate</th>
                 </tr></thead>
-                <tbody>{applySort(agentStats.map(a => ({ ...a, open: a.assigned - a.resolved, rate: a.assigned ? Math.round(a.resolved / a.assigned * 100) : 0 })), agentSort).map(a => {
-                  const rate = a.rate ?? (a.assigned ? Math.round(a.resolved / a.assigned * 100) : 0); return (
+                <tbody>{applySort(agentStats.map(a => ({ ...a, open: a.assigned - a.closed, rate: a.assigned ? Math.round(a.closed / a.assigned * 100) : 0 })), agentSort).map(a => {
+                  const rate = a.rate ?? (a.assigned ? Math.round(a.closed / a.assigned * 100) : 0); return (
                     <tr key={a.id} className="rh">
                       <td style={tdStyle}><div style={{ display: "flex", alignItems: "center", gap: 8 }}><Avatar name={a.name} size={26} /><div><div style={{ fontSize: 12, fontWeight: 600 }}>{a.name}</div><div style={{ fontSize: 11, color: "#94a3b8" }}>{a.email}</div></div></div></td>
                       <td style={tdStyle}><Badge label={a.role} style={{ background: "#ede9fe", color: "#6d28d9" }} /></td>
                       <td style={{ ...tdStyle, fontWeight: 700 }}>{a.assigned}</td>
-                      <td style={{ ...tdStyle, color: "#22c55e", fontWeight: 700 }}>{a.resolved}</td>
-                      <td style={{ ...tdStyle, color: "#f59e0b", fontWeight: 700 }}>{a.assigned - a.resolved}</td>
+                      <td style={{ ...tdStyle, color: "#22c55e", fontWeight: 700 }}>{a.closed}</td>
+                      <td style={{ ...tdStyle, color: "#f59e0b", fontWeight: 700 }}>{a.assigned - a.closed}</td>
                       <td style={tdStyle}><div style={{ display: "flex", alignItems: "center", gap: 8 }}><div style={{ flex: 1, height: 5, background: "#f1f5f9", borderRadius: 3, overflow: "hidden" }}><div style={{ width: `${rate}%`, height: "100%", background: rate > 70 ? "#22c55e" : rate > 40 ? "#f59e0b" : "#ef4444", borderRadius: 3 }} /></div><span style={{ fontSize: 12, fontWeight: 600, width: 34 }}>{rate}%</span></div></td>
                     </tr>);
                 })}</tbody>
@@ -4330,44 +4686,87 @@ export default function HelpDesk() {
           </>}
 
           {/* ── AGENTS ── */}
-          {view === "users" && !selAgent ? <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(240px,1fr))", gap: 12 }}>
-            {agentStats.map(a => {
-              const userInfo = users.find(u => u.id === a.id);
-              return (
-                <div key={a.id} onClick={() => setSelAgent(a)} style={{ background: "#fff", borderRadius: 12, padding: 18, boxShadow: "0 1px 4px rgba(0,0,0,0.06)", cursor: "pointer", transition: "all 0.2s", border: "1.5px solid transparent" }}
-                  onMouseEnter={e => { e.currentTarget.style.boxShadow = "0 4px 12px rgba(0,0,0,0.1)"; e.currentTarget.style.borderColor = "#3b82f6"; }}
-                  onMouseLeave={e => { e.currentTarget.style.boxShadow = "0 1px 4px rgba(0,0,0,0.06)"; e.currentTarget.style.borderColor = "transparent"; }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12 }}>
-                    <Avatar name={a.name} size={40} />
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ fontSize: 14, fontWeight: 700, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }} title={a.name}>{a.name}</div>
-                      <div style={{ fontSize: 11, color: "#94a3b8", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }} title={a.email}>{a.email}</div>
-                      <div style={{ display: "flex", gap: 4, marginTop: 3, flexWrap: "wrap" }}>
-                        <Badge label={a.role} style={{ background: "#ede9fe", color: "#6d28d9" }} />
-                        {(() => {
-                          const foundUser = users.find(u => u.id === a.id);
-                          const rawStatus = foundUser?.status;
-                          const statusValue = rawStatus || "Off Duty";
-                          const statusStyle = statusOpts.find(s => s.l === statusValue);
-                          // ✅ ALWAYS show a badge - default to Off Duty if status not found
-                          if (statusStyle) {
-                            return <Badge label={statusStyle.l} style={{ background: statusStyle.bg, color: statusStyle.c }} />;
-                          }
-                          // If no matching status, show Off Duty as fallback
-                          return <Badge label="Off Duty" style={{ background: "#fef3c7", color: "#f59e0b" }} />;
-                        })()}
+          {view === "users" && !selAgent ? (
+            <>
+              {/* ✅ NEW: User Statistics Boxes */}
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 12, marginBottom: 20 }}>
+                <div style={{ background: "#fff", borderRadius: 12, padding: "16px 16px", boxShadow: "0 2px 6px rgba(0,0,0,0.1)", borderLeft: `5px solid #3b82f6`, transition: "all 0.2s ease" }}
+                  onMouseEnter={e => { e.currentTarget.style.boxShadow = "0 6px 20px rgba(0,0,0,0.15)"; e.currentTarget.style.transform = "translateY(-2px)"; }}
+                  onMouseLeave={e => { e.currentTarget.style.boxShadow = "0 2px 6px rgba(0,0,0,0.1)"; e.currentTarget.style.transform = "translateY(0)"; }}>
+                  <div style={{ fontSize: 20, marginBottom: 6 }}>👥</div>
+                  <div style={{ fontSize: 32, fontWeight: 900, color: "#3b82f6", lineHeight: 1 }}>{users.length}</div>
+                  <div style={{ fontSize: 12, fontWeight: 700, color: "#1e293b", marginTop: 4 }}>Total Users</div>
+                </div>
+
+                <div style={{ background: "#fff", borderRadius: 12, padding: "16px 16px", boxShadow: "0 2px 6px rgba(0,0,0,0.1)", borderLeft: `5px solid #22c55e`, transition: "all 0.2s ease" }}
+                  onMouseEnter={e => { e.currentTarget.style.boxShadow = "0 6px 20px rgba(0,0,0,0.15)"; e.currentTarget.style.transform = "translateY(-2px)"; }}
+                  onMouseLeave={e => { e.currentTarget.style.boxShadow = "0 2px 6px rgba(0,0,0,0.1)"; e.currentTarget.style.transform = "translateY(0)"; }}>
+                  <div style={{ fontSize: 20, marginBottom: 6 }}>🟢</div>
+                  <div style={{ fontSize: 32, fontWeight: 900, color: "#22c55e", lineHeight: 1 }}>{users.filter(u => u.status === "On Duty" || u.status === "On Ticket").length}</div>
+                  <div style={{ fontSize: 12, fontWeight: 700, color: "#1e293b", marginTop: 4 }}>On Duty Users</div>
+                </div>
+
+                <div style={{ background: "#fff", borderRadius: 12, padding: "16px 16px", boxShadow: "0 2px 6px rgba(0,0,0,0.1)", borderLeft: `5px solid #f59e0b`, transition: "all 0.2s ease" }}
+                  onMouseEnter={e => { e.currentTarget.style.boxShadow = "0 6px 20px rgba(0,0,0,0.15)"; e.currentTarget.style.transform = "translateY(-2px)"; }}
+                  onMouseLeave={e => { e.currentTarget.style.boxShadow = "0 2px 6px rgba(0,0,0,0.1)"; e.currentTarget.style.transform = "translateY(0)"; }}>
+                  <div style={{ fontSize: 20, marginBottom: 6 }}>⚪</div>
+                  <div style={{ fontSize: 32, fontWeight: 900, color: "#f59e0b", lineHeight: 1 }}>{users.filter(u => u.status !== "On Duty" && u.status !== "On Ticket").length}</div>
+                  <div style={{ fontSize: 12, fontWeight: 700, color: "#1e293b", marginTop: 4 }}>Off Duty Users</div>
+                </div>
+              </div>
+
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(240px,1fr))", gap: 12 }}>
+                {agentStats.map(a => {
+                  const userInfo = users.find(u => u.id === a.id);
+                  return (
+                    <div key={a.id} style={{ background: "#fff", borderRadius: 12, padding: 18, boxShadow: "0 1px 4px rgba(0,0,0,0.06)", transition: "all 0.2s", border: "1.5px solid transparent" }}
+                      onMouseEnter={e => { e.currentTarget.style.boxShadow = "0 4px 12px rgba(0,0,0,0.1)"; e.currentTarget.style.borderColor = "#3b82f6"; }}
+                      onMouseLeave={e => { e.currentTarget.style.boxShadow = "0 1px 4px rgba(0,0,0,0.06)"; e.currentTarget.style.borderColor = "transparent"; }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12 }}>
+                        <Avatar name={a.name} size={40} />
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div style={{ fontSize: 14, fontWeight: 700, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }} title={a.name}>{a.name}</div>
+                          <div style={{ fontSize: 11, color: "#94a3b8", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }} title={a.email}>{a.email}</div>
+                          <div style={{ display: "flex", gap: 4, marginTop: 3, flexWrap: "wrap" }}>
+                            <Badge label={a.role} style={{ background: "#ede9fe", color: "#6d28d9" }} />
+                            {(() => {
+                              const foundUser = users.find(u => u.id === a.id);
+                              const rawStatus = foundUser?.status;
+                              const statusValue = rawStatus || "Off Duty";
+                              const statusStyle = statusOpts.find(s => s.l === statusValue);
+                              if (statusStyle) {
+                                return <Badge label={statusStyle.l} style={{ background: statusStyle.bg, color: statusStyle.c }} />;
+                              }
+                              return <Badge label="Off Duty" style={{ background: "#fef3c7", color: "#f59e0b" }} />;
+                            })()}
+                          </div>
+                        </div>
+                      </div>
+                      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 7, marginBottom: 12 }}>
+                        {[{ l: "Assigned", v: a.assigned, c: "#3b82f6" }, { l: "Closed", v: a.closed, c: "#22c55e" }, { l: "Open", v: a.assigned - a.closed, c: "#f59e0b" }].map(s => (
+                          <div key={s.l} style={{ textAlign: "center", padding: "8px 4px", background: "#f8fafc", borderRadius: 8 }}><div style={{ fontSize: 17, fontWeight: 700, color: s.c }}>{s.v}</div><div style={{ fontSize: 10, color: "#94a3b8" }}>{s.l}</div></div>
+                        ))}
+                      </div>
+
+                      {/* ✅ NEW: View and Manage buttons only */}
+                      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+                        <button
+                          onClick={() => setSelAgent(a)}
+                          style={{ padding: "6px 10px", background: "#dbeafe", color: "#1e40af", border: "none", borderRadius: 6, cursor: "pointer", fontSize: 11, fontWeight: 600 }}>
+                          👁️ View
+                        </button>
+                        <button
+                          onClick={() => { setUserEditModal({ show: true, user: userInfo, newRole: userInfo?.role }); }}
+                          style={{ padding: "6px 10px", background: "#f0fdf4", color: "#15803d", border: "none", borderRadius: 6, cursor: "pointer", fontSize: 11, fontWeight: 600 }}>
+                          ⚙️ Manage
+                        </button>
                       </div>
                     </div>
-                  </div>
-                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 7 }}>
-                    {[{ l: "Assigned", v: a.assigned, c: "#3b82f6" }, { l: "Resolved", v: a.resolved, c: "#22c55e" }, { l: "Open", v: a.assigned - a.resolved, c: "#f59e0b" }].map(s => (
-                      <div key={s.l} style={{ textAlign: "center", padding: "8px 4px", background: "#f8fafc", borderRadius: 8 }}><div style={{ fontSize: 17, fontWeight: 700, color: s.c }}>{s.v}</div><div style={{ fontSize: 10, color: "#94a3b8" }}>{s.l}</div></div>
-                    ))}
-                  </div>
-                </div>
-              );
-            })}
-          </div> : view === "users" && selAgent ? <div>
+                  );
+                })}
+              </div>
+            </>
+          ) : view === "users" && selAgent ? <div>
             <button onClick={() => setSelAgent(null)} style={{ ...bG, padding: "7px 14px", marginBottom: 14, fontSize: 12 }}>← Back to Agents</button>
             <div style={{ background: "#fff", borderRadius: 12, padding: 18, boxShadow: "0 1px 4px rgba(0,0,0,0.06)", marginBottom: 16 }}>
               <div style={{ display: "flex", alignItems: "flex-start", gap: 14, marginBottom: 16, justifyContent: "space-between" }}>
@@ -4424,8 +4823,8 @@ export default function HelpDesk() {
                 {[
                   { l: "All", v: selAgent.assigned, c: "#94a3b8", filter: null, bg: "#f1f5f9" },
                   { l: "Assigned", v: selAgent.assigned, c: "#3b82f6", filter: "assigned", bg: "#dbeafe" },
-                  { l: "Resolved", v: selAgent.resolved, c: "#22c55e", filter: "resolved", bg: "#dcfce7" },
-                  { l: "Open", v: selAgent.assigned - selAgent.resolved, c: "#f59e0b", filter: "open", bg: "#fef3c7" }
+                  { l: "Closed", v: selAgent.closed, c: "#22c55e", filter: "closed", bg: "#dcfce7" },
+                  { l: "Open", v: selAgent.assigned - selAgent.closed, c: "#f59e0b", filter: "open", bg: "#fef3c7" }
                 ].map(s => (
                   <div
                     key={s.l}
@@ -4457,7 +4856,7 @@ export default function HelpDesk() {
                     if (!t.assignees?.some(a => a.id === selAgent.id)) return false;
                     if (agentTicketFilter === null) return true;
                     if (agentTicketFilter === "assigned") return t.status === "Open" || t.status === "In Progress";
-                    if (agentTicketFilter === "resolved") return t.status === "Resolved" || t.status === "Closed";
+                    if (agentTicketFilter === "closed") return t.status === "Closed";
                     if (agentTicketFilter === "open") return t.status === "Open" || t.status === "In Progress";
                     return true;
                   }).map(t => {
@@ -4726,9 +5125,8 @@ export default function HelpDesk() {
                                 }
                               });
                             }} style={{ ...sS, fontSize: 11, padding: "4px 8px", width: 110, flexShrink: 0 }}>{ROLES.map(r => <option key={r}>{r}</option>)}</select>
-                            <button onClick={async () => { try { const updated = { ...u, active: !u.active, status: !u.active ? u.status : "Logged-Out" }; await axios.put(`${USERS_API}/${u.id}`, updated); setUsers(users.map(x => x.id === u.id ? updated : x)); if (u.id === currentUser.id && !u.active) { clearSession(); setCurrentUser(null); setCustomAlert({ show: true, message: "❌ You've been deactivated. Logged out.", type: "error" }); setTimeout(() => window.location.reload(), 2000); } else if (!u.active) { setCustomAlert({ show: true, message: `✅ ${u.name} deactivated.`, type: "success" }); } else { setCustomAlert({ show: true, message: `✅ ${u.name} activated.`, type: "success" }); } } catch (err) { alert("Failed to update user"); } }} style={{ border: "none", background: u.active ? "#fef9c3" : "#dcfce7", color: u.active ? "#854d0e" : "#15803d", borderRadius: 6, padding: "4px 9px", cursor: "pointer", fontSize: 12, fontWeight: 600 }}>{u.active ? "Deactivate" : "Activate"}</button>
-                            {u.id !== currentUser.id && <button onClick={() => deleteUser(u.id)} style={{ border: "none", background: "#fee2e2", color: "#ef4444", borderRadius: 6, padding: "4px 9px", cursor: "pointer", fontSize: 12, fontWeight: 600 }}>Delete</button>}
-                            <button onClick={() => { setEditUserOpen(u); setEditUserForm({ name: u.name, email: u.email, password: "" }); }} style={{ border: "none", background: "#dbeafe", color: "#1e40af", borderRadius: 6, padding: "4px 9px", cursor: "pointer", fontSize: 12, fontWeight: 600 }}>Edit</button>
+                            {/* ✅ NEW: Single Manage button to open modal with all actions */}
+                            <button onClick={() => { setUserEditModal({ show: true, user: u, newRole: u.role }); }} style={{ border: "none", background: "#dbeafe", color: "#1e40af", borderRadius: 6, padding: "4px 9px", cursor: "pointer", fontSize: 12, fontWeight: 600, minWidth: 80 }}>⚙️ Manage</button>
                           </div></td>
                         );
                       })()}
@@ -5071,11 +5469,12 @@ export default function HelpDesk() {
       {/* ── TICKET DETAIL MODAL (v1 full - timeline, forward, custom attrs, vendor) ── */}
       <Modal open={!!selTicket} onClose={() => { setSelTicket(null); setShowForward(false); setFwdReason(""); setEditMode(false); setEditTicket(null); }} title={selTicket?.id || ""} width={720}>
         {selTicket && <div>
-          {/* Edit/View Toggle Button */}
+          {/* Edit/View Toggle Button - Admin/Manager Only */}
           <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginBottom: 14 }}>
-            {!editMode ? (
+            {(currentUser?.role === "Admin" || currentUser?.role === "Manager") && !editMode && (
               <button onClick={() => { setEditMode(true); setEditTicket({ ...selTicket }); }} style={{ padding: "6px 14px", fontSize: 12, fontWeight: 600, borderRadius: 7, border: "none", cursor: "pointer", background: "#3b82f6", color: "#fff" }}>✏️ Edit Ticket</button>
-            ) : (
+            )}
+            {editMode && (
               <>
                 <button onClick={() => { setEditMode(false); setEditTicket(null); }} style={{ padding: "6px 14px", fontSize: 12, fontWeight: 600, borderRadius: 7, border: "1.5px solid #e2e8f0", cursor: "pointer", background: "#fff", color: "#64748b" }}>Cancel</button>
                 <button onClick={async () => { try { await axios.put(`${TICKETS_API}/${selTicket.id}`, { ...editTicket, updated: new Date().toISOString() }); setTickets(t => t.map(x => x.id === selTicket.id ? { ...editTicket, updated: new Date() } : x)); setSelTicket(editTicket); setEditMode(false); setEditTicket(null); showToast("Ticket updated successfully ✓", "success"); addDailyNotif({ type: "ticket_edited", icon: "✏️", text: `${currentUser.name} edited ticket ${selTicket.id}`, ticketId: selTicket.id, by: currentUser.name }); } catch (e) { showToast("Failed to save ticket", "error"); } }} style={{ padding: "6px 14px", fontSize: 12, fontWeight: 600, borderRadius: 7, border: "none", cursor: "pointer", background: "#22c55e", color: "#fff" }}>💾 Save Changes</button>
@@ -5206,7 +5605,7 @@ export default function HelpDesk() {
                         <input type="text" placeholder="Search assignees..." value={assigneeSearch} onChange={e => setAssigneeSearch(e.target.value)} onClick={e => e.stopPropagation()} autoFocus style={{ ...iS, width: "100%", fontSize: 12 }} />
                       </div>
                       {users.filter(u => u.active && (assigneeSearch === "" || u.name.toLowerCase().includes(assigneeSearch.toLowerCase())) && !selTicket.assignees?.find(a => a.id === u.id)).map(u => (
-                        <div key={u.id} onClick={async () => { const updated = { ...selTicket, assignees: [...(selTicket.assignees || []), u], updated: new Date().toISOString() }; try { await axios.put(`${TICKETS_API}/${selTicket.id}`, updated); setTickets(t => t.map(x => x.id === selTicket.id ? { ...updated, updated: new Date(updated.updated) } : x)); setSelTicket(updated); setAssigneeSearch(""); setShowTicketAssigneeDD(false); } catch (e) { alert("Failed to add assignee"); } }} style={{ display: "flex", alignItems: "center", gap: 9, padding: "8px 12px", cursor: "pointer", borderBottom: "1px solid #f1f5f9" }}>
+                        <div key={u.id} onClick={async () => { const updated = { ...selTicket, assignees: [...(selTicket.assignees || []), u], updated: new Date().toISOString() }; try { await axios.put(`${TICKETS_API}/${selTicket.id}`, updated); setTickets(t => t.map(x => x.id === selTicket.id ? { ...updated, updated: new Date(updated.updated) } : x)); setSelTicket(updated); setAssigneeSearch(""); setShowTicketAssigneeDD(false); setCustomAlert({ show: true, message: `✅ Ticket ${selTicket.id} assigned to ${u.name}`, type: "success" }); } catch (e) { alert("Failed to add assignee"); } }} style={{ display: "flex", alignItems: "center", gap: 9, padding: "8px 12px", cursor: "pointer", borderBottom: "1px solid #f1f5f9" }}>
                           <Avatar name={u.name} size={24} /><div><div style={{ fontSize: 12, fontWeight: 600 }}>{u.name}</div><div style={{ fontSize: 11, color: "#94a3b8" }}>{u.role}</div></div>
                         </div>
                       ))}
@@ -5541,13 +5940,18 @@ export default function HelpDesk() {
                   <div style={{ fontSize: 13, fontWeight: 700, color: "#0f172a", marginBottom: 4 }}>{alert.title}</div>
                   <div style={{ fontSize: 12, color: "#475569", lineHeight: 1.5 }}>{alert.message}</div>
                   {alert.ticketId && <div style={{ fontSize: 11, color: "#3b82f6", fontFamily: "monospace", marginTop: 4 }}>{alert.ticketId}</div>}
-                  {/* Accept / Reject buttons only for forward_request type and admins/managers */}
+                  {/* Accept / Reject buttons only for forward_request type and admins/managers and not yet resolved */}
                   {alert.type === "forward_request" && !alert.resolved && (currentUser?.role === "Admin" || currentUser?.role === "Manager") && (
                     <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
                       <button onClick={() => { acceptInboxForwardRequest(alert); setFloatingAlerts(prev => prev.filter(a => a.alertId !== alert.alertId)); }}
                         style={{ flex: 1, padding: "7px 12px", fontSize: 12, fontWeight: 700, background: "linear-gradient(135deg,#10b981,#059669)", color: "#fff", border: "none", borderRadius: 8, cursor: "pointer" }}>✓ Approve</button>
                       <button onClick={() => { rejectInboxForwardRequest(alert); setFloatingAlerts(prev => prev.filter(a => a.alertId !== alert.alertId)); }}
                         style={{ flex: 1, padding: "7px 12px", fontSize: 12, fontWeight: 700, background: "linear-gradient(135deg,#ef4444,#dc2626)", color: "#fff", border: "none", borderRadius: 8, cursor: "pointer" }}>✕ Reject</button>
+                    </div>
+                  )}
+                  {alert.type === "forward_request" && alert.resolved && (
+                    <div style={{ marginTop: 10, padding: "6px 10px", borderRadius: 6, background: alert.resolved === "Approved" ? "#dcfce7" : "#fee2e2", color: alert.resolved === "Approved" ? "#15803d" : "#991b1b", fontSize: 12, fontWeight: 600, textAlign: "center" }}>
+                      ✓ Already {alert.resolved}
                     </div>
                   )}
                 </div>
@@ -5786,6 +6190,23 @@ export default function HelpDesk() {
         @keyframes shrink30 {
           from { width: 100%; }
           to { width: 0%; }
+        }
+        @keyframes strikeThrough {
+          0% {
+            textDecoration: none;
+            transform: scaleX(0);
+            opacity: 1;
+          }
+          50% {
+            textDecoration: line-through;
+            transform: scaleX(1);
+            opacity: 1;
+          }
+          100% {
+            textDecoration: line-through;
+            transform: scaleX(1);
+            opacity: 0.6;
+          }
         }
       `}</style>
     </div>

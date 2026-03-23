@@ -43,6 +43,7 @@ const User = sequelize.define("User", {
     // ✅ NEW: Agent tracking fields
     currentTicketId: { type: DataTypes.STRING, defaultValue: null },
     currentLocation: { type: DataTypes.STRING, defaultValue: null },
+    lunchStatus: { type: DataTypes.BOOLEAN, defaultValue: false },
 }, { timestamps: true });
 
 const Org = sequelize.define("Org", {
