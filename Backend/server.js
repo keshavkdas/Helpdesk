@@ -1179,6 +1179,45 @@ async function migrateWebcastsOnStartup() {
     }
 }
 
+// ─── TEMPORARY FORCE MIGRATION ──────────────────────────────────────────────
+async function forceLinkAllDeptsToAllOrgs() {
+    try {
+        console.log("🚀 FORCING Org-Dept Migration...");
+
+        // 1. Get every unique Org name
+        const orgs = await Org.findAll();
+        // 2. Get every unique Department name currently in the DB
+        const uniqueDeptNames = await Department.findAll({
+            attributes: [[Sequelize.fn('DISTINCT', Sequelize.col('name')), 'name']]
+        });
+
+        if (orgs.length === 0 || uniqueDeptNames.length === 0) {
+            console.log("⚠️ No Orgs or Depts found to process.");
+            return;
+        }
+
+        for (const org of orgs) {
+            for (const d of uniqueDeptNames) {
+                // Use a direct upsert/findOrCreate to ensure it exists for this Org
+                await Department.findOrCreate({
+                    where: {
+                        name: d.name,
+                        orgName: org.name
+                    },
+                    defaults: {
+                        name: d.name,
+                        orgName: org.name,
+                        sortOrder: 0
+                    }
+                });
+            }
+        }
+        console.log("✅ All Orgs now have all Departments.");
+    } catch (err) {
+        console.error("❌ Force Migration Error:", err.message);
+    }
+}
+
 // ─── TEMPORARY MIGRATION: Link every Org to every Dept ───────────────────────
 async function temporaryLinkAllDeptsToAllOrgs() {
     try {
@@ -1224,6 +1263,7 @@ const PORT = process.env.PORT || 5000;
 sequelize.sync({ alter: true }).then(async () => {
     console.log("✅ MySQL Synced & Connected");
 
+    await forceLinkAllDeptsToAllOrgs();
     // 👇 ADD THIS LINE HERE 👇
     await temporaryLinkAllDeptsToAllOrgs();
 
