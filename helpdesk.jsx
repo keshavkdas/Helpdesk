@@ -1170,6 +1170,12 @@ export default function HelpDesk() {
   const [passwordForm, setPasswordForm] = useState({ oldPassword: "", newPassword: "", confirmPassword: "" });
   const [customAlert, setCustomAlert] = useState({ show: false, message: "", type: "success" });
 
+  // ✅ NEW: Location & Ticket Tracking
+  const [currentTicketId, setCurrentTicketId] = useState("");
+  const [currentLocation, setCurrentLocation] = useState("");
+  const [showLocationModal, setShowLocationModal] = useState(false);
+  const [showTicketDropdown, setShowTicketDropdown] = useState(false);
+
   // ✅ NEW: Confirmation Modal State
   const [confirmModal, setConfirmModal] = useState({ show: false, title: "", message: "", onConfirm: null, onCancel: null });
   const [selectedTickets, setSelectedTickets] = useState(new Set());
@@ -1193,7 +1199,7 @@ export default function HelpDesk() {
   const [editUserOpen, setEditUserOpen] = useState(null); // Holds the user being edited
   const [editUserForm, setEditUserForm] = useState({ name: "", email: "", password: "" });
 
-  const statusOpts = [{ l: "Logged-In", c: "#22c55e", bg: "#dcfce7" }, { l: "Logged-Out", c: "#ef4444", bg: "#fee2e2" }, { l: "Rest", c: "#f59e0b", bg: "#fef3c7" }];
+  const statusOpts = [{ l: "On Duty", c: "#22c55e", bg: "#dcfce7" }, { l: "Off Duty", c: "#f59e0b", bg: "#fef3c7" }];
 
   // ── Password strength ──
   const calcPwdStr = (pwd) => { if (!pwd) return 0; let s = 0; if (pwd.length >= 8) s += 25; if (/[A-Z]/.test(pwd)) s += 25; if (/[a-z]/.test(pwd)) s += 25; if (/[^A-Za-z0-9]/.test(pwd)) s += 25; return s; };
@@ -1850,7 +1856,7 @@ export default function HelpDesk() {
 
               // ✅ Set defaults for optional fields
               if (row.active === undefined || row.active === "") row.active = true;
-              if (row.status === undefined || row.status === "") row.status = "Logged-Out";
+              if (row.status === undefined || row.status === "") row.status = "Off Duty";
               if (row.confirmed === undefined || row.confirmed === "") row.confirmed = true;
             }
 
@@ -1883,7 +1889,7 @@ export default function HelpDesk() {
                 row.role = "Viewer";
               }
               if (row.active === undefined) row.active = true;
-              if (row.status === undefined) row.status = "Logged-Out";
+              if (row.status === undefined) row.status = "Off Duty";
               if (row.confirmed === undefined) row.confirmed = true;
               return row;
             });
@@ -2300,7 +2306,7 @@ export default function HelpDesk() {
       const response = await axios.post(USERS_API, {
         ...newUser,
         active: true,
-        status: "Logged-Out"
+        status: "Off Duty"
       });
 
       const created = response.data;
@@ -2743,15 +2749,22 @@ export default function HelpDesk() {
         return;
       }
 
-      // 3. ✅ FIXED: Update status to Logged-In in DB so other users see it
-      const updatedUser = { ...u, status: "Logged-In" };
+      // 3. ✅ Update status to On Duty in DB when user logs in
+      const updatedUser = { ...u, status: "On Duty" };
       await axios.put(`${USERS_API}/${u.id}`, updatedUser);
 
       // 4. Cache in session and local state
       saveSession(updatedUser);
       setCurrentUser(updatedUser);
 
-      // 5. Reload all data
+      // 5. Show welcome popup with On Duty status
+      setCustomAlert({
+        show: true,
+        message: `✅ Welcome ${updatedUser.name}! You are now On Duty`,
+        type: "success"
+      });
+
+      // 6. Reload all data
       await loadData();
 
     } catch (err) {
@@ -2761,10 +2774,45 @@ export default function HelpDesk() {
   };
 
   const handleLogout = async () => {
+    // If user is On Duty, show popup asking for ticket and location
+    if (currentUser?.status === "On Duty") {
+      setConfirmModal({
+        show: true,
+        title: "Mark Your Activity Before Logout",
+        message: "Please tell us which ticket you're working on and where you'll be going so the team knows your status",
+        fields: [
+          { name: "ticket", label: "🎫 Ticket ID", type: "text", placeholder: "e.g., TICKET-001", value: currentTicketId },
+          { name: "location", label: "📍 Location", type: "select", options: locations.map(l => ({ value: l.name, label: l.name })), value: currentLocation }
+        ],
+        onConfirm: async (data) => {
+          // Update tracking before logout
+          try {
+            const up = {
+              ...currentUser,
+              currentTicketId: data.ticket || null,
+              currentLocation: data.location || null
+            };
+            await axios.put(`${USERS_API}/${currentUser.id}`, up);
+            saveSession(up);
+            setCurrentUser(up);
+            setUsers(users.map(u => u.id === currentUser.id ? up : u));
+          } catch (e) { console.error("Failed to update tracking"); }
+
+          // Then logout
+          clearSession();
+          setCurrentUser(null);
+          setProfileOpen(false);
+          setConfirmModal({ show: false });
+        },
+        onCancel: () => setConfirmModal({ show: false })
+      });
+      return;
+    }
+
+    // If already Off Duty or something else, just logout
     if (currentUser) {
-      // ✅ FIXED: Update status in DB so other tabs/users see the logout
       try {
-        await axios.put(`${USERS_API}/${currentUser.id}`, { ...currentUser, status: "Logged-Out" });
+        await axios.put(`${USERS_API}/${currentUser.id}`, { ...currentUser });
       }
       catch (e) { console.error("Logout status update failed"); }
     }
@@ -2790,7 +2838,7 @@ export default function HelpDesk() {
         password: authForm.password,
         role: isFirstUser ? "Admin" : "Viewer",
         active: true,
-        status: "Logged-Out",
+        status: "Off Duty",
         confirmed: true,
       };
 
@@ -2830,6 +2878,24 @@ export default function HelpDesk() {
       await axios.put(`${USERS_API}/${currentUser.id}`, up);
       saveSession(up); setCurrentUser(up); setUsers(users.map(u => u.id === currentUser.id ? up : u));
     } catch (err) { alert("Failed to update status"); }
+  };
+
+  // ✅ NEW: Update location and ticket tracking
+  const updateTracking = async () => {
+    try {
+      const up = {
+        ...currentUser,
+        currentTicketId: currentTicketId || null,
+        currentLocation: currentLocation || null
+      };
+      await axios.put(`${USERS_API}/${currentUser.id}`, up);
+      saveSession(up);
+      setCurrentUser(up);
+      setUsers(users.map(u => u.id === currentUser.id ? up : u));
+      setCustomAlert({ show: true, message: "✅ Location and ticket updated", type: "success" });
+    } catch (err) {
+      setCustomAlert({ show: true, message: "Failed to update tracking", type: "error" });
+    }
   };
 
   // ─── NAVIGATION HELPERS ────────────────────────────────────────────────────
@@ -3302,7 +3368,7 @@ export default function HelpDesk() {
             <div style={{ flex: 1, minWidth: 0 }}>
               <div style={{ fontSize: 12, fontWeight: 600, color: "#e2e8f0", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{currentUser.name}</div>
               <div style={{ fontSize: 10, color: "#94a3b8", display: "flex", alignItems: "center", gap: 4 }}>
-                <span style={{ width: 6, height: 6, borderRadius: "50%", background: (statusOpts.find(s => s.l === (currentUser.status === "Active" ? "Logged-In" : (currentUser.status === "Not Active" || currentUser.status?.toLowerCase() === "logged-out") ? "Logged-Out" : currentUser.status))?.c || "#94a3b8") }} />
+                <span style={{ width: 6, height: 6, borderRadius: "50%", background: (statusOpts.find(s => s.l === currentUser.status)?.c || "#94a3b8") }} />
                 {currentUser.role}
               </div>
             </div>
@@ -3313,13 +3379,14 @@ export default function HelpDesk() {
               <button onClick={() => { setProfileForm({ name: currentUser.name, phone: currentUser.phone || "" }); setEditProfileOpen(true); }} style={{ width: "100%", padding: "6px 10px", background: "#334155", border: "none", borderRadius: 6, color: "#f8fafc", fontSize: 12, fontWeight: 600, cursor: "pointer", marginBottom: 8, textAlign: "left" }}>👤 View Profile</button>
               <div style={{ fontSize: 10, fontWeight: 600, color: "#94a3b8", marginBottom: 6, textTransform: "uppercase", padding: "0 4px" }}>Set Status</div>
               <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-                {statusOpts.filter(s => s.l !== "Logged-Out").map(s => (
+                {statusOpts.map(s => (
                   <button key={s.l} onClick={() => updateStatusDirect(s.l)} style={{ display: "flex", alignItems: "center", gap: 6, background: "transparent", border: "none", padding: "4px 8px", borderRadius: 4, cursor: "pointer", color: currentUser.status === s.l ? s.c : "#cbd5e1" }}>
                     <span style={{ width: 8, height: 8, borderRadius: "50%", background: s.c, boxShadow: currentUser.status === s.l ? `0 0 0 2px ${s.bg}` : "none" }} />
                     <span style={{ fontSize: 11, fontWeight: currentUser.status === s.l ? 700 : 500 }}>{s.l}</span>
                   </button>
                 ))}
               </div>
+
               <button onClick={handleLogout} style={{ width: "100%", padding: "6px 10px", background: "transparent", border: "none", color: "#ef4444", fontSize: 12, fontWeight: 600, cursor: "pointer", marginTop: 8, textAlign: "left", borderTop: "1px solid #334155", paddingTop: 8 }}>Log Out</button>
             </div>
           )}
@@ -4234,7 +4301,7 @@ export default function HelpDesk() {
                         {(() => {
                           const foundUser = users.find(u => u.id === a.id);
                           const rawStatus = foundUser?.status;
-                          const statusValue = rawStatus === "Active" ? "Logged-In" : (rawStatus === "Not Active" || rawStatus?.toLowerCase() === "logged-out") ? "Logged-Out" : rawStatus;
+                          const statusValue = rawStatus || "Off Duty";
                           const statusStyle = statusOpts.find(s => s.l === statusValue);
                           if (statusStyle) {
                             return <Badge label={statusStyle.l} style={{ background: statusStyle.bg, color: statusStyle.c }} />;
@@ -4255,22 +4322,55 @@ export default function HelpDesk() {
           </div> : view === "users" && selAgent ? <div>
             <button onClick={() => setSelAgent(null)} style={{ ...bG, padding: "7px 14px", marginBottom: 14, fontSize: 12 }}>← Back to Agents</button>
             <div style={{ background: "#fff", borderRadius: 12, padding: 18, boxShadow: "0 1px 4px rgba(0,0,0,0.06)", marginBottom: 16 }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 14, marginBottom: 16 }}>
-                <Avatar name={selAgent.name} size={56} />
-                <div>
-                  <div style={{ fontSize: 18, fontWeight: 700 }}>{selAgent.name}</div>
-                  <div style={{ fontSize: 13, color: "#64748b", marginTop: 2 }}>{selAgent.email}</div>
-                  <div style={{ display: "flex", gap: 6, marginTop: 6 }}>
-                    <Badge label={selAgent.role} style={{ background: "#ede9fe", color: "#6d28d9" }} />
-                    {(() => {
-                      const u = users.find(x => x.id === selAgent.id);
-                      if (!u?.status) return null;
-                      const statusValue = u.status === "Active" ? "Logged-In" : (u.status === "Not Active" || u.status?.toLowerCase() === "logged-out") ? "Logged-Out" : u.status;
-                      const sStyle = statusOpts.find(s => s.l === statusValue);
-                      return sStyle ? <Badge label={sStyle.l} style={{ background: sStyle.bg, color: sStyle.c }} /> : null;
-                    })()}
+              <div style={{ display: "flex", alignItems: "flex-start", gap: 14, marginBottom: 16, justifyContent: "space-between" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
+                  <Avatar name={selAgent.name} size={56} />
+                  <div>
+                    <div style={{ fontSize: 18, fontWeight: 700 }}>{selAgent.name}</div>
+                    <div style={{ fontSize: 13, color: "#64748b", marginTop: 2 }}>{selAgent.email}</div>
+                    <div style={{ display: "flex", gap: 6, marginTop: 6 }}>
+                      <Badge label={selAgent.role} style={{ background: "#ede9fe", color: "#6d28d9" }} />
+                      {(() => {
+                        const u = users.find(x => x.id === selAgent.id);
+                        if (!u?.status) return null;
+                        const statusValue = u.status || "Off Duty";
+                        const sStyle = statusOpts.find(s => s.l === statusValue);
+                        return sStyle ? <Badge label={sStyle.l} style={{ background: sStyle.bg, color: sStyle.c }} /> : null;
+                      })()}
+                    </div>
+
+                    {/* ✅ Show ticket and location tracking - AGENTS ONLY */}
+                    {selAgent.role === "Agent" && (
+                      <div style={{ marginTop: 12, paddingTop: 12, borderTop: "1px solid #e2e8f0", display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+                        <div>
+                          <div style={{ fontSize: 11, fontWeight: 600, color: "#94a3b8", marginBottom: 4 }}>🎫 Current Ticket</div>
+                          {users.find(x => x.id === selAgent.id)?.currentTicketId ? (
+                            <Badge label={users.find(x => x.id === selAgent.id)?.currentTicketId} style={{ background: "#ede9fe", color: "#6d28d9" }} />
+                          ) : (
+                            <span style={{ fontSize: 12, color: "#cbd5e1" }}>No ticket assigned</span>
+                          )}
+                        </div>
+                        <div>
+                          <div style={{ fontSize: 11, fontWeight: 600, color: "#94a3b8", marginBottom: 4 }}>📍 Current Location</div>
+                          {users.find(x => x.id === selAgent.id)?.currentLocation ? (
+                            <Badge label={users.find(x => x.id === selAgent.id)?.currentLocation} style={{ background: "#dcfce7", color: "#15803d" }} />
+                          ) : (
+                            <span style={{ fontSize: 12, color: "#cbd5e1" }}>No location set</span>
+                          )}
+                        </div>
+                      </div>
+                    )}
                   </div>
                 </div>
+
+                {/* ✅ Update button for agents only */}
+                {selAgent.role === "Agent" && (
+                  <button onClick={() => {
+                    setCurrentTicketId(users.find(x => x.id === selAgent.id)?.currentTicketId || "");
+                    setCurrentLocation(users.find(x => x.id === selAgent.id)?.currentLocation || "");
+                    setShowLocationModal(true);
+                  }} style={{ padding: "8px 16px", background: "#3b82f6", border: "none", borderRadius: 6, color: "#fff", fontWeight: 600, cursor: "pointer", fontSize: 12, whiteSpace: "nowrap" }}>✏️ Update Activity</button>
+                )}
               </div>
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 10 }}>
                 {[
@@ -4300,6 +4400,7 @@ export default function HelpDesk() {
                 ))}
               </div>
             </div>
+
             <div style={{ background: "#fff", borderRadius: 12, padding: 16, boxShadow: "0 1px 4px rgba(0,0,0,0.06)" }}>
               <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 14, color: "#374151" }}>Assigned Tickets</div>
               {tickets.filter(t => t.assignees?.some(a => a.id === selAgent.id)).length > 0 ? (
@@ -4532,7 +4633,7 @@ export default function HelpDesk() {
                       <td style={tdStyle}><Badge label={u.role} style={{ background: "#ede9fe", color: "#6d28d9" }} /></td>
                       <td style={tdStyle}>{(() => {
                         // Check DB status field which is updated on login/logout
-                        const statusValue = u.status === "Logged-In" ? "Logged-In" : "Logged-Out";
+                        const statusValue = u.status || "Off Duty";
                         const sStyle = statusOpts.find(s => s.l === statusValue);
                         return sStyle ? <Badge label={sStyle.l} style={{ background: sStyle.bg, color: sStyle.c }} /> : <Badge label={statusValue} />;
                       })()}</td>
@@ -5404,6 +5505,95 @@ export default function HelpDesk() {
           </div>
         ))}
       </div>
+
+      {/* ✅ NEW: Update Agent Activity Modal */}
+      <Modal open={showLocationModal} onClose={() => { setShowLocationModal(false); setShowTicketDropdown(false); }} title="Update Agent Activity" width={500}>
+        {selAgent && (
+          <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+            <div>
+              <label style={{ fontSize: 12, fontWeight: 600, color: "#374151", marginBottom: 8, display: "block" }}>🎫 Select Ticket</label>
+              <div style={{ position: "relative" }}>
+                <input
+                  type="text"
+                  placeholder="Click to select ticket..."
+                  value={currentTicketId}
+                  onFocus={() => setShowTicketDropdown(true)}
+                  onChange={e => setCurrentTicketId(e.target.value)}
+                  style={{ width: "100%", padding: "10px 12px", fontSize: 12, borderRadius: 6, border: "1px solid #e2e8f0", background: "#f8fafc", color: "#1e293b" }}
+                />
+                {/* Show dropdown only when focused */}
+                {showTicketDropdown && (
+                  <div style={{ position: "absolute", top: "100%", left: 0, right: 0, background: "#fff", border: "1px solid #e2e8f0", borderTop: "none", borderRadius: "0 0 6px 6px", maxHeight: 250, overflowY: "auto", zIndex: 100, marginTop: 2 }}>
+                    {tickets.filter(t =>
+                      t.assignees?.some(a => a.id === selAgent.id) &&
+                      (currentTicketId === "" || t.id.includes(currentTicketId.toUpperCase()) || t.summary.toLowerCase().includes(currentTicketId.toLowerCase()))
+                    ).map(t => (
+                      <div
+                        key={t.id}
+                        onClick={() => {
+                          setCurrentTicketId(t.id);
+                          setShowTicketDropdown(false);
+                        }}
+                        style={{ padding: "12px 12px", borderBottom: "1px solid #f1f5f9", cursor: "pointer", fontSize: 12, color: "#1e293b", transition: "background 0.2s", background: currentTicketId === t.id ? "#e0e7ff" : "#fff" }}
+                        onMouseEnter={e => e.currentTarget.style.background = "#f1f5f9"}
+                        onMouseLeave={e => e.currentTarget.style.background = currentTicketId === t.id ? "#e0e7ff" : "#fff"}
+                      >
+                        <div style={{ fontWeight: 600 }}>{t.id}</div>
+                        <div style={{ fontSize: 11, color: "#64748b" }}>{t.summary}</div>
+                      </div>
+                    ))}
+                    {tickets.filter(t =>
+                      t.assignees?.some(a => a.id === selAgent.id) &&
+                      (currentTicketId === "" || t.id.includes(currentTicketId.toUpperCase()) || t.summary.toLowerCase().includes(currentTicketId.toLowerCase()))
+                    ).length === 0 && (
+                        <div style={{ padding: "12px 12px", fontSize: 12, color: "#94a3b8" }}>No assigned tickets</div>
+                      )}
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <div>
+              <label style={{ fontSize: 12, fontWeight: 600, color: "#374151", marginBottom: 8, display: "block" }}>📍 Location</label>
+              <select
+                value={currentLocation}
+                onChange={e => setCurrentLocation(e.target.value)}
+                style={{ width: "100%", padding: "10px 12px", fontSize: 12, borderRadius: 6, border: "1px solid #e2e8f0", background: "#f8fafc", color: "#1e293b" }}
+              >
+                <option value="">Select Location</option>
+                {locations.map(loc => <option key={loc.id} value={loc.name}>{loc.name}</option>)}
+              </select>
+            </div>
+
+            <div style={{ display: "flex", gap: 8 }}>
+              <button onClick={async () => {
+                try {
+                  const u = users.find(x => x.id === selAgent.id);
+                  const updated = {
+                    ...u,
+                    currentTicketId: currentTicketId || null,
+                    currentLocation: currentLocation || null
+                  };
+                  await axios.put(`${USERS_API}/${selAgent.id}`, updated);
+                  setUsers(users.map(x => x.id === selAgent.id ? updated : x));
+                  setSelAgent(updated);
+                  setCustomAlert({ show: true, message: "✅ Agent activity updated", type: "success" });
+                  setCurrentTicketId("");
+                  setCurrentLocation("");
+                  setShowLocationModal(false);
+                } catch (e) {
+                  setCustomAlert({ show: true, message: "Failed to update", type: "error" });
+                }
+              }} style={{ flex: 1, padding: "10px 12px", background: "#10b981", border: "none", borderRadius: 6, color: "#fff", fontWeight: 600, cursor: "pointer", fontSize: 12 }}>💾 Save</button>
+              <button onClick={() => {
+                setShowLocationModal(false);
+                setCurrentTicketId("");
+                setCurrentLocation("");
+              }} style={{ flex: 1, padding: "10px 12px", background: "#f3f4f6", border: "none", borderRadius: 6, color: "#374151", fontWeight: 600, cursor: "pointer", fontSize: 12 }}>Cancel</button>
+            </div>
+          </div>
+        )}
+      </Modal>
 
       {/* ── Toast Notifications ── */}
       <div style={{ position: "fixed", top: 20, right: 20, zIndex: 9999, display: "flex", flexDirection: "column", gap: 10 }}>

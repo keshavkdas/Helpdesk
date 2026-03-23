@@ -38,8 +38,11 @@ const User = sequelize.define("User", {
     phone: { type: DataTypes.STRING, defaultValue: "" },
     role: { type: DataTypes.ENUM("Super Admin", "Admin", "Manager", "Agent", "Viewer"), defaultValue: "Agent" },
     active: { type: DataTypes.BOOLEAN, defaultValue: true },
-    status: { type: DataTypes.STRING, defaultValue: "Logged-Out" },
+    status: { type: DataTypes.STRING, defaultValue: "Off Duty" },
     confirmed: { type: DataTypes.BOOLEAN, defaultValue: true },
+    // ✅ NEW: Agent tracking fields
+    currentTicketId: { type: DataTypes.STRING, defaultValue: null },
+    currentLocation: { type: DataTypes.STRING, defaultValue: null },
 }, { timestamps: true });
 
 const Org = sequelize.define("Org", {
