@@ -1179,56 +1179,10 @@ async function migrateWebcastsOnStartup() {
     }
 }
 
-// ─── THE NUCLEAR OPTION: WIPE & REBUILD ─────────────────────────────────────
-async function rebuildDepartmentsFromScratch() {
-    try {
-        console.log("🧨 Starting Wipe and Rebuild of Departments...");
-
-        // 1. Get all Orgs
-        const allOrgs = await Org.findAll();
-
-        // 2. Get unique Department names from the existing data before we wipe it
-        const uniqueDeptNames = await Department.findAll({
-            attributes: [[Sequelize.fn('DISTINCT', Sequelize.col('name')), 'name']]
-        });
-
-        if (allOrgs.length === 0 || uniqueDeptNames.length === 0) {
-            console.log("⚠️ No Orgs or Dept names found. Aborting wipe to save data.");
-            return;
-        }
-
-        // 3. DESTROY ALL existing department records
-        await Department.destroy({ where: {}, truncate: false });
-        console.log("🗑️  Departments table emptied.");
-
-        // 4. Rebuild the list for every Org
-        let count = 0;
-        for (const org of allOrgs) {
-            for (const d of uniqueDeptNames) {
-                if (!d.name || !org.name) continue;
-
-                await Department.create({
-                    name: d.name,
-                    orgName: org.name,
-                    sortOrder: 0
-                });
-                count++;
-            }
-        }
-
-        console.log(`✅ Success! Rebuilt table with ${count} total records.`);
-    } catch (err) {
-        console.error("❌ Nuclear Rebuild Failed:", err.message);
-    }
-}
-
 // ─── START ────────────────────────────────────────────────────────────────────
 const PORT = process.env.PORT || 5000;
 sequelize.sync({ alter: true }).then(async () => {
     console.log("✅ MySQL Synced & Connected");
-
-    // 👇 ADD THIS LINE HERE 👇
-    await rebuildDepartmentsFromScratch();
 
     // Data Migration: Normalize user statuses
     try {
