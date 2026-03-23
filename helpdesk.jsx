@@ -19,12 +19,11 @@ const IMPORT_API = `${BASE_URL}/import`;
 const PROJECTS_API = `${BASE_URL}/projects`;
 const VALIDATE_SESSIONS_API = `${BASE_URL}/validate-sessions`;
 const NOTIFICATIONS_API = `${BASE_URL}/notifications`;
-const LOGOUT_API = `${BASE_URL}/auth/logout`;
 
 // ─── CONSTANTS ────────────────────────────────────────────────────────────────
 const PRIORITIES = ["Critical", "High", "Low", "Medium"];
 const STATUSES = ["Closed", "In Progress", "Open", "Resolved"];
-const ROLES = ["Admin", "Agent", "Manager", "Super Admin", "Viewer"];
+const ROLES = ["Admin", "Agent", "Manager", "Viewer"];
 const SATSANG_TYPES = ["Children Satsang", "G Satsang", "Special Satsang", "Weekly Satsang", "Youth Satsang"];
 const PROJECT_STATUSES = ["Closed", "In Progress", "Open", "Resolved"];
 const PROJECT_PRIORITIES = ["Critical", "High", "Low", "Medium"];
@@ -1146,7 +1145,7 @@ export default function HelpDesk() {
       if (ticket) {
         const assigneeIds = (ticket.assignees || [])
           .filter(a => a.id !== currentUser.id &&
-            !["Admin", "Manager", "Super Admin"].includes(users.find(u => u.id === a.id)?.role))
+            !["Admin", "Manager"].includes(users.find(u => u.id === a.id)?.role))
           .map(a => a.id);
         if (assigneeIds.length > 0) {
           axios.post(NOTIFICATIONS_API, { ...payload, recipientIds: assigneeIds }).catch(err => console.error("Notif assignee POST failed:", err?.response?.data || err.message));
@@ -1391,65 +1390,6 @@ export default function HelpDesk() {
     return () => clearInterval(interval);
   }, [currentUser]);
 
-  // ✅ NEW: Monitor user role changes and auto-logout if role is changed by admin
-  const previousRoleRef = useRef(currentUser?.role);
-
-  useEffect(() => {
-    if (!currentUser) return;
-
-    const checkRoleChange = async () => {
-      try {
-        // Fetch the current user's latest data from the server
-        const response = await axios.get(`${USERS_API}/${currentUser.id}`);
-        const serverUser = response.data;
-
-        // Check if role has changed
-        if (serverUser && serverUser.role !== previousRoleRef.current) {
-          console.warn(
-            `User role changed from ${previousRoleRef.current} to ${serverUser.role}. Logging out...`
-          );
-
-          // Log the user out
-          try {
-            await axios.post(LOGOUT_API, { userId: currentUser.id });
-          } catch (e) {
-            console.error("Logout API call failed:", e);
-          }
-
-          // Clear session and redirect to login
-          try {
-            localStorage.removeItem("deskflow_session");
-            localStorage.removeItem("deskflow_view");
-            localStorage.removeItem("deskflow_tvFilter");
-            localStorage.removeItem("deskflow_pvFilter");
-          } catch (e) {
-            console.error("Failed to clear localStorage:", e);
-          }
-
-          // Update state to show login screen
-          setCurrentUser(null);
-          setView("dashboard");
-
-          // Show toast notification
-          showToast("Your role has been changed. Please log in again.", "info", 5000);
-        }
-
-        // Update the ref to current role
-        previousRoleRef.current = serverUser?.role || currentUser.role;
-      } catch (e) {
-        console.error("Error checking role changes:", e);
-      }
-    };
-
-    // Check role change every 30 seconds
-    const roleCheckInterval = setInterval(checkRoleChange, 30000);
-
-    // Also check immediately on mount
-    checkRoleChange();
-
-    return () => clearInterval(roleCheckInterval);
-  }, [currentUser?.id]);
-
   // ── Inbox polling: fetch notifications from DB every 10s ──
   // Use a ref to track which DB activity IDs we've already merged into the bell
   // so stale closures in the polling interval never cause duplicates
@@ -1457,7 +1397,7 @@ export default function HelpDesk() {
 
   const fetchInbox = async () => {
     if (!currentUser) return;
-    const isAdminOrManager = ["Admin", "Manager", "Super Admin"].includes(currentUser.role);
+    const isAdminOrManager = ["Admin", "Manager"].includes(currentUser.role);
     try {
       // Personal notifications (forward requests, responses, ticket assignments for agents)
       const personalRes = await axios.get(`${NOTIFICATIONS_API}?userId=${currentUser.id}`);
@@ -1901,7 +1841,7 @@ export default function HelpDesk() {
 
               // ✅ Validate role
               if (row.role) {
-                const validRoles = ["Admin", "Manager", "Agent", "Viewer", "Super Admin"];
+                const validRoles = ["Admin", "Manager", "Agent", "Viewer"];
                 const cleaned = row.role.charAt(0).toUpperCase() + row.role.slice(1).toLowerCase();
                 row.role = validRoles.includes(cleaned) ? cleaned : "Viewer";
               } else {
@@ -1936,7 +1876,7 @@ export default function HelpDesk() {
                 row.email = `user_${Date.now()}_${Math.random().toString(36).slice(-5)}@imported.local`;
               }
               if (row.role) {
-                const validRoles = ["Admin", "Manager", "Agent", "Viewer", "Super Admin"];
+                const validRoles = ["Admin", "Manager", "Agent", "Viewer"];
                 const cleaned = row.role.charAt(0).toUpperCase() + row.role.slice(1).toLowerCase();
                 row.role = validRoles.includes(cleaned) ? cleaned : "Viewer";
               } else {
@@ -2484,9 +2424,9 @@ export default function HelpDesk() {
   // --- USERS ---
   const deleteUser = async (id) => {
     const user = users.find(u => u.id === id);
-    // Guard: plain Admin cannot delete another Admin — only Super Admin can
-    if (currentUser?.role !== "Super Admin" && user?.role === "Admin") {
-      setCustomAlert({ show: true, message: "Only Super Admin can delete other Admins.", type: "error" });
+    // Guard: only Admin/Manager can delete users
+    if (!["Admin", "Manager"].includes(currentUser?.role)) {
+      setCustomAlert({ show: true, message: "You don't have permission to delete users.", type: "error" });
       return;
     }
     setConfirmModal({
@@ -2538,9 +2478,9 @@ export default function HelpDesk() {
       alert("Password must be at least 6 characters");
       return;
     }
-    // Guard: plain Admin cannot edit another Admin — only Super Admin can
-    if (currentUser?.role !== "Super Admin" && editUserOpen?.role === "Admin") {
-      setCustomAlert({ show: true, message: "Only Super Admin can edit other Admins.", type: "error" });
+    // Guard: only Admin/Manager can edit users
+    if (!["Admin", "Manager"].includes(currentUser?.role)) {
+      setCustomAlert({ show: true, message: "You don't have permission to edit users.", type: "error" });
       return;
     }
 
@@ -2848,7 +2788,7 @@ export default function HelpDesk() {
         email: authForm.email,
         phone: `${authForm.countryCode} ${authForm.phone}`.trim(),
         password: authForm.password,
-        role: isFirstUser ? "Super Admin" : "Viewer",
+        role: isFirstUser ? "Admin" : "Viewer",
         active: true,
         status: "Logged-Out",
         confirmed: true,
@@ -3515,7 +3455,7 @@ export default function HelpDesk() {
           </div>
           <div style={{ marginBottom: 18 }}>
             <label style={{ display: "block", fontSize: 12, fontWeight: 600, color: "#334155", marginBottom: 6 }}>Role</label>
-            <select style={{ ...sS, width: "100%" }} value={newUser.role || "Viewer"} onChange={e => setNewUser({ ...newUser, role: e.target.value })}>{ROLES.filter(r => r !== "Super Admin").map(r => <option key={r}>{r}</option>)}</select>
+            <select style={{ ...sS, width: "100%" }} value={newUser.role || "Viewer"} onChange={e => setNewUser({ ...newUser, role: e.target.value })}>{ROLES.map(r => <option key={r}>{r}</option>)}</select>
           </div>
           <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
             <button onClick={() => { setShowAddUserModal(false); setNewUser({ name: "", email: "", password: "", role: "Viewer" }); }} style={bG}>Cancel</button>
@@ -4567,7 +4507,7 @@ export default function HelpDesk() {
 
               {settingsTab === "usermgmt" && <div style={{ background: "#fff", borderRadius: 12, padding: 22, boxShadow: "0 1px 4px rgba(0,0,0,0.06)" }}>
                 <h3 style={{ margin: "0 0 14px", fontSize: 15, fontWeight: 700 }}>User Management ({users.length} users)</h3>
-                {(currentUser?.role === "Super Admin" || currentUser?.role === "Admin") ? (
+                {(currentUser?.role === "Admin") ? (
                   <div style={{ marginBottom: 18, display: "flex", justifyContent: "flex-end" }}>
                     <button onClick={() => { setShowAddUserModal(true); setNewUser({ name: "", email: "", password: "", role: "Viewer" }); }} style={{ ...bP, padding: "10px 20px", fontSize: 13, background: "linear-gradient(135deg,#3b82f6,#1e40af)", color: "#fff" }}>+ Add New User</button>
                   </div>
@@ -4583,13 +4523,13 @@ export default function HelpDesk() {
                     <FilterableHeader label="Role" field="role" data={users} filters={userSort} onFilter={setUserSort} style={thStyle} />
                     <FilterableHeader label="Status" field="status" data={users} filters={userSort} onFilter={setUserSort} style={thStyle} />
                     <FilterableHeader label="Account Status" field="active" data={users} filters={userSort} onFilter={setUserSort} style={thStyle} getVal={(row, f) => row.active ? "Activated" : "Deactivated"} />
-                    {(currentUser?.role === "Super Admin" || currentUser?.role === "Admin") && <th style={thStyle}>Actions</th>}
+                    {(currentUser?.role === "Admin") && <th style={thStyle}>Actions</th>}
                   </tr></thead>
                   <tbody>{applySort(users, userSort).map(u => (
                     <tr key={u.id} className="rh">
                       <td style={tdStyle}><div style={{ display: "flex", alignItems: "center", gap: 8 }}><Avatar name={u.name} size={28} /><span style={{ fontSize: 13, fontWeight: 600 }}>{u.name}</span></div></td>
                       <td style={{ ...tdStyle, color: "#64748b", fontSize: 12 }}>{u.email}</td>
-                      <td style={tdStyle}><Badge label={u.role} style={{ background: u.role === "Super Admin" ? "#fca5a5" : "#ede9fe", color: u.role === "Super Admin" ? "#991b1b" : "#6d28d9" }} /></td>
+                      <td style={tdStyle}><Badge label={u.role} style={{ background: "#ede9fe", color: "#6d28d9" }} /></td>
                       <td style={tdStyle}>{(() => {
                         // Check DB status field which is updated on login/logout
                         const statusValue = u.status === "Logged-In" ? "Logged-In" : "Logged-Out";
@@ -4597,8 +4537,8 @@ export default function HelpDesk() {
                         return sStyle ? <Badge label={sStyle.l} style={{ background: sStyle.bg, color: sStyle.c }} /> : <Badge label={statusValue} />;
                       })()}</td>
                       <td style={tdStyle}><Badge label={u.active ? "Activated" : "Deactivated"} style={{ background: u.active ? "#dcfce7" : "#fee2e2", color: u.active ? "#15803d" : "#ef4444" }} /></td>
-                      {(currentUser?.role === "Super Admin" || currentUser?.role === "Admin") && (() => {
-                        // Admins can now change role of other admins
+                      {(currentUser?.role === "Admin") && (() => {
+                        // Admins can change role of other users
                         return (
                           <td style={tdStyle}><div style={{ display: "flex", gap: 6, alignItems: "center" }}>
                             <select value={u.role} onChange={async (e) => {
