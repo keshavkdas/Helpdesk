@@ -1179,50 +1179,46 @@ async function migrateWebcastsOnStartup() {
     }
 }
 
-// ─── THE DEFINITIVE ONE-TIME PATCH ──────────────────────────────────────────
-async function finalizeDepartmentSync() {
+// ─── THE NUCLEAR OPTION: WIPE & REBUILD ─────────────────────────────────────
+async function rebuildDepartmentsFromScratch() {
     try {
-        console.log("🛠️  Force-syncing all unique departments to all organizations...");
+        console.log("🧨 Starting Wipe and Rebuild of Departments...");
 
-        // 1. Get all organizations currently in the database
+        // 1. Get all Orgs
         const allOrgs = await Org.findAll();
 
-        // 2. Get every unique department name that exists anywhere in your table
+        // 2. Get unique Department names from the existing data before we wipe it
         const uniqueDeptNames = await Department.findAll({
             attributes: [[Sequelize.fn('DISTINCT', Sequelize.col('name')), 'name']]
         });
 
-        console.log(`📊 Found ${allOrgs.length} Orgs and ${uniqueDeptNames.length} unique Dept names.`);
+        if (allOrgs.length === 0 || uniqueDeptNames.length === 0) {
+            console.log("⚠️ No Orgs or Dept names found. Aborting wipe to save data.");
+            return;
+        }
 
-        let createdCount = 0;
+        // 3. DESTROY ALL existing department records
+        await Department.destroy({ where: {}, truncate: false });
+        console.log("🗑️  Departments table emptied.");
 
+        // 4. Rebuild the list for every Org
+        let count = 0;
         for (const org of allOrgs) {
-            for (const dept of uniqueDeptNames) {
-                // Skip if name or orgName is invalid
-                if (!dept.name || !org.name) continue;
+            for (const d of uniqueDeptNames) {
+                if (!d.name || !org.name) continue;
 
-                // 3. Check if this Org already has this Dept
-                const exists = await Department.findOne({
-                    where: {
-                        name: dept.name,
-                        orgName: org.name
-                    }
+                await Department.create({
+                    name: d.name,
+                    orgName: org.name,
+                    sortOrder: 0
                 });
-
-                // 4. If it doesn't exist, create it
-                if (!exists) {
-                    await Department.create({
-                        name: dept.name,
-                        orgName: org.name,
-                        sortOrder: 0
-                    });
-                    createdCount++;
-                }
+                count++;
             }
         }
-        console.log(`✅ Success! Created ${createdCount} missing Org-Dept links.`);
+
+        console.log(`✅ Success! Rebuilt table with ${count} total records.`);
     } catch (err) {
-        console.error("❌ Final Sync Failed:", err.message);
+        console.error("❌ Nuclear Rebuild Failed:", err.message);
     }
 }
 
@@ -1231,7 +1227,8 @@ const PORT = process.env.PORT || 5000;
 sequelize.sync({ alter: true }).then(async () => {
     console.log("✅ MySQL Synced & Connected");
 
-    await finalizeDepartmentSync();
+    // 👇 ADD THIS LINE HERE 👇
+    await rebuildDepartmentsFromScratch();
 
     // Data Migration: Normalize user statuses
     try {
