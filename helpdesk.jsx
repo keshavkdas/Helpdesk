@@ -220,19 +220,19 @@ const CustomAlert = ({ show, message, type, onDismiss }) => {
         @keyframes slideInFade {
           0% {
             opacity: 0;
-            transform: translateX(30px);
+            transform: translateY(-20px);
           }
           5% {
             opacity: 1;
-            transform: translateX(0);
+            transform: translateY(0);
           }
           95% {
             opacity: 1;
-            transform: translateX(0);
+            transform: translateY(0);
           }
           100% {
             opacity: 0;
-            transform: translateX(30px);
+            transform: translateY(-20px);
           }
         }
         .custom-alert {
@@ -245,7 +245,8 @@ const CustomAlert = ({ show, message, type, onDismiss }) => {
         style={{
           position: "fixed",
           top: 20,
-          right: 20,
+          left: "50%",
+          transform: "translateX(-50%)",
           background: bgColor,
           border: `2px solid ${borderColor}`,
           color: textColor,
@@ -3591,15 +3592,95 @@ export default function HelpDesk() {
   // ─── NAVIGATION HELPERS ────────────────────────────────────────────────────
 
   const markBellRead = () => {
-    // Mark all current bell items as seen in the ref so next poll doesn't re-count them
-    dailyNotifs.forEach(n => { if (n.dbId) seenActivityIds.current.add(n.dbId); });
-    // ✅ NEW: Persist to localStorage so it survives page reloads
+    // DO NOT auto-mark as read when bell is opened
+    // Only mark as read when user actually CLICKS on the notification
+  };
+
+  // ✅ NEW: Mark a specific notification as read AND navigate to the source
+  const handleNotificationClick = async (notification) => {
+    // Mark this specific notification as read
+    seenActivityIds.current.add(notification.dbId);
     try {
       localStorage.setItem("seenActivityIds", JSON.stringify(Array.from(seenActivityIds.current)));
     } catch (e) {
       console.error("Failed to save seenActivityIds:", e);
     }
-    setBellUnread(0);
+
+    // Update bell unread count
+    const unseenCount = dailyNotifs.filter(b => !seenActivityIds.current.has(b.dbId)).length;
+    setBellUnread(unseenCount);
+
+    // Close bell panel
+    setShowBellPanel(false);
+
+    // Navigate based on notification type (broadcastType)
+    const notificationType = notification.type;
+
+    try {
+      switch (notificationType) {
+        // ── TICKET EVENTS ──
+        case "ticket_created":
+        case "ticket_closed":
+        case "ticket_status":
+        case "ticket_edited":
+        case "ticket_forwarded":
+        case "forward_approved":
+        case "forward_rejected":
+          if (notification.ticketId) {
+            const ticket = dashboardData.find(t => t.id === notification.ticketId);
+            if (ticket) {
+              setSelectedTicket(ticket);
+              setShowTicketDetailsModal(true);
+              setView("tickets");
+            } else {
+              setCustomAlert({ show: true, message: "Ticket not found", type: "error" });
+            }
+          }
+          break;
+
+        // ── PROJECT EVENTS ──
+        case "project_created":
+          setView("projects");
+          break;
+
+        // ── SETTINGS EVENTS (Department, Category, Organization, Location, Vendor, User) ──
+        case "dept_added":
+          setView("settings");
+          setSettingsTab("departments");
+          break;
+
+        case "category_added":
+          setView("settings");
+          setSettingsTab("categories");
+          break;
+
+        case "org_added":
+          setView("settings");
+          setSettingsTab("organizations");
+          break;
+
+        case "location_added":
+          setView("settings");
+          setSettingsTab("locations");
+          break;
+
+        case "vendor_added":
+          setView("settings");
+          setSettingsTab("vendors");
+          break;
+
+        case "user_added":
+          setView("settings");
+          setSettingsTab("users");
+          break;
+
+        default:
+          // Generic fallback - no popup, just silent
+          break;
+      }
+    } catch (error) {
+      console.error("Error navigating from notification:", error);
+    }
   };
 
   const markInboxRead = async () => {
@@ -4553,7 +4634,7 @@ export default function HelpDesk() {
             <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
               {/* 🔔 Bell — daily activity log */}
               <div style={{ position: "relative" }}>
-                <button onClick={() => { setShowBellPanel(p => !p); setShowInboxPanel(false); if (!showBellPanel) markBellRead(); }}
+                <button onClick={() => { setShowBellPanel(p => !p); setShowInboxPanel(false); }}
                   style={{ width: 36, height: 36, borderRadius: 9, border: "1.5px solid #e2e8f0", background: showBellPanel ? "#eff6ff" : "#fff", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 16, position: "relative" }}>
                   🔔
                   {bellUnread > 0 && <span style={{ position: "absolute", top: -4, right: -4, background: "#ef4444", color: "#fff", borderRadius: 99, fontSize: 9, fontWeight: 700, minWidth: 16, height: 16, display: "flex", alignItems: "center", justifyContent: "center", padding: "0 3px" }}>{bellUnread > 99 ? "99+" : bellUnread}</span>}
@@ -4569,15 +4650,21 @@ export default function HelpDesk() {
                       {dailyNotifs.length === 0 && <div style={{ padding: 28, textAlign: "center", color: "#94a3b8", fontSize: 13 }}>No activity yet today</div>}
                       {/* ✅ Show ALL notifications, but only count NEW ones on badge */}
                       {dailyNotifs.map(n => (
-                        <div key={n.id} style={{ padding: "10px 16px", borderBottom: "1px solid #f8fafc", display: "flex", alignItems: "flex-start", gap: 10, background: seenActivityIds.current.has(n.dbId) ? "#fff" : (n.fromBroadcast ? "#fff7ed" : "#f0f9ff"), opacity: seenActivityIds.current.has(n.dbId) ? 0.7 : 1 }}>
+                        <div key={n.id} onClick={() => handleNotificationClick(n)} style={{ padding: "10px 16px", borderBottom: "1px solid #f8fafc", display: "flex", alignItems: "flex-start", gap: 10, background: seenActivityIds.current.has(n.dbId) ? "#fff" : (n.fromBroadcast ? "#fff7ed" : "#f0f9ff"), opacity: seenActivityIds.current.has(n.dbId) ? 0.7 : 1, cursor: "pointer", transition: "all 0.2s ease", borderLeft: seenActivityIds.current.has(n.dbId) ? "3px solid #e2e8f0" : "3px solid #3b82f6" }}
+                          onMouseEnter={e => { if (!seenActivityIds.current.has(n.dbId)) { e.currentTarget.style.background = n.fromBroadcast ? "#fef0e7" : "#eff6ff"; e.currentTarget.style.boxShadow = "inset 0 1px 3px rgba(0,0,0,0.05)"; } }}
+                          onMouseLeave={e => { e.currentTarget.style.background = seenActivityIds.current.has(n.dbId) ? "#fff" : (n.fromBroadcast ? "#fff7ed" : "#f0f9ff"); e.currentTarget.style.boxShadow = "none"; }}>
                           <span style={{ fontSize: 16, flexShrink: 0, marginTop: 1 }}>{n.icon}</span>
                           <div style={{ flex: 1, minWidth: 0 }}>
                             {n.fromBroadcast && n.by && n.by !== currentUser?.name && (
                               <div style={{ fontSize: 9, fontWeight: 700, color: "#f97316", textTransform: "uppercase", marginBottom: 2, letterSpacing: "0.05em" }}>📢 {n.by}</div>
                             )}
                             <div style={{ fontSize: 12, fontWeight: 500, color: "#1e293b", lineHeight: 1.4 }}>{n.text}</div>
-                            {n.ticketId && <div style={{ fontSize: 10, color: "#3b82f6", marginTop: 2, fontFamily: "monospace" }}>{n.ticketId}</div>}
-                            <div style={{ fontSize: 10, color: "#94a3b8", marginTop: 2 }}>{new Date(n.time).toLocaleTimeString()} {seenActivityIds.current.has(n.dbId) && <span style={{ marginLeft: 8, color: "#22c55e", fontWeight: 600 }}>✓ Read</span>}</div>
+                            {n.ticketId && <div style={{ fontSize: 10, color: "#3b82f6", marginTop: 2, fontFamily: "monospace", fontWeight: 600 }}>🎫 {n.ticketId}</div>}
+                            <div style={{ fontSize: 10, color: "#94a3b8", marginTop: 2 }}>
+                              {new Date(n.time).toLocaleTimeString()}
+                              {seenActivityIds.current.has(n.dbId) && <span style={{ marginLeft: 8, color: "#22c55e", fontWeight: 600 }}>✓ Read</span>}
+                              {!seenActivityIds.current.has(n.dbId) && <span style={{ marginLeft: 8, color: "#f97316", fontWeight: 600 }}>● Unread</span>}
+                            </div>
                           </div>
                         </div>
                       ))}
@@ -7088,7 +7175,7 @@ export default function HelpDesk() {
       )}
 
       {/* ── Toast Notifications ── */}
-      <div style={{ position: "fixed", top: 20, right: 20, zIndex: 9999, display: "flex", flexDirection: "column", gap: 10 }}>
+      <div style={{ position: "fixed", top: 20, left: "50%", transform: "translateX(-50%)", zIndex: 9999, display: "flex", flexDirection: "column", gap: 10, alignItems: "center" }}>
         {toasts.map(toast => (
           <div
             key={toast.id}
@@ -7117,8 +7204,8 @@ export default function HelpDesk() {
 
       <style>{`
         @keyframes slideIn {
-          from { opacity: 0; transform: translateX(400px); }
-          to { opacity: 1; transform: translateX(0); }
+          from { opacity: 0; transform: translateY(-20px); }
+          to { opacity: 1; transform: translateY(0); }
         }
         @keyframes floatIn {
           from { opacity: 0; transform: translateY(-18px) scale(0.97); }
