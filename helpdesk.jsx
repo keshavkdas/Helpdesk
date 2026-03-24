@@ -293,6 +293,14 @@ const ConfirmationModal = ({ show, title, message, onConfirm, onCancel, fields, 
     if (onLunch) onLunch();
   };
 
+  // ✅ Filter fields to show location only when logoutReason is "Going for ticket"
+  const visibleFields = fields ? fields.filter(f => {
+    if (f.name === "location") {
+      return fieldValues.logoutReason === "Going for ticket";
+    }
+    return true;
+  }) : [];
+
   return (
     <div style={{
       position: "fixed",
@@ -336,9 +344,9 @@ const ConfirmationModal = ({ show, title, message, onConfirm, onCancel, fields, 
         </p>
 
         {/* Fields */}
-        {fields && fields.length > 0 && (
+        {visibleFields && visibleFields.length > 0 && (
           <div style={{ marginBottom: 20, display: "flex", flexDirection: "column", gap: 14 }}>
-            {fields.map(field => (
+            {visibleFields.map(field => (
               <div key={field.name}>
                 <label style={{ fontSize: 12, fontWeight: 600, color: "#374151", display: "block", marginBottom: 6 }}>
                   {field.label}
@@ -1301,6 +1309,12 @@ export default function HelpDesk() {
   const [showChangePassword, setShowChangePassword] = useState(false);
   const [passwordForm, setPasswordForm] = useState({ oldPassword: "", newPassword: "", confirmPassword: "" });
   const [customAlert, setCustomAlert] = useState({ show: false, message: "", type: "success" });
+
+  // ✅ NEW: Activity Logging & Session Tracking
+  const [activityLogs, setActivityLogs] = useState([]);
+  const [sessionHistory, setSessionHistory] = useState([]);
+  const [showSessionHistory, setShowSessionHistory] = useState(false);
+  const [showActivityLog, setShowActivityLog] = useState(false);
 
   // ✅ NEW: Location & Ticket Tracking
   const [currentTicketId, setCurrentTicketId] = useState("");
@@ -3443,63 +3457,103 @@ export default function HelpDesk() {
 
       const { canLogout, requiresReason, currentStatus } = checkRes.data;
 
-      // If already Off Duty, can logout immediately
-      if (canLogout && currentStatus === "Off Duty") {
+      // ✅ ENHANCED: Off Duty status goes straight to logout
+      // User is already Off Duty, no need for dialog
+      if (currentStatus === "Off Duty") {
         clearSession();
         setCurrentUser(null);
         setProfileOpen(false);
         return;
       }
 
-      // ✅ NEW: Show logout form for any non-Off Duty status
-      // Must explicitly set to Off Duty with reason
+      // ✅ ENHANCED: Show comprehensive logout form with conditional fields
+      // - Always show: Location
+      // - On Lunch: Show "On Lunch" status confirmation (no reason needed)
+      // - On Ticket/On Duty: Show reason dropdown + ticket dropdown
+      // - Idle: Show reason dropdown + location field
+
+      const fields = [];
+
+      // ✅ If On Lunch Break: Show simple confirmation, no reason needed
+      if (currentStatus === "On Lunch") {
+        // User on lunch just needs to mark Off Duty when logging out
+        fields.push({
+          name: "lunchConfirm",
+          label: "📝 Note",
+          type: "readonly",
+          value: "You're currently on lunch. Logging out will mark you as Off Duty.",
+          required: false
+        });
+      } else {
+        // ✅ Always add reason for logout when not on lunch
+        fields.push({
+          name: "logoutReason",
+          label: "📝 Reason for logout",
+          type: "select",
+          options: [
+            { value: "End of shift", label: "End of shift" },
+            { value: "Going for ticket", label: "Going for ticket" },
+            { value: "Going for lunch", label: "Going for lunch" }
+          ],
+          value: "",
+          required: true
+        });
+
+        // ✅ Add location field (will be conditionally shown only when reason is "Going for ticket")
+        fields.push({
+          name: "location",
+          label: "📍 Location",
+          type: "select",
+          options: locations.map(loc => ({ value: loc.name, label: loc.name })),
+          value: currentUser?.currentLocation || "",
+          required: false
+        });
+      }
+
       setConfirmModal({
         show: true,
-        title: "Set Status to Off Duty",
+        title: currentStatus === "On Lunch" ? "Logout from Lunch Break" : "Set Status to Off Duty",
         confirmLabel: "Mark Off Duty & Logout",
-        message: `Current status: ${currentStatus}. Please provide a reason for logging out.`,
-        fields: [
-          {
-            name: "logoutReason",
-            label: "📝 Reason for logout",
-            type: "select",
-            options: [
-              { value: "End of shift", label: "End of shift" },
-              { value: "On Lunch Break", label: "On Lunch Break" },
-              { value: "Break", label: "Break" },
-              { value: "Completed work", label: "Completed work" },
-              { value: "Going home", label: "Going home" },
-              { value: "Other", label: "Other" }
-            ],
-            value: ""
-          }
-        ],
+        message: `Current status: ${currentStatus}. Mark yourself as Off Duty and logout.`,
+        fields: fields,
         onConfirm: async (data) => {
           try {
-            if (!data.logoutReason || data.logoutReason.trim() === "") {
+            // ✅ Validation: Reason required only when NOT on lunch
+            if (currentStatus !== "On Lunch" && (!data.logoutReason || data.logoutReason.trim() === "")) {
               setCustomAlert({ show: true, message: "Please provide a reason for logout", type: "error" });
               return;
             }
 
-            // Set to Off Duty with reason
+            // ✅ Validation: Location only required when reason is "Going for ticket"
+            if (data.logoutReason === "Going for ticket" && (!data.location || data.location.trim() === "")) {
+              setCustomAlert({ show: true, message: "Please select your location for ticket", type: "error" });
+              return;
+            }
+
+            // Build update object
             const up = {
               ...currentUser,
               status: "Off Duty",
-              logoutReason: data.logoutReason,
+              currentLocation: data.location ? data.location : currentUser.currentLocation,
               currentTicketId: null,
-              currentLocation: null,
               lunchStatus: false
             };
+
+            // ✅ Only add logoutReason if not on lunch
+            if (currentStatus !== "On Lunch") {
+              up.logoutReason = data.logoutReason;
+            }
 
             // Send to server
             const res = await axios.put(`${USERS_API}/${currentUser.id}`, up);
 
             if (res.status === 200 || res.status === 201) {
-              // Successfully updated to Off Duty - now logout
+              // ✅ Successfully updated to Off Duty - now logout
               clearSession();
               setCurrentUser(null);
               setProfileOpen(false);
               setConfirmModal({ show: false });
+              setCustomAlert({ show: true, message: "Logged out successfully", type: "success" });
             }
           } catch (err) {
             if (err.response?.status === 400) {
@@ -3582,6 +3636,116 @@ export default function HelpDesk() {
     } catch (err) { setCustomAlert({ show: true, message: "Failed to update status", type: "error" }); }
   };
 
+  // ✅ NEW: Handle lunch break toggle
+  const handleLunchBreak = async () => {
+    try {
+      const isCurrentlyOnLunch = currentUser.status === "On Lunch";
+      const newStatus = isCurrentlyOnLunch ? "On Duty" : "On Lunch";
+
+      const up = {
+        ...currentUser,
+        status: newStatus,
+        // ✅ If going to lunch, clear ticket and location tracking
+        // If returning from lunch, restore to On Duty
+        currentTicketId: isCurrentlyOnLunch ? currentUser.currentTicketId : null,
+        currentLocation: isCurrentlyOnLunch ? currentUser.currentLocation : null
+      };
+
+      await axios.put(`${USERS_API}/${currentUser.id}`, up);
+      saveSession(up);
+      setCurrentUser(up);
+      setUsers(users.map(u => u.id === currentUser.id ? up : u));
+
+      const msg = newStatus === "On Lunch"
+        ? "🍽️ You're now on lunch break"
+        : "👤 You're back to on duty";
+      setCustomAlert({ show: true, message: msg, type: "success" });
+    } catch (err) {
+      setCustomAlert({ show: true, message: "Failed to update status", type: "error" });
+    }
+  };
+
+  // ✅ NEW: Log activity to session history
+  const logActivity = async (action, details = {}) => {
+    try {
+      const activityLog = {
+        userId: currentUser?.id,
+        action: action, // "logout", "lunch_start", "lunch_end", "ticket_assigned", "location_updated"
+        timestamp: new Date().toISOString(),
+        details: {
+          status: currentUser?.status,
+          location: currentUser?.currentLocation,
+          ticket: currentUser?.currentTicketId,
+          ...details
+        }
+      };
+
+      // Send to server for logging
+      await axios.post(`${BASE_URL}/activity-logs`, activityLog);
+      return activityLog;
+    } catch (err) {
+      console.error("Failed to log activity:", err);
+      // Don't fail the entire operation if logging fails
+    }
+  };
+
+  // ✅ NEW: Check idle status and flag user
+  const checkAndMarkIdle = async () => {
+    try {
+      if (!currentUser) return;
+
+      // User is idle if:
+      // 1. Has assigned ticket
+      // 2. Is logged in (On Duty / On Ticket)
+      // 3. Location field is empty or not set
+
+      const hasTicket = tickets.some(t =>
+        t.assignees?.some(a => a.id === currentUser.id) &&
+        (t.status === "Open" || t.status === "In Progress")
+      );
+
+      const isLoggedIn = currentUser.status === "On Duty" || currentUser.status === "On Ticket";
+      const locationEmpty = !currentUser.currentLocation || currentUser.currentLocation.trim() === "";
+
+      if (hasTicket && isLoggedIn && locationEmpty) {
+        // Mark as Idle
+        const up = {
+          ...currentUser,
+          status: "Idle",
+          lastIdleCheck: new Date().toISOString()
+        };
+
+        await axios.put(`${USERS_API}/${currentUser.id}`, up);
+        saveSession(up);
+        setCurrentUser(up);
+        setUsers(users.map(u => u.id === currentUser.id ? up : u));
+
+        // Log the idle detection
+        await logActivity("idle_detected", {
+          reason: "Assigned ticket without location",
+          ticketCount: tickets.filter(t => t.assignees?.some(a => a.id === currentUser.id)).length
+        });
+      }
+    } catch (err) {
+      console.error("Idle check error:", err);
+    }
+  };
+
+  // ✅ NEW: Track session time
+  const calculateSessionDuration = () => {
+    if (!currentUser?.loginTime) return null;
+    const loginTime = new Date(currentUser.loginTime);
+    const now = new Date();
+    const durationMs = now - loginTime;
+    const durationMinutes = Math.floor(durationMs / 60000);
+    const durationHours = Math.floor(durationMinutes / 60);
+
+    if (durationHours > 0) {
+      return `${durationHours}h ${durationMinutes % 60}m`;
+    }
+    return `${durationMinutes}m`;
+  };
+
   // ✅ NEW: Update location and ticket tracking
   const updateTracking = async () => {
     try {
@@ -3654,10 +3818,13 @@ export default function HelpDesk() {
         case "forward_approved":
         case "forward_rejected":
           if (notification.ticketId) {
-            const ticket = dashboardData.find(t => t.id === notification.ticketId);
+            // First try to find in dashboardData, then in all tickets
+            let ticket = dashboardData.find(t => t.id === notification.ticketId);
+            if (!ticket) {
+              ticket = tickets.find(t => t.id === notification.ticketId);
+            }
             if (ticket) {
-              setSelectedTicket(ticket);
-              setShowTicketDetailsModal(true);
+              setSelTicket(ticket);
               setView("tickets");
             } else {
               setCustomAlert({ show: true, message: "Ticket not found", type: "error" });
@@ -4263,13 +4430,13 @@ export default function HelpDesk() {
               <button onClick={() => { setProfileForm({ name: currentUser.name, phone: currentUser.phone || "" }); setEditProfileOpen(true); }} style={{ width: "100%", padding: "6px 10px", background: "#334155", border: "none", borderRadius: 6, color: "#f8fafc", fontSize: 12, fontWeight: 600, cursor: "pointer", marginBottom: 8, textAlign: "left" }}>👤 View Profile</button>
               <div style={{ fontSize: 10, fontWeight: 600, color: "#94a3b8", marginBottom: 6, textTransform: "uppercase", padding: "0 4px" }}>Status</div>
               <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-                {/* ✅ Show both On Duty and Off Duty - allow toggling */}
-                {statusOpts.filter(s => s.l === "On Duty" || s.l === "Off Duty").map(s => (
-                  <button key={s.l} onClick={() => updateStatusDirect(s.l)} style={{ display: "flex", alignItems: "center", gap: 6, background: "transparent", border: "none", padding: "4px 8px", borderRadius: 4, cursor: "pointer", color: currentUser.status === s.l ? s.c : "#cbd5e1" }}>
-                    <span style={{ width: 8, height: 8, borderRadius: "50%", background: s.c, boxShadow: currentUser.status === s.l ? `0 0 0 2px ${s.bg}` : "none" }} />
-                    <span style={{ fontSize: 11, fontWeight: currentUser.status === s.l ? 700 : 500 }}>{s.l}</span>
-                  </button>
-                ))}
+                {/* ✅ UPDATED: Show only current status as read-only */}
+                <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "4px 8px", borderRadius: 4 }}>
+                  <span style={{ width: 8, height: 8, borderRadius: "50%", background: (statusOpts.find(s => s.l === currentUser.status)?.c || "#94a3b8") }} />
+                  <span style={{ fontSize: 11, fontWeight: 600, color: (statusOpts.find(s => s.l === currentUser.status)?.c || "#cbd5e1") }}>
+                    {currentUser.status === "On Lunch" ? "🍽️ On Lunch" : currentUser.status === "On Duty" ? "On Duty" : "Off Duty"}
+                  </span>
+                </div>
               </div>
 
               <button onClick={handleLogout} style={{ width: "100%", padding: "6px 10px", background: "transparent", border: "none", color: "#ef4444", fontSize: 12, fontWeight: 600, cursor: "pointer", marginTop: 8, textAlign: "left", borderTop: "1px solid #334155", paddingTop: 8 }}>Log Out</button>
@@ -4284,12 +4451,56 @@ export default function HelpDesk() {
           <Avatar name={currentUser.name} size={64} />
           <div><div style={{ fontSize: 18, fontWeight: 700, color: "#0f172a" }}>{currentUser.name}</div><div style={{ fontSize: 13, color: "#64748b" }}>{currentUser.role}</div></div>
         </div>
+
+        {/* ✅ NEW: Session Information Section */}
+        <div style={{ marginBottom: 18, padding: "10px 14px", background: "#f0f9ff", borderRadius: 8, border: "1px solid #bfdbfe" }}>
+          <div style={{ fontSize: 10, fontWeight: 600, color: "#0c4a6e", textTransform: "uppercase", marginBottom: 8 }}>📊 Session Info</div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12 }}>
+              <span style={{ color: "#475569" }}>Current Status:</span>
+              <span style={{ fontWeight: 600, color: currentUser.status === "On Duty" ? "#22c55e" : currentUser.status === "On Lunch" ? "#f97316" : "#f59e0b" }}>
+                {currentUser.status || "Off Duty"}
+              </span>
+            </div>
+            <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12 }}>
+              <span style={{ color: "#475569" }}>Location:</span>
+              <span style={{ fontWeight: 500, color: "#0f172a" }}>{currentUser.currentLocation || "Not Set"}</span>
+            </div>
+            {currentUser.currentTicketId && (
+              <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12 }}>
+                <span style={{ color: "#475569" }}>Current Ticket:</span>
+                <span style={{ fontWeight: 500, color: "#0f172a" }}>{currentUser.currentTicketId}</span>
+              </div>
+            )}
+            {currentUser.loginTime && (
+              <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12 }}>
+                <span style={{ color: "#475569" }}>Session Time:</span>
+                <span style={{ fontWeight: 500, color: "#0f172a" }}>{calculateSessionDuration() || "Computing..."}</span>
+              </div>
+            )}
+          </div>
+        </div>
+
         <div style={{ marginBottom: 18, padding: "10px 14px", background: "#f8fafc", borderRadius: 8 }}>
           <div style={{ fontSize: 10, fontWeight: 600, color: "#94a3b8", textTransform: "uppercase", marginBottom: 2 }}>Email Address (Unchangeable)</div>
           <div style={{ fontSize: 13, color: "#334155", fontWeight: 500 }}>{currentUser.email}</div>
         </div>
         <FF label="Full Name"><input style={iS} value={profileForm.name} onChange={e => setProfileForm({ ...profileForm, name: e.target.value })} /></FF>
         <FF label="Phone Number"><input style={iS} value={profileForm.phone} onChange={e => setProfileForm({ ...profileForm, phone: e.target.value })} /></FF>
+
+        {/* ✅ NEW: Activity & Session History Buttons */}
+        <div style={{ marginTop: 16, display: "flex", gap: 8 }}>
+          <button
+            onClick={() => { setShowActivityLog(true); }}
+            style={{ flex: 1, padding: "8px 12px", background: "#dbeafe", border: "1px solid #bfdbfe", borderRadius: 6, color: "#0c4a6e", fontWeight: 600, cursor: "pointer", fontSize: 12 }}>
+            📋 Activity Log
+          </button>
+          <button
+            onClick={() => { setShowSessionHistory(true); }}
+            style={{ flex: 1, padding: "8px 12px", background: "#f3e8ff", border: "1px solid #e9d5ff", borderRadius: 6, color: "#6b21a8", fontWeight: 600, cursor: "pointer", fontSize: 12 }}>
+            ⏱️ Session History
+          </button>
+        </div>
 
         {/* ✅ NEW: Change Password Section */}
         <div style={{ marginTop: 20, paddingTop: 20, borderTop: "1px solid #e2e8f0" }}>
@@ -4625,7 +4836,7 @@ export default function HelpDesk() {
             {view === "dashboard" && (
               <>
                 <div style={{ position: "relative", width: 180 }}>
-                  <input type="text" placeholder="Select org..." value={dashboardOrgSearch ? dashboardOrgSearch : (dashboardOrg !== "all" ? dashboardOrg : "")} onChange={e => setDashboardOrgSearch(e.target.value)} onFocus={() => { setDashboardOrgSearch(""); setShowDashboardOrgDD(true); }} style={{ ...sS, width: "100%", fontSize: 13, padding: "7px 10px" }} />
+                  <input type="text" placeholder="Select organization..." value={dashboardOrgSearch ? dashboardOrgSearch : (dashboardOrg !== "all" ? dashboardOrg : "")} onChange={e => setDashboardOrgSearch(e.target.value)} onFocus={() => { setDashboardOrgSearch(""); setShowDashboardOrgDD(true); }} style={{ ...sS, width: "100%", fontSize: 13, padding: "7px 10px" }} />
                   {showDashboardOrgDD && <>
                     <div style={{ position: "fixed", inset: 0, zIndex: 199 }} onClick={() => { setShowDashboardOrgDD(false); setDashboardOrgSearch(""); }} />
                     <div style={{ position: "absolute", top: "calc(100% + 3px)", left: 0, right: 0, background: "#fff", border: "1.5px solid #e2e8f0", borderRadius: 8, zIndex: 200, boxShadow: "0 4px 12px rgba(0,0,0,0.1)", maxHeight: 200, overflowY: "auto" }}>
@@ -5467,11 +5678,32 @@ export default function HelpDesk() {
 
                 {/* ✅ Update button for agents only */}
                 {selAgent.role === "Agent" && (
-                  <button onClick={() => {
-                    setCurrentTicketId(users.find(x => x.id === selAgent.id)?.currentTicketId || "");
-                    setCurrentLocation(users.find(x => x.id === selAgent.id)?.currentLocation || "");
-                    setShowLocationModal(true);
-                  }} style={{ padding: "8px 16px", background: "#3b82f6", border: "none", borderRadius: 6, color: "#fff", fontWeight: 600, cursor: "pointer", fontSize: 12, whiteSpace: "nowrap" }}>✏️ Update Activity</button>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                    <button onClick={() => {
+                      setCurrentTicketId(users.find(x => x.id === selAgent.id)?.currentTicketId || "");
+                      setCurrentLocation(users.find(x => x.id === selAgent.id)?.currentLocation || "");
+                      setShowLocationModal(true);
+                    }} style={{ padding: "8px 16px", background: "#3b82f6", border: "none", borderRadius: 6, color: "#fff", fontWeight: 600, cursor: "pointer", fontSize: 12, whiteSpace: "nowrap" }}>✏️ Update Activity</button>
+                    {/* ✅ NEW: Assign as Idle button for Admin/Manager */}
+                    {(currentUser?.role === "Admin" || currentUser?.role === "Manager") && (
+                      <button
+                        onClick={async () => {
+                          try {
+                            const updatedUser = { ...selAgent, status: "Idle" };
+                            await axios.put(`${USERS_API}/${selAgent.id}`, updatedUser);
+                            setUsers(users.map(u => u.id === selAgent.id ? updatedUser : u));
+                            setSelAgent(updatedUser);
+                            setCustomAlert({ show: true, message: "✅ Agent assigned as Idle", type: "success" });
+                          } catch (e) {
+                            setCustomAlert({ show: true, message: "Failed to update agent status", type: "error" });
+                          }
+                        }}
+                        style={{ padding: "8px 16px", background: "#22c55e", border: "none", borderRadius: 6, color: "#fff", fontWeight: 600, cursor: "pointer", fontSize: 12, whiteSpace: "nowrap", transition: "background 0.2s" }}
+                        onMouseOver={e => e.target.style.background = "#16a34a"}
+                        onMouseOut={e => e.target.style.background = "#22c55e"}
+                      >⏸️ Assign as Idle</button>
+                    )}
+                  </div>
                 )}
               </div>
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 10 }}>
@@ -6170,10 +6402,9 @@ export default function HelpDesk() {
             ))}
           </div>
         )}
+        {form.category === "Webcast" && <WebcastFields f={form} setF={setForm} isProject={false} />}
         <FF label="Summary" required><input style={iS} placeholder="Brief description of the issue" value={form.summary} onChange={e => setForm({ ...form, summary: e.target.value })} /></FF>
         <FF label="Description"><textarea style={{ ...iS, height: 88, resize: "vertical" }} placeholder="Detailed description…" value={form.description} onChange={e => setForm({ ...form, description: e.target.value })} /></FF>
-        {form.category === "Webcast" && <WebcastFields f={form} setF={setForm} isProject={false} />}
-        {/* ── Custom Fields: Bottom section (after Description) ── */}
         {customAttrs.filter(a => (a.section || "grid") === "bottom").sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0)).length > 0 && (
           <>
             <div style={{ fontSize: 11, fontWeight: 600, color: "#475569", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 9, marginTop: 4 }}>Custom Fields</div>
@@ -6271,7 +6502,6 @@ export default function HelpDesk() {
           </FF>
           <FF label="Due Date"><input type="date" style={iS} value={projForm.dueDate} onChange={e => setProjForm({ ...projForm, dueDate: e.target.value })} /></FF>
         </div>
-        {projForm.category === "Webcast" && <WebcastFields f={projForm} setF={setProjForm} isProject={true} />}
         <FF label="Assignees">
           <div style={{ position: "relative" }}>
             <div onClick={() => setShowAssigneeDD(!showAssigneeDD)} style={{ ...iS, cursor: "pointer", minHeight: 40, display: "flex", alignItems: "center", flexWrap: "wrap", gap: 5, padding: projForm.assignees.length ? "6px 10px" : "9px 12px" }}>
@@ -6293,9 +6523,9 @@ export default function HelpDesk() {
             </div>}
           </div>
         </FF>
+        {projForm.category === "Webcast" && <WebcastFields f={projForm} setF={setProjForm} isProject={true} />}
         <FF label="Project Title" required><input style={iS} placeholder="Brief project name" value={projForm.title} onChange={e => setProjForm({ ...projForm, title: e.target.value })} /></FF>
         <FF label="Description"><textarea style={{ ...iS, height: 88, resize: "vertical" }} placeholder="Detailed description…" value={projForm.description} onChange={e => setProjForm({ ...projForm, description: e.target.value })} /></FF>
-        {projForm.category === "Webcast" && <WebcastFields f={projForm} setF={setProjForm} isProject={true} />}
         <div style={{ display: "flex", justifyContent: "flex-end", gap: 9, marginTop: 6 }}>
           <button onClick={() => setShowNewProject(false)} style={bG}>Cancel</button>
           <button onClick={handleProjectSubmit} style={{ ...bP, background: "linear-gradient(135deg,#8b5cf6,#6366f1)" }}>Create Project</button>
@@ -7165,6 +7395,97 @@ export default function HelpDesk() {
             <div style={{ padding: "14px 24px", borderTop: "1px solid #f1f5f9", display: "flex", justifyContent: "flex-end", gap: 9, flexShrink: 0, background: "#fff" }}>
               <button onClick={() => setShowAttrLayoutModal(false)} style={bG}>Cancel</button>
               <button onClick={saveLayoutDraft} style={bP}>💾 Save Layout</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ✅ NEW: Activity Log Modal */}
+      {showActivityLog && (
+        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 2000 }}>
+          <div style={{ background: "#fff", borderRadius: 12, width: "90%", maxWidth: 600, maxHeight: "80vh", display: "flex", flexDirection: "column", boxShadow: "0 20px 60px rgba(0,0,0,0.3)" }}>
+            {/* Header */}
+            <div style={{ padding: "20px 24px", borderBottom: "1px solid #f1f5f9", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              <h2 style={{ margin: 0, fontSize: 18, fontWeight: 700, color: "#0f172a" }}>📋 Activity Log</h2>
+              <button onClick={() => setShowActivityLog(false)} style={{ background: "none", border: "none", fontSize: 24, cursor: "pointer", color: "#94a3b8" }}>×</button>
+            </div>
+
+            {/* Content */}
+            <div style={{ flex: 1, overflowY: "auto", padding: 20 }}>
+              {activityLogs && activityLogs.length > 0 ? (
+                <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+                  {activityLogs.slice().reverse().map((log, idx) => (
+                    <div key={idx} style={{ padding: 12, background: "#f8fafc", borderRadius: 8, border: "1px solid #e2e8f0" }}>
+                      <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 8 }}>
+                        <span style={{ fontWeight: 600, color: "#0f172a" }}>{log.action}</span>
+                        <span style={{ fontSize: 12, color: "#94a3b8" }}>
+                          {new Date(log.timestamp).toLocaleString()}
+                        </span>
+                      </div>
+                      <div style={{ fontSize: 12, color: "#475569" }}>
+                        {log.details && Object.entries(log.details).map(([key, val]) => (
+                          val && <div key={key}><strong>{key}:</strong> {String(val)}</div>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div style={{ textAlign: "center", color: "#94a3b8", padding: 40 }}>
+                  No activity logged yet
+                </div>
+              )}
+            </div>
+
+            {/* Footer */}
+            <div style={{ padding: "14px 24px", borderTop: "1px solid #f1f5f9", display: "flex", justifyContent: "flex-end" }}>
+              <button onClick={() => setShowActivityLog(false)} style={{ padding: "8px 16px", background: "#e2e8f0", border: "none", borderRadius: 6, cursor: "pointer", fontWeight: 600, color: "#334155" }}>Close</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ✅ NEW: Session History Modal */}
+      {showSessionHistory && (
+        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 2000 }}>
+          <div style={{ background: "#fff", borderRadius: 12, width: "90%", maxWidth: 600, maxHeight: "80vh", display: "flex", flexDirection: "column", boxShadow: "0 20px 60px rgba(0,0,0,0.3)" }}>
+            {/* Header */}
+            <div style={{ padding: "20px 24px", borderBottom: "1px solid #f1f5f9", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              <h2 style={{ margin: 0, fontSize: 18, fontWeight: 700, color: "#0f172a" }}>⏱️ Session History</h2>
+              <button onClick={() => setShowSessionHistory(false)} style={{ background: "none", border: "none", fontSize: 24, cursor: "pointer", color: "#94a3b8" }}>×</button>
+            </div>
+
+            {/* Content */}
+            <div style={{ flex: 1, overflowY: "auto", padding: 20 }}>
+              {sessionHistory && sessionHistory.length > 0 ? (
+                <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+                  {sessionHistory.slice().reverse().map((session, idx) => (
+                    <div key={idx} style={{ padding: 12, background: "#f3e8ff", borderRadius: 8, border: "1px solid #e9d5ff" }}>
+                      <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 8 }}>
+                        <span style={{ fontWeight: 600, color: "#6b21a8" }}>Session {idx + 1}</span>
+                        <span style={{ fontSize: 12, color: "#94a3b8" }}>
+                          Login: {new Date(session.loginTime).toLocaleString()}
+                        </span>
+                      </div>
+                      <div style={{ fontSize: 12, color: "#475569", display: "flex", flexDirection: "column", gap: 4 }}>
+                        <div><strong>Duration:</strong> {session.duration || "Active"}</div>
+                        <div><strong>Status at Logout:</strong> {session.logoutStatus || "N/A"}</div>
+                        <div><strong>Location:</strong> {session.lastLocation || "Not Set"}</div>
+                        {session.logoutReason && <div><strong>Logout Reason:</strong> {session.logoutReason}</div>}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div style={{ textAlign: "center", color: "#94a3b8", padding: 40 }}>
+                  No session history available
+                </div>
+              )}
+            </div>
+
+            {/* Footer */}
+            <div style={{ padding: "14px 24px", borderTop: "1px solid #f1f5f9", display: "flex", justifyContent: "flex-end" }}>
+              <button onClick={() => setShowSessionHistory(false)} style={{ padding: "8px 16px", background: "#e2e8f0", border: "none", borderRadius: 6, cursor: "pointer", fontWeight: 600, color: "#334155" }}>Close</button>
             </div>
           </div>
         </div>
