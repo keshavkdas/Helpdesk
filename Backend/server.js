@@ -70,6 +70,8 @@ const CustomAttr = sequelize.define("CustomAttr", {
     type: { type: DataTypes.ENUM("text", "number", "select", "date", "checkbox"), defaultValue: "text" },
     options: { type: DataTypes.JSON, defaultValue: [] },
     required: { type: DataTypes.BOOLEAN, defaultValue: false },
+    section: { type: DataTypes.STRING, defaultValue: "grid" }, // "grid" | "below-assignees" | "bottom"
+    sortOrder: { type: DataTypes.INTEGER, defaultValue: 0 },
 }, { timestamps: true });
 
 const Satsang = sequelize.define("Satsang", {
@@ -461,12 +463,20 @@ app.delete("/api/satsangs/:id", async (req, res) => {
 });
 
 app.get("/api/customAttrs", async (req, res) => {
-    try { res.json(await CustomAttr.findAll()); }
+    try { res.json(await CustomAttr.findAll({ order: [['sortOrder', 'ASC'], ['createdAt', 'ASC']] })); }
     catch (err) { res.status(500).json({ error: err.message }); }
 });
 app.post("/api/customAttrs", async (req, res) => {
     try { res.status(201).json(await CustomAttr.create(req.body)); }
     catch (err) { res.status(500).json({ error: err.message }); }
+});
+app.put("/api/customAttrs/:id", async (req, res) => {
+    try {
+        const attr = await CustomAttr.findByPk(req.params.id);
+        if (!attr) return res.status(404).json({ error: "Attribute not found" });
+        await attr.update(req.body);
+        res.json(fmt(attr));
+    } catch (err) { res.status(500).json({ error: err.message }); }
 });
 app.delete("/api/customAttrs/:id", async (req, res) => {
     try {

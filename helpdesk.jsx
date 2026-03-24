@@ -1152,7 +1152,12 @@ export default function HelpDesk() {
   const [newOrg, setNewOrg] = useState({ name: "", domain: "", phone: "" });
   const [newCat, setNewCat] = useState({ name: "", color: "#3b82f6" });
   const [newUser, setNewUser] = useState({ name: "", email: "", password: "", role: "Viewer" });
-  const [newAttr, setNewAttr] = useState({ name: "", type: "text", options: "", required: false });
+  const [newAttr, setNewAttr] = useState({ name: "", type: "text", options: "", required: false, section: "grid", sortOrder: 0 });
+  const [attrDragIdx, setAttrDragIdx] = useState(null);
+  const [showAttrLayoutModal, setShowAttrLayoutModal] = useState(false);
+  const [layoutDraft, setLayoutDraft] = useState([]);
+  const [layoutDragIdx, setLayoutDragIdx] = useState(null);
+  const [layoutDragOver, setLayoutDragOver] = useState(null);
 
   // ── Inline ticket/project category+attr managers ──
   const [ticketCategories, setTicketCategories] = useState([]);
@@ -2950,18 +2955,63 @@ export default function HelpDesk() {
         ...newAttr,
         options: typeof newAttr.options === "string"
           ? newAttr.options.split(",").map(s => s.trim()).filter(Boolean)
-          : []
+          : [],
+        section: newAttr.section || "grid",
+        sortOrder: customAttrs.length
       };
-
-      // Send POST request to CUSTOM_ATTRS_API URL
       const response = await axios.post(CUSTOM_ATTRS_API, payload);
-
       const created = response.data;
-      setCustomAttrs([...customAttrs, created]);
-      setNewAttr({ name: "", type: "text", options: "", required: false });
+      const updated = [...customAttrs, created];
+      setCustomAttrs(updated);
+      setNewAttr({ name: "", type: "text", options: "", required: false, section: "grid", sortOrder: 0 });
+      // Open layout modal with a draft copy
+      setLayoutDraft(updated.map((a, i) => ({ ...a, sortOrder: a.sortOrder ?? i })));
+      setShowAttrLayoutModal(true);
     } catch (err) {
       console.error("Error adding attribute:", err);
       setCustomAlert({ show: true, message: "Failed to add attribute", type: "error" });
+    }
+  };
+
+  const saveLayoutDraft = async () => {
+    // Assign sortOrders based on current draft order and persist
+    const withOrders = layoutDraft.map((a, i) => ({ ...a, sortOrder: i }));
+    try {
+      await Promise.all(withOrders.map(a => axios.put(`${CUSTOM_ATTRS_API}/${a.id}`, a)));
+      setCustomAttrs(withOrders);
+      setShowAttrLayoutModal(false);
+      setCustomAlert({ show: true, message: "✅ Field layout saved!", type: "success" });
+    } catch (err) {
+      console.error("Error saving layout:", err);
+      setCustomAlert({ show: true, message: "Failed to save layout", type: "error" });
+    }
+  };
+
+  // Update a custom attr's section/sortOrder (layout designer)
+  const updateAttrLayout = async (id, changes) => {
+    try {
+      const attr = customAttrs.find(a => a.id === id);
+      if (!attr) return;
+      const updated = { ...attr, ...changes };
+      await axios.put(`${CUSTOM_ATTRS_API}/${id}`, updated);
+      setCustomAttrs(customAttrs.map(a => a.id === id ? updated : a));
+    } catch (err) {
+      console.error("Error updating attribute layout:", err);
+      setCustomAlert({ show: true, message: "Failed to update field layout", type: "error" });
+    }
+  };
+
+  // Reorder attrs by dragging (persists all sortOrders)
+  const reorderAttrs = async (fromIdx, toIdx) => {
+    const arr = [...customAttrs].sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0));
+    const moved = arr.splice(fromIdx, 1)[0];
+    arr.splice(toIdx, 0, moved);
+    const updated = arr.map((a, i) => ({ ...a, sortOrder: i }));
+    setCustomAttrs(updated);
+    try {
+      await Promise.all(updated.map(a => axios.put(`${CUSTOM_ATTRS_API}/${a.id}`, a)));
+    } catch (err) {
+      console.error("Error reordering attributes:", err);
     }
   };
 
@@ -5740,24 +5790,73 @@ export default function HelpDesk() {
               </div>}
               {settingsTab === "customattrs" && <div style={{ background: "#fff", borderRadius: 12, padding: 22, boxShadow: "0 1px 4px rgba(0,0,0,0.06)" }}>
                 <h3 style={{ margin: "0 0 4px", fontSize: 15, fontWeight: 700 }}>Custom Attributes</h3>
-                <p style={{ margin: "0 0 14px", fontSize: 12, color: "#64748b" }}>Custom fields will appear on every new ticket form.</p>
+                <p style={{ margin: "0 0 14px", fontSize: 12, color: "#64748b" }}>Add custom fields to the New Ticket form. After adding, configure placement in the layout designer.</p>
+
                 {currentUser?.role === "Admin" ? (
-                  <div style={{ display: "grid", gridTemplateColumns: "1fr auto auto auto auto", gap: 9, marginBottom: 18, padding: 14, background: "#f8fafc", borderRadius: 9, alignItems: "end" }}>
-                    <input style={iS} placeholder="Field name *" value={newAttr.name} onChange={e => setNewAttr({ ...newAttr, name: e.target.value })} />
-                    <select style={{ ...sS, width: 104 }} value={newAttr.type} onChange={e => setNewAttr({ ...newAttr, type: e.target.value })}>{["text", "number", "select", "date", "checkbox"].map(t => <option key={t}>{t}</option>)}</select>
-                    {newAttr.type === "select" ? <input style={{ ...iS, width: 160 }} placeholder="Options (comma-sep)" value={newAttr.options} onChange={e => setNewAttr({ ...newAttr, options: e.target.value })} /> : <div />}
-                    <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13, color: "#374151", whiteSpace: "nowrap" }}><input type="checkbox" checked={newAttr.required} onChange={e => setNewAttr({ ...newAttr, required: e.target.checked })} />Required</label>
-                    <button onClick={addAttr} style={bP}>Add</button>
+                  <div style={{ marginBottom: 18, padding: 14, background: "#f8fafc", borderRadius: 10, border: "1.5px solid #e2e8f0" }}>
+                    <div style={{ fontSize: 11, fontWeight: 700, color: "#374151", marginBottom: 10, textTransform: "uppercase", letterSpacing: "0.04em" }}>Add New Field</div>
+                    <div style={{ display: "grid", gridTemplateColumns: "1fr 100px 1fr auto auto", gap: 8, alignItems: "end" }}>
+                      <div>
+                        <div style={{ fontSize: 11, fontWeight: 600, color: "#64748b", marginBottom: 4 }}>Field Name *</div>
+                        <input style={iS} placeholder="e.g. Serial Number" value={newAttr.name} onChange={e => setNewAttr({ ...newAttr, name: e.target.value })} onKeyDown={e => e.key === "Enter" && addAttr()} />
+                      </div>
+                      <div>
+                        <div style={{ fontSize: 11, fontWeight: 600, color: "#64748b", marginBottom: 4 }}>Type</div>
+                        <select style={sS} value={newAttr.type} onChange={e => setNewAttr({ ...newAttr, type: e.target.value })}>
+                          {["text", "number", "select", "date", "checkbox"].map(t => <option key={t}>{t}</option>)}
+                        </select>
+                      </div>
+                      <div>
+                        <div style={{ fontSize: 11, fontWeight: 600, color: "#64748b", marginBottom: 4 }}>{newAttr.type === "select" ? "Options (comma-separated)" : <>&nbsp;</>}</div>
+                        {newAttr.type === "select"
+                          ? <input style={iS} placeholder="Option A, Option B" value={newAttr.options} onChange={e => setNewAttr({ ...newAttr, options: e.target.value })} />
+                          : <div style={{ height: 38 }} />}
+                      </div>
+                      <div>
+                        <div style={{ fontSize: 11, fontWeight: 600, color: "#64748b", marginBottom: 4 }}>&nbsp;</div>
+                        <label style={{ display: "flex", alignItems: "center", gap: 6, height: 38, fontSize: 13, color: "#374151", cursor: "pointer", whiteSpace: "nowrap" }}>
+                          <input type="checkbox" checked={newAttr.required} onChange={e => setNewAttr({ ...newAttr, required: e.target.checked })} style={{ width: 15, height: 15 }} />
+                          Required
+                        </label>
+                      </div>
+                      <div>
+                        <div style={{ fontSize: 11, fontWeight: 600, color: "#64748b", marginBottom: 4 }}>&nbsp;</div>
+                        <button onClick={addAttr} style={bP}>+ Add Field</button>
+                      </div>
+                    </div>
                   </div>
                 ) : <div style={{ marginBottom: 18, padding: "10px 14px", background: "#fef3c7", color: "#92400e", borderRadius: 8, fontSize: 13, fontWeight: 500 }}>Read Only: Attribute management is restricted to Admins.</div>}
-                {customAttrs.map(a => (
-                  <div key={a.id} style={{ display: "flex", alignItems: "center", gap: 11, padding: "12px 15px", borderRadius: 9, border: "1.5px solid #f1f5f9", marginBottom: 7, background: "#fafafa" }}>
-                    <div style={{ width: 34, height: 34, background: "#eff6ff", borderRadius: 8, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 15 }}>{a.type === "text" ? "Aa" : a.type === "number" ? "#" : a.type === "select" ? "≡" : a.type === "date" ? "📅" : "☑"}</div>
-                    <div style={{ flex: 1 }}><div style={{ fontSize: 13, fontWeight: 600 }}>{a.name}{a.required && <span style={{ color: "#ef4444", marginLeft: 3 }}>*</span>}</div><div style={{ fontSize: 11, color: "#94a3b8" }}>Type: {a.type}{a.options?.length ? ` · ${a.options.join(", ")}` : ""}</div></div>
-                    {currentUser?.role === "Admin" && <button onClick={() => deleteAttr(a.id)} style={{ border: "none", background: "#fee2e2", color: "#ef4444", borderRadius: 6, padding: "5px 11px", cursor: "pointer", fontSize: 12, fontWeight: 600 }}>Delete</button>}
-                  </div>
-                ))}
-                {customAttrs.length === 0 && <div style={{ textAlign: "center", color: "#94a3b8", padding: 28 }}>No custom attributes yet.</div>}
+
+                {/* Field list */}
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: "#0f172a" }}>Fields ({customAttrs.length})</div>
+                  {customAttrs.length > 0 && currentUser?.role === "Admin" && (
+                    <button onClick={() => { setLayoutDraft([...customAttrs].sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0))); setShowAttrLayoutModal(true); }} style={{ ...bP, padding: "6px 14px", fontSize: 12, background: "linear-gradient(135deg,#6366f1,#8b5cf6)" }}>📐 Edit Layout</button>
+                  )}
+                </div>
+
+                {customAttrs.length === 0 && (
+                  <div style={{ textAlign: "center", color: "#94a3b8", padding: 32, background: "#f8fafc", borderRadius: 10, border: "1.5px dashed #e2e8f0" }}>No custom attributes yet. Add one above.</div>
+                )}
+                {[...customAttrs].sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0)).map(a => {
+                  const sectionLabel = a.section === "below-assignees" ? "Below Assignees" : a.section === "bottom" ? "After Description" : "Grid (top)";
+                  const sectionColor = a.section === "below-assignees" ? { bg: "#fffbeb", text: "#92400e", border: "#fde68a" } : a.section === "bottom" ? { bg: "#f0fdf4", text: "#166534", border: "#bbf7d0" } : { bg: "#eff6ff", text: "#1d4ed8", border: "#bfdbfe" };
+                  return (
+                    <div key={a.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "11px 14px", borderRadius: 9, border: "1.5px solid #f1f5f9", marginBottom: 7, background: "#fafafa" }}>
+                      <div style={{ width: 32, height: 32, background: "#eff6ff", borderRadius: 7, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13, flexShrink: 0, fontWeight: 700, color: "#6366f1" }}>
+                        {a.type === "text" ? "Aa" : a.type === "number" ? "#" : a.type === "select" ? "≡" : a.type === "date" ? "📅" : "☑"}
+                      </div>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ fontSize: 13, fontWeight: 600 }}>{a.name}{a.required && <span style={{ color: "#ef4444", marginLeft: 3 }}>*</span>}</div>
+                        <div style={{ fontSize: 11, color: "#94a3b8" }}>Type: {a.type}{a.options?.length ? ` · ${a.options.join(", ")}` : ""}</div>
+                      </div>
+                      <span style={{ fontSize: 11, fontWeight: 600, padding: "3px 9px", borderRadius: 99, background: sectionColor.bg, color: sectionColor.text, border: `1px solid ${sectionColor.border}`, whiteSpace: "nowrap" }}>{sectionLabel}</span>
+                      {currentUser?.role === "Admin" && (
+                        <button onClick={() => deleteAttr(a.id)} style={{ border: "none", background: "#fee2e2", color: "#ef4444", borderRadius: 6, padding: "5px 10px", cursor: "pointer", fontSize: 12, fontWeight: 600, flexShrink: 0 }}>Delete</button>
+                      )}
+                    </div>
+                  );
+                })}
               </div>}
               {settingsTab === "dbmgmt" && <div style={{ background: "#fff", borderRadius: 12, padding: 22, boxShadow: "0 1px 4px rgba(0,0,0,0.06)" }}>
                 <h3 style={{ margin: "0 0 4px", fontSize: 15, fontWeight: 700 }}>Database Management</h3>
@@ -5936,6 +6035,16 @@ export default function HelpDesk() {
             </div>
           </FF>
           <FF label="Due Date"><input type="date" style={iS} value={form.dueDate || ""} onChange={e => setForm({ ...form, dueDate: e.target.value })} /></FF>
+          {/* ── Custom Fields: Grid section (top area, inside 2-col grid) ── */}
+          {customAttrs.filter(a => (a.section || "grid") === "grid").sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0)).map(a => (
+            <FF key={a.id} label={a.name} required={a.required}>
+              {a.type === "select"
+                ? <select style={sS} value={form.customAttrs[a.name] || ""} onChange={e => setForm({ ...form, customAttrs: { ...form.customAttrs, [a.name]: e.target.value } })}><option value="">Select…</option>{a.options?.map(o => <option key={o}>{o}</option>)}</select>
+                : a.type === "checkbox"
+                  ? <label style={{ display: "flex", alignItems: "center", gap: 7, fontSize: 13 }}><input type="checkbox" checked={!!form.customAttrs[a.name]} onChange={e => setForm({ ...form, customAttrs: { ...form.customAttrs, [a.name]: e.target.checked } })} />{a.name}</label>
+                  : <input type={a.type === "date" ? "date" : "text"} style={iS} value={form.customAttrs[a.name] || ""} onChange={e => setForm({ ...form, customAttrs: { ...form.customAttrs, [a.name]: e.target.value } })} />}
+            </FF>
+          ))}
         </div>
         <FF label="Assignees">
           {(currentUser?.role === "Admin" || currentUser?.role === "Manager") ? (
@@ -5964,19 +6073,40 @@ export default function HelpDesk() {
             </div>
           )}
         </FF>
+        {/* ── Custom Fields: Below Assignees section ── */}
+        {customAttrs.filter(a => (a.section || "grid") === "below-assignees").sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0)).length > 0 && (
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0 18px" }}>
+            {customAttrs.filter(a => (a.section || "grid") === "below-assignees").sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0)).map(a => (
+              <FF key={a.id} label={a.name} required={a.required}>
+                {a.type === "select"
+                  ? <select style={sS} value={form.customAttrs[a.name] || ""} onChange={e => setForm({ ...form, customAttrs: { ...form.customAttrs, [a.name]: e.target.value } })}><option value="">Select…</option>{a.options?.map(o => <option key={o}>{o}</option>)}</select>
+                  : a.type === "checkbox"
+                    ? <label style={{ display: "flex", alignItems: "center", gap: 7, fontSize: 13 }}><input type="checkbox" checked={!!form.customAttrs[a.name]} onChange={e => setForm({ ...form, customAttrs: { ...form.customAttrs, [a.name]: e.target.checked } })} />{a.name}</label>
+                    : <input type={a.type === "date" ? "date" : "text"} style={iS} value={form.customAttrs[a.name] || ""} onChange={e => setForm({ ...form, customAttrs: { ...form.customAttrs, [a.name]: e.target.value } })} />}
+              </FF>
+            ))}
+          </div>
+        )}
         <FF label="Summary" required><input style={iS} placeholder="Brief description of the issue" value={form.summary} onChange={e => setForm({ ...form, summary: e.target.value })} /></FF>
         <FF label="Description"><textarea style={{ ...iS, height: 88, resize: "vertical" }} placeholder="Detailed description…" value={form.description} onChange={e => setForm({ ...form, description: e.target.value })} /></FF>
         {form.category === "Webcast" && <WebcastFields f={form} setF={setForm} isProject={false} />}
-        {customAttrs.length > 0 && <>
-          <div style={{ fontSize: 11, fontWeight: 600, color: "#475569", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 9, marginTop: 4 }}>Custom Fields</div>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0 18px" }}>
-            {customAttrs.map(a => <FF key={a.id} label={a.name} required={a.required}>
-              {a.type === "select" ? <select style={sS} value={form.customAttrs[a.name] || ""} onChange={e => setForm({ ...form, customAttrs: { ...form.customAttrs, [a.name]: e.target.value } })}><option value="">Select…</option>{a.options?.map(o => <option key={o}>{o}</option>)}</select>
-                : a.type === "checkbox" ? <label style={{ display: "flex", alignItems: "center", gap: 7, fontSize: 13 }}><input type="checkbox" checked={!!form.customAttrs[a.name]} onChange={e => setForm({ ...form, customAttrs: { ...form.customAttrs, [a.name]: e.target.checked } })} />{a.name}</label>
-                  : <input type={a.type === "date" ? "date" : "text"} style={iS} value={form.customAttrs[a.name] || ""} onChange={e => setForm({ ...form, customAttrs: { ...form.customAttrs, [a.name]: e.target.value } })} />}
-            </FF>)}
-          </div>
-        </>}
+        {/* ── Custom Fields: Bottom section (after Description) ── */}
+        {customAttrs.filter(a => (a.section || "grid") === "bottom").sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0)).length > 0 && (
+          <>
+            <div style={{ fontSize: 11, fontWeight: 600, color: "#475569", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 9, marginTop: 4 }}>Custom Fields</div>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0 18px" }}>
+              {customAttrs.filter(a => (a.section || "grid") === "bottom").sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0)).map(a => (
+                <FF key={a.id} label={a.name} required={a.required}>
+                  {a.type === "select"
+                    ? <select style={sS} value={form.customAttrs[a.name] || ""} onChange={e => setForm({ ...form, customAttrs: { ...form.customAttrs, [a.name]: e.target.value } })}><option value="">Select…</option>{a.options?.map(o => <option key={o}>{o}</option>)}</select>
+                    : a.type === "checkbox"
+                      ? <label style={{ display: "flex", alignItems: "center", gap: 7, fontSize: 13 }}><input type="checkbox" checked={!!form.customAttrs[a.name]} onChange={e => setForm({ ...form, customAttrs: { ...form.customAttrs, [a.name]: e.target.checked } })} />{a.name}</label>
+                      : <input type={a.type === "date" ? "date" : "text"} style={iS} value={form.customAttrs[a.name] || ""} onChange={e => setForm({ ...form, customAttrs: { ...form.customAttrs, [a.name]: e.target.value } })} />}
+                </FF>
+              ))}
+            </div>
+          </>
+        )}
         <div style={{ display: "flex", justifyContent: "flex-end", gap: 9, marginTop: 6 }}>
           <button onClick={() => { setShowNewTicket(false); setShowAssigneeDD(false); }} style={bG}>Cancel</button>
           <button onClick={handleSubmit} style={bP}>Create Ticket</button>
@@ -6784,6 +6914,178 @@ export default function HelpDesk() {
           </div>
         </div>
       </Modal>
+
+      {/* ── Custom Attributes Layout Designer Modal ── */}
+      {showAttrLayoutModal && (
+        <div style={{ position: "fixed", inset: 0, background: "rgba(15,23,42,0.55)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1100, padding: 16, backdropFilter: "blur(3px)" }}>
+          <div style={{ background: "#fff", borderRadius: 18, width: "100%", maxWidth: 780, maxHeight: "92vh", overflow: "hidden", display: "flex", flexDirection: "column", boxShadow: "0 30px 70px rgba(0,0,0,0.25)" }}>
+            {/* Header */}
+            <div style={{ padding: "18px 24px", borderBottom: "1px solid #f1f5f9", display: "flex", alignItems: "center", justifyContent: "space-between", flexShrink: 0 }}>
+              <div>
+                <h2 style={{ margin: 0, fontSize: 16, fontWeight: 700, color: "#0f172a" }}>📐 Form Layout Designer</h2>
+                <p style={{ margin: "3px 0 0", fontSize: 12, color: "#64748b" }}>Drag fields between sections to set where they appear in the New Ticket form. Changes save on click.</p>
+              </div>
+              <button onClick={() => setShowAttrLayoutModal(false)} style={{ border: "none", background: "#f1f5f9", borderRadius: 8, width: 32, height: 32, cursor: "pointer", fontSize: 18, color: "#64748b", display: "flex", alignItems: "center", justifyContent: "center" }}>×</button>
+            </div>
+
+            {/* Body */}
+            <div style={{ flex: 1, overflowY: "auto", padding: 20, display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
+
+              {/* LEFT — New Ticket Preview */}
+              <div>
+                <div style={{ fontSize: 11, fontWeight: 700, color: "#94a3b8", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 10 }}>Live Preview — New Ticket Form</div>
+                <div style={{ border: "2px solid #e2e8f0", borderRadius: 12, overflow: "hidden", background: "#f8fafc" }}>
+                  {/* Mock window bar */}
+                  <div style={{ padding: "8px 12px", background: "#fff", borderBottom: "1px solid #f1f5f9", display: "flex", alignItems: "center", gap: 6 }}>
+                    <div style={{ width: 7, height: 7, borderRadius: "50%", background: "#ef4444" }} />
+                    <div style={{ width: 7, height: 7, borderRadius: "50%", background: "#f59e0b" }} />
+                    <div style={{ width: 7, height: 7, borderRadius: "50%", background: "#22c55e" }} />
+                    <span style={{ fontSize: 11, color: "#94a3b8", marginLeft: 6, fontWeight: 600 }}>Create New Ticket</span>
+                  </div>
+                  <div style={{ padding: 12, display: "flex", flexDirection: "column", gap: 4 }}>
+                    {/* Fixed grid fields */}
+                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 4 }}>
+                      {["Organisation *", "Department", "POC", "Reported By", "Priority", "Category", "Location", "Due Date"].map(f => (
+                        <div key={f} style={{ padding: "5px 8px", background: "#fff", border: "1.5px solid #e2e8f0", borderRadius: 5, fontSize: 10, color: "#94a3b8", fontWeight: 500 }}>{f}</div>
+                      ))}
+                      {/* Grid section custom fields */}
+                      {layoutDraft.filter(a => (a.section || "grid") === "grid").map(a => (
+                        <div key={a.id} style={{ padding: "5px 8px", background: "#eff6ff", border: "1.5px solid #bfdbfe", borderRadius: 5, fontSize: 10, color: "#1d4ed8", fontWeight: 700, display: "flex", alignItems: "center", gap: 4 }}>
+                          <span style={{ fontSize: 9, color: "#6366f1" }}>⠿</span>{a.name}{a.required && <span style={{ color: "#ef4444" }}>*</span>}
+                        </div>
+                      ))}
+                    </div>
+                    {/* Assignees */}
+                    <div style={{ padding: "5px 8px", background: "#fff", border: "1.5px solid #e2e8f0", borderRadius: 5, fontSize: 10, color: "#94a3b8", fontWeight: 500, marginTop: 4 }}>Assignees</div>
+                    {/* Below-assignees custom fields */}
+                    {layoutDraft.filter(a => (a.section || "grid") === "below-assignees").length > 0 && (
+                      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 4 }}>
+                        {layoutDraft.filter(a => (a.section || "grid") === "below-assignees").map(a => (
+                          <div key={a.id} style={{ padding: "5px 8px", background: "#fffbeb", border: "1.5px solid #fde68a", borderRadius: 5, fontSize: 10, color: "#92400e", fontWeight: 700, display: "flex", alignItems: "center", gap: 4 }}>
+                            <span style={{ fontSize: 9 }}>⠿</span>{a.name}{a.required && <span style={{ color: "#ef4444" }}>*</span>}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    {/* Summary + Description */}
+                    <div style={{ padding: "5px 8px", background: "#fff", border: "1.5px solid #e2e8f0", borderRadius: 5, fontSize: 10, color: "#94a3b8", fontWeight: 500, marginTop: 4 }}>Summary *</div>
+                    <div style={{ padding: "5px 8px", background: "#fff", border: "1.5px solid #e2e8f0", borderRadius: 5, fontSize: 10, color: "#94a3b8", fontWeight: 500, height: 28 }}>Description</div>
+                    {/* Bottom custom fields */}
+                    {layoutDraft.filter(a => (a.section || "grid") === "bottom").length > 0 && (
+                      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 4 }}>
+                        {layoutDraft.filter(a => (a.section || "grid") === "bottom").map(a => (
+                          <div key={a.id} style={{ padding: "5px 8px", background: "#f0fdf4", border: "1.5px solid #bbf7d0", borderRadius: 5, fontSize: 10, color: "#166534", fontWeight: 700, display: "flex", alignItems: "center", gap: 4 }}>
+                            <span style={{ fontSize: 9 }}>⠿</span>{a.name}{a.required && <span style={{ color: "#ef4444" }}>*</span>}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              {/* RIGHT — Drag zones */}
+              <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+                <div style={{ fontSize: 11, fontWeight: 700, color: "#94a3b8", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 2 }}>Drag Fields Into Sections</div>
+
+                {[
+                  { key: "grid", label: "📋 Grid (top area)", subtitle: "Appears in the 2-column grid alongside Org, Priority, etc.", bg: "#eff6ff", border: "#bfdbfe", pillBg: "#dbeafe", pillText: "#1d4ed8" },
+                  { key: "below-assignees", label: "👥 Below Assignees", subtitle: "Appears right after the Assignees field.", bg: "#fffbeb", border: "#fde68a", pillBg: "#fef3c7", pillText: "#92400e" },
+                  { key: "bottom", label: "⬇️ After Description", subtitle: "Appears after the Description textarea.", bg: "#f0fdf4", border: "#bbf7d0", pillBg: "#dcfce7", pillText: "#166534" },
+                ].map(zone => (
+                  <div
+                    key={zone.key}
+                    onDragOver={e => { e.preventDefault(); setLayoutDragOver(zone.key); }}
+                    onDragLeave={() => setLayoutDragOver(null)}
+                    onDrop={e => {
+                      e.preventDefault();
+                      setLayoutDragOver(null);
+                      if (layoutDragIdx === null) return;
+                      const updated = layoutDraft.map((a, i) =>
+                        i === layoutDragIdx ? { ...a, section: zone.key } : a
+                      );
+                      setLayoutDraft(updated);
+                      setLayoutDragIdx(null);
+                    }}
+                    style={{ borderRadius: 10, border: `2px dashed ${layoutDragOver === zone.key ? "#3b82f6" : zone.border}`, background: layoutDragOver === zone.key ? "#eff6ff" : zone.bg, padding: 10, minHeight: 70, transition: "all 0.15s" }}
+                  >
+                    <div style={{ fontSize: 12, fontWeight: 700, color: "#374151", marginBottom: 2 }}>{zone.label}</div>
+                    <div style={{ fontSize: 10, color: "#94a3b8", marginBottom: 8 }}>{zone.subtitle}</div>
+                    <div style={{ display: "flex", flexWrap: "wrap", gap: 6, minHeight: 28 }}>
+                      {layoutDraft.filter(a => (a.section || "grid") === zone.key).length === 0 && (
+                        <span style={{ fontSize: 11, color: "#cbd5e1", alignSelf: "center" }}>Drop fields here</span>
+                      )}
+                      {layoutDraft
+                        .map((a, idx) => ({ ...a, _idx: idx }))
+                        .filter(a => (a.section || "grid") === zone.key)
+                        .map(a => (
+                          <div
+                            key={a.id}
+                            draggable
+                            onDragStart={e => { e.stopPropagation(); setLayoutDragIdx(a._idx); }}
+                            style={{ display: "flex", alignItems: "center", gap: 5, padding: "5px 10px", background: zone.pillBg, color: zone.pillText, borderRadius: 99, fontSize: 12, fontWeight: 600, cursor: "grab", userSelect: "none", border: `1px solid ${zone.border}` }}
+                          >
+                            <span style={{ fontSize: 11, color: "#94a3b8" }}>⠿</span>
+                            {a.name}{a.required && <span style={{ color: "#ef4444", marginLeft: 2 }}>*</span>}
+                            <span style={{ fontSize: 9, background: "rgba(0,0,0,0.08)", padding: "1px 4px", borderRadius: 3, marginLeft: 2 }}>{a.type}</span>
+                          </div>
+                        ))}
+                    </div>
+                  </div>
+                ))}
+
+                {/* Reorder within section note */}
+                <div style={{ padding: "8px 12px", background: "#f8fafc", borderRadius: 8, fontSize: 11, color: "#64748b" }}>
+                  💡 Drag a field from one section to another to move it. Order within a section follows the list below.
+                </div>
+
+                {/* Order list */}
+                <div>
+                  <div style={{ fontSize: 11, fontWeight: 700, color: "#374151", marginBottom: 7, textTransform: "uppercase", letterSpacing: "0.04em" }}>Field Order (drag to reorder)</div>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
+                    {layoutDraft.map((a, idx) => (
+                      <div
+                        key={a.id}
+                        draggable
+                        onDragStart={() => setLayoutDragIdx(idx)}
+                        onDragOver={e => { e.preventDefault(); setLayoutDragOver(`order-${idx}`); }}
+                        onDragLeave={() => setLayoutDragOver(null)}
+                        onDrop={e => {
+                          e.preventDefault();
+                          setLayoutDragOver(null);
+                          if (layoutDragIdx === null || layoutDragIdx === idx) return;
+                          const arr = [...layoutDraft];
+                          const moved = arr.splice(layoutDragIdx, 1)[0];
+                          arr.splice(idx, 0, moved);
+                          setLayoutDraft(arr);
+                          setLayoutDragIdx(null);
+                        }}
+                        style={{ display: "flex", alignItems: "center", gap: 8, padding: "7px 10px", background: layoutDragOver === `order-${idx}` ? "#eff6ff" : "#fafafa", border: `1.5px solid ${layoutDragOver === `order-${idx}` ? "#3b82f6" : "#f1f5f9"}`, borderRadius: 7, cursor: "grab", userSelect: "none", transition: "all 0.1s" }}
+                      >
+                        <span style={{ color: "#cbd5e1", fontSize: 14 }}>⠿</span>
+                        <span style={{ fontSize: 12, fontWeight: 600, flex: 1 }}>{a.name}{a.required && <span style={{ color: "#ef4444", marginLeft: 2 }}>*</span>}</span>
+                        <span style={{ fontSize: 10, color: "#94a3b8" }}>{a.type}</span>
+                        {(() => {
+                          const sc = a.section || "grid";
+                          const c = sc === "grid" ? "#6366f1" : sc === "below-assignees" ? "#f59e0b" : "#10b981";
+                          const lbl = sc === "grid" ? "Grid" : sc === "below-assignees" ? "Below Assignees" : "After Description";
+                          return <span style={{ fontSize: 10, fontWeight: 700, color: c, background: c + "18", padding: "2px 7px", borderRadius: 99 }}>{lbl}</span>;
+                        })()}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Footer */}
+            <div style={{ padding: "14px 24px", borderTop: "1px solid #f1f5f9", display: "flex", justifyContent: "flex-end", gap: 9, flexShrink: 0, background: "#fff" }}>
+              <button onClick={() => setShowAttrLayoutModal(false)} style={bG}>Cancel</button>
+              <button onClick={saveLayoutDraft} style={bP}>💾 Save Layout</button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ── Toast Notifications ── */}
       <div style={{ position: "fixed", top: 20, right: 20, zIndex: 9999, display: "flex", flexDirection: "column", gap: 10 }}>
