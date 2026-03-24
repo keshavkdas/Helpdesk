@@ -38,12 +38,15 @@ const User = sequelize.define("User", {
     phone: { type: DataTypes.STRING, defaultValue: "" },
     role: { type: DataTypes.ENUM("Super Admin", "Admin", "Manager", "Agent", "Viewer"), defaultValue: "Agent" },
     active: { type: DataTypes.BOOLEAN, defaultValue: true },
-    status: { type: DataTypes.STRING, defaultValue: "Off Duty" }, // On Duty | On Ticket | On Lunch | Off Duty
+    status: { type: DataTypes.STRING, defaultValue: "Off Duty" }, // On Duty | On Ticket | Idle | On Lunch | Off Duty
     confirmed: { type: DataTypes.BOOLEAN, defaultValue: true },
     // ✅ NEW: Agent tracking fields
     currentTicketId: { type: DataTypes.STRING, defaultValue: null },
     currentLocation: { type: DataTypes.STRING, defaultValue: null },
     lunchStatus: { type: DataTypes.BOOLEAN, defaultValue: false },
+    // ✅ NEW: Logout reason and validation fields
+    logoutReason: { type: DataTypes.STRING, defaultValue: null }, // Reason for last logout/status change
+    requiresLogoutReason: { type: DataTypes.BOOLEAN, defaultValue: false }, // Flag if user needs to provide reason before logout
 }, { timestamps: true });
 
 const Org = sequelize.define("Org", {
@@ -300,7 +303,62 @@ app.put("/api/users/:id", async (req, res) => {
     try {
         const user = await User.findByPk(req.params.id);
         if (!user) return res.status(404).json({ error: "User not found" });
+
+        // Validate status transitions and logout reason requirements
+        const currentStatus = user.status;
+        const newStatus = req.body.status;
+        const logoutReason = req.body.logoutReason;
+
+        // If status is being changed
+        if (newStatus && newStatus !== currentStatus) {
+            // Check if attempting to logout (change to Off Duty)
+            if (newStatus === "Off Duty" && currentStatus !== "Off Duty") {
+                // Logout reason is REQUIRED for Off Duty transition from any other status
+                if (!logoutReason || logoutReason.trim() === "") {
+                    return res.status(400).json({
+                        error: "Logout reason is required",
+                        requiresReason: true,
+                        reason: "You must provide a reason before logging out from " + currentStatus
+                    });
+                }
+                req.body.logoutReason = logoutReason;
+            }
+
+            // ✅ Idle is not manually set - only server determines this
+            // Prevent manual idle status setting
+            if (newStatus === "Idle" && req.body.currentTicketId === undefined) {
+                // Only allow Idle if coming from server auto-detection
+                // For manual updates, reject Idle unless it's from system
+                if (!req.body._isSystemUpdate) {
+                    // This is a user trying to manually set Idle - keep previous status
+                    req.body.status = currentStatus;
+                }
+            }
+
+            // ✅ Validate On Lunch transition
+            if (newStatus === "On Lunch") {
+                // On Lunch can only be set during logout, not as a standalone status
+                if (!logoutReason) {
+                    req.body.logoutReason = "On Lunch Break";
+                }
+            }
+
+            // ✅ Validate On Ticket transition
+            if (newStatus === "On Ticket") {
+                // Must have currentTicketId when setting On Ticket
+                if (!req.body.currentTicketId) {
+                    return res.status(400).json({
+                        error: "Ticket ID is required for On Ticket status",
+                        details: "Please assign a ticket before marking On Ticket"
+                    });
+                }
+            }
+        }
+
+        // Hash password if provided
         if (req.body.password) req.body.password = await bcrypt.hash(req.body.password, 10);
+
+        // Update user
         await user.update(req.body);
         res.json(fmt(user));
     } catch (err) { res.status(500).json({ error: err.message }); }
@@ -312,6 +370,38 @@ app.delete("/api/users/:id", async (req, res) => {
         if (!user) return res.status(404).json({ error: "User not found" });
         await user.destroy();
         res.json({ success: true });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ✅ NEW: Endpoint to validate logout requirements
+app.post("/api/check-logout-requirements", async (req, res) => {
+    try {
+        const { userId } = req.body;
+        if (!userId) return res.status(400).json({ error: "User ID required" });
+
+        const user = await User.findByPk(userId);
+        if (!user) return res.status(404).json({ error: "User not found" });
+
+        const currentStatus = user.status;
+
+        // Check if user is already Off Duty
+        if (currentStatus === "Off Duty") {
+            return res.json({
+                canLogout: true,
+                requiresReason: false,
+                message: "User already Off Duty"
+            });
+        }
+
+        // All statuses except Off Duty require a reason to logout
+        const requiresReason = currentStatus !== "Off Duty";
+
+        res.json({
+            canLogout: false, // Cannot logout until status is Off Duty
+            requiresReason: requiresReason,
+            currentStatus: currentStatus,
+            message: `Must set status to Off Duty with reason before logging out. Current status: ${currentStatus}`
+        });
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 

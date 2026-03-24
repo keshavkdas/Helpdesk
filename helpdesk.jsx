@@ -1336,6 +1336,7 @@ export default function HelpDesk() {
   const statusOpts = [
     { l: "On Duty", c: "#22c55e", bg: "#dcfce7" },      // 🟢 Green - In office
     { l: "On Ticket", c: "#06b6d4", bg: "#cffafe" },    // 🔵 Cyan - On ticket/location
+    { l: "Idle", c: "#a855f7", bg: "#f3e8ff" },         // 🟣 Purple - Idle (on duty but no ticket)
     { l: "On Lunch", c: "#f97316", bg: "#ffedd5" },     // 🟠 Orange - On lunch break
     { l: "Off Duty", c: "#f59e0b", bg: "#fef3c7" }      // 🟡 Yellow - Off duty
   ];
@@ -3434,81 +3435,91 @@ export default function HelpDesk() {
   };
 
   const handleLogout = async () => {
-    // If user is On Duty, show popup asking for ticket, location, and lunch status
-    if (currentUser?.status === "On Duty") {
+    try {
+      // Check logout requirements via server
+      const checkRes = await axios.post(`${BASE_URL}/check-logout-requirements`, {
+        userId: currentUser.id
+      });
+
+      const { canLogout, requiresReason, currentStatus } = checkRes.data;
+
+      // If already Off Duty, can logout immediately
+      if (canLogout && currentStatus === "Off Duty") {
+        clearSession();
+        setCurrentUser(null);
+        setProfileOpen(false);
+        return;
+      }
+
+      // ✅ NEW: Show logout form for any non-Off Duty status
+      // Must explicitly set to Off Duty with reason
       setConfirmModal({
         show: true,
-        title: "Mark Your Activity Before Logout",
-        confirmLabel: "Log Out",
-        message: "Please tell us which ticket you're working on, where you'll be going, and your status so the team knows",
+        title: "Set Status to Off Duty",
+        confirmLabel: "Mark Off Duty & Logout",
+        message: `Current status: ${currentStatus}. Please provide a reason for logging out.`,
         fields: [
-          { name: "ticket", label: "🎫 Ticket ID", type: "text", placeholder: "e.g., TICKET-001", value: currentTicketId },
-          { name: "location", label: "📍 Location", type: "select", options: locations.map(l => ({ value: l.name, label: l.name })), value: currentLocation }
+          {
+            name: "logoutReason",
+            label: "📝 Reason for logout",
+            type: "select",
+            options: [
+              { value: "End of shift", label: "End of shift" },
+              { value: "On Lunch Break", label: "On Lunch Break" },
+              { value: "Break", label: "Break" },
+              { value: "Completed work", label: "Completed work" },
+              { value: "Going home", label: "Going home" },
+              { value: "Other", label: "Other" }
+            ],
+            value: ""
+          }
         ],
-        showLunchButton: true,
         onConfirm: async (data) => {
-          // Update tracking with status to Off Duty before logout
           try {
-            const up = {
-              ...currentUser,
-              status: "Off Duty",  // ✅ Set to Off Duty on logout
-              currentTicketId: data.ticket || null,
-              currentLocation: data.location || null,
-              lunchStatus: data.lunchStatus || false
-            };
-            await axios.put(`${USERS_API}/${currentUser.id}`, up);
-            saveSession(up);
-            setCurrentUser(up);
-            setUsers(users.map(u => u.id === currentUser.id ? up : u));
-          } catch (e) { console.error("Failed to update tracking"); }
+            if (!data.logoutReason || data.logoutReason.trim() === "") {
+              setCustomAlert({ show: true, message: "Please provide a reason for logout", type: "error" });
+              return;
+            }
 
-          // Then logout
-          clearSession();
-          setCurrentUser(null);
-          setProfileOpen(false);
-          setConfirmModal({ show: false });
-        },
-        onLunch: async () => {
-          // Mark as On Lunch and logout
-          try {
+            // Set to Off Duty with reason
             const up = {
               ...currentUser,
-              status: "On Lunch",
+              status: "Off Duty",
+              logoutReason: data.logoutReason,
               currentTicketId: null,
               currentLocation: null,
-              lunchStatus: true
+              lunchStatus: false
             };
-            await axios.put(`${USERS_API}/${currentUser.id}`, up);
-            saveSession(up);
-            setCurrentUser(up);
-            setUsers(users.map(u => u.id === currentUser.id ? up : u));
-          } catch (e) { console.error("Failed to update lunch status"); }
 
-          // Then logout
-          clearSession();
-          setCurrentUser(null);
-          setProfileOpen(false);
-          setConfirmModal({ show: false });
+            // Send to server
+            const res = await axios.put(`${USERS_API}/${currentUser.id}`, up);
+
+            if (res.status === 200 || res.status === 201) {
+              // Successfully updated to Off Duty - now logout
+              clearSession();
+              setCurrentUser(null);
+              setProfileOpen(false);
+              setConfirmModal({ show: false });
+            }
+          } catch (err) {
+            if (err.response?.status === 400) {
+              setCustomAlert({
+                show: true,
+                message: err.response.data.reason || "Cannot change status: " + err.response.data.error,
+                type: "error"
+              });
+            } else {
+              setCustomAlert({ show: true, message: "Failed to update status", type: "error" });
+            }
+          }
         },
         onCancel: () => setConfirmModal({ show: false })
       });
-      return;
-    }
 
-    // If already Off Duty or anything else — skip all prompts, just logout immediately
-    if (currentUser) {
-      try {
-        await axios.put(`${USERS_API}/${currentUser.id}`, {
-          ...currentUser,
-          status: "Off Duty",
-          currentTicketId: null,
-          currentLocation: null,
-        });
-      } catch (e) { console.error("Logout status update failed"); }
+    } catch (err) {
+      console.error("Logout check failed:", err);
+      setCustomAlert({ show: true, message: "Logout error: " + (err.response?.data?.error || err.message), type: "error" });
     }
-    clearSession();
-    setCurrentUser(null);
-    setProfileOpen(false);
   };
 
   const handleSignup = async (e) => {
@@ -3589,6 +3600,15 @@ export default function HelpDesk() {
     }
   };
 
+  // ✅ NEW: Check and update idle status automatically
+  const checkAndUpdateIdleStatus = async () => {
+    // ✅ DISABLED: Idle is now only set manually when user has no ticket assigned
+    // No auto-detection - user must explicitly set their status
+  };
+
+  // ✅ REMOVED: Idle detection useEffect - no longer auto-detecting
+  // Idle status is now only set when user manually updates status
+
   // ─── NAVIGATION HELPERS ────────────────────────────────────────────────────
 
   const markBellRead = () => {
@@ -3620,6 +3640,13 @@ export default function HelpDesk() {
       switch (notificationType) {
         // ── TICKET EVENTS ──
         case "ticket_created":
+          // For new ticket created - go to All Tickets view
+          setView("tickets");
+          setTvFilter("all");
+          setStatusF("All");
+          setPriorityF("All");
+          break;
+
         case "ticket_closed":
         case "ticket_status":
         case "ticket_edited":
@@ -5300,8 +5327,9 @@ export default function HelpDesk() {
                   { key: "all", icon: "👥", color: "#3b82f6", label: "Total Users", count: users.length },
                   { key: "On Duty", icon: "🟢", color: "#22c55e", label: "On Duty", count: users.filter(u => u.status === "On Duty").length },
                   { key: "On Ticket", icon: "🎫", color: "#6366f1", label: "On Ticket", count: users.filter(u => u.status === "On Ticket").length },
+                  { key: "Idle", icon: "🟣", color: "#a855f7", label: "Idle", count: users.filter(u => u.status === "Idle").length },
                   { key: "On Lunch", icon: "🍽️", color: "#f97316", label: "On Lunch", count: users.filter(u => u.status === "On Lunch").length },
-                  { key: "off", icon: "⚪", color: "#f59e0b", label: "Off Duty", count: users.filter(u => u.status !== "On Duty" && u.status !== "On Ticket" && u.status !== "On Lunch").length },
+                  { key: "off", icon: "⚪", color: "#f59e0b", label: "Off Duty", count: users.filter(u => u.status !== "On Duty" && u.status !== "On Ticket" && u.status !== "Idle" && u.status !== "On Lunch").length },
                 ].map(s => {
                   const isActive = agentStatusFilter === s.key;
                   return (
@@ -5324,7 +5352,7 @@ export default function HelpDesk() {
                 {agentStats.filter(a => {
                   if (agentStatusFilter === "all") return true;
                   const userStatus = users.find(u => u.id === a.id)?.status || "Off Duty";
-                  if (agentStatusFilter === "off") return userStatus !== "On Duty" && userStatus !== "On Ticket" && userStatus !== "On Lunch";
+                  if (agentStatusFilter === "off") return userStatus !== "On Duty" && userStatus !== "On Ticket" && userStatus !== "Idle" && userStatus !== "On Lunch";
                   return userStatus === agentStatusFilter;
                 }).map(a => {
                   const userInfo = users.find(u => u.id === a.id);
@@ -5832,42 +5860,10 @@ export default function HelpDesk() {
                       })()}</td>
                       <td style={tdStyle}><Badge label={u.active ? "Activated" : "Deactivated"} style={{ background: u.active ? "#dcfce7" : "#fee2e2", color: u.active ? "#15803d" : "#ef4444" }} /></td>
                       {(currentUser?.role === "Admin") && (() => {
-                        // Admins can change role of other users
+                        // Admins can edit users via the Manage modal
                         return (
                           <td style={tdStyle}><div style={{ display: "flex", gap: 6, alignItems: "center" }}>
-                            <select value={u.role} onChange={async (e) => {
-                              const newRole = e.target.value;
-                              setConfirmModal({
-                                show: true,
-                                title: `Change ${u.name}'s Role?`,
-                                message: `Change ${u.name}'s role to ${newRole}? User will be logged out.`,
-                                onConfirm: async () => {
-                                  try {
-                                    const updated = { ...u, role: newRole, status: "Logged-Out" };
-                                    await axios.put(`${USERS_API}/${u.id}`, updated);
-                                    setUsers(users.map(x => x.id === u.id ? updated : x));
-                                    if (u.id === currentUser.id) {
-                                      clearSession();
-                                      setCurrentUser(null);
-                                      setCustomAlert({ show: true, message: `⚠️ Your role changed to ${newRole}. Log in again.`, type: "warning" });
-                                      setTimeout(() => window.location.reload(), 2000);
-                                    } else {
-                                      setCustomAlert({ show: true, message: `✅ ${u.name} role → ${newRole}. User logged out.`, type: "success" });
-                                    }
-                                    setConfirmModal({ show: false, title: "", message: "", onConfirm: null, onCancel: null });
-                                  } catch (err) {
-                                    setCustomAlert({ show: true, message: "Failed to update role", type: "error" });
-                                    setConfirmModal({ show: false, title: "", message: "", onConfirm: null, onCancel: null });
-                                  }
-                                },
-                                onCancel: () => {
-                                  setConfirmModal({ show: false, title: "", message: "", onConfirm: null, onCancel: null });
-                                  e.target.value = u.role;
-                                }
-                              });
-                            }} style={{ ...sS, fontSize: 11, padding: "4px 8px", width: 110, flexShrink: 0 }}>{ROLES.map(r => <option key={r}>{r}</option>)}</select>
-                            {/* ✅ NEW: Single Manage button to open modal with all actions */}
-                            <button onClick={() => { setUserEditModal({ show: true, user: u, newRole: u.role }); }} style={{ border: "none", background: "#dbeafe", color: "#1e40af", borderRadius: 6, padding: "4px 9px", cursor: "pointer", fontSize: 12, fontWeight: 600, minWidth: 80 }}>⚙️ Manage</button>
+                            <button onClick={() => { setUserEditModal({ show: true, user: u, newRole: u.role }); }} style={{ border: "none", background: "#dbeafe", color: "#1e40af", borderRadius: 6, padding: "6px 14px", cursor: "pointer", fontSize: 12, fontWeight: 600 }}>⚙️ Manage</button>
                           </div></td>
                         );
                       })()}
