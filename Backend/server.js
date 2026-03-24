@@ -165,6 +165,12 @@ const Project = sequelize.define("Project", {
     tasks: { type: DataTypes.JSON, defaultValue: [] }
 }, { timestamps: true });
 
+// ✅ NEW: FormLayout Model
+const FormLayout = sequelize.define("FormLayout", {
+    id: { type: DataTypes.STRING, primaryKey: true },
+    layout: { type: DataTypes.JSON, defaultValue: [] }
+}, { timestamps: true });
+
 // ✅ NEW: Department Model
 const Department = sequelize.define("Department", {
     id: {
@@ -473,6 +479,26 @@ app.delete("/api/customAttrs/:id", async (req, res) => {
         const attr = await CustomAttr.findByPk(req.params.id);
         if (attr) await attr.destroy();
         res.json({ success: true });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ✅ NEW: FormLayout Endpoints
+app.get("/api/formLayout", async (req, res) => {
+    try {
+        let fl = await FormLayout.findByPk("ticket_form");
+        if (!fl) {
+            fl = await FormLayout.create({ id: "ticket_form", layout: [] });
+        }
+        res.json(fmt(fl));
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.put("/api/formLayout", async (req, res) => {
+    try {
+        let fl = await FormLayout.findByPk("ticket_form");
+        if (!fl) fl = await FormLayout.create({ id: "ticket_form", layout: [] });
+        await fl.update({ layout: req.body.layout });
+        res.json(fmt(fl));
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
