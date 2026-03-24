@@ -1235,6 +1235,8 @@ export default function HelpDesk() {
 
   // ✅ NEW: Timeline View
   const [showTimelineView, setShowTimelineView] = useState(false);  // Show full timeline in modal
+  const [timelineTab, setTimelineTab] = useState("external");       // "internal" | "external"
+  const [commentVisibility, setCommentVisibility] = useState("external"); // "internal" | "external"
 
   // ── Notification Center ──
   // Bell: populated purely from DB — no localStorage caching
@@ -1877,7 +1879,9 @@ export default function HelpDesk() {
 
   const prbr = useMemo(() => range === "all" ? projects : projects.filter(p => now - p.created.getTime() <= rangeMs), [projects, rangeMs, range, now]);
 
-  const cvd = TICKET_VIEWS.find(v => v.id === tvFilter) || TICKET_VIEWS[5];
+  const isPrivilegedRole = currentUser?.role === "Admin" || currentUser?.role === "Manager";
+  const effectiveTvFilter = (tvFilter === "unassigned" && !isPrivilegedRole) ? "all" : tvFilter;
+  const cvd = TICKET_VIEWS.find(v => v.id === effectiveTvFilter) || TICKET_VIEWS[5];
   const cpv = PROJECT_VIEWS.find(v => v.id === pvFilter) || PROJECT_VIEWS[5];
 
   // ✅ A ticket is a TRUE webcast only if isWebcast=true OR ID starts with WEB- or WC-
@@ -2477,7 +2481,8 @@ export default function HelpDesk() {
       const nowISO = new Date().toISOString();
       const newTimelineEvent = { action: `Status changed to ${status}`, by: currentUser.name, date: nowISO, note: "" };
       const updatedT = { ...t, status, updated: nowISO, timeline: [...(t.timeline || []), newTimelineEvent] };
-      await axios.put(`${TICKETS_API}/${id}`, updatedT);
+      const apiUrl = isTrueWebcast(t) ? `${BASE_URL}/webcasts/${id}` : `${TICKETS_API}/${id}`;
+      await axios.put(apiUrl, updatedT);
       setTickets(p => p.map(x => x.id === id ? { ...updatedT, updated: new Date(nowISO) } : x));
       if (selTicket?.id === id) setSelTicket({ ...updatedT, updated: new Date(nowISO) });
 
@@ -2531,7 +2536,8 @@ export default function HelpDesk() {
       const nowISO = new Date().toISOString();
       const newTimelineEvent = { action: "Status changed to Closed", by: currentUser.name, date: nowISO, note: `Remark: ${ticketRemark}` };
       const updatedT = { ...t, status: "Closed", updated: nowISO, timeline: [...(t.timeline || []), newTimelineEvent] };
-      await axios.put(`${TICKETS_API}/${closingTicketId}`, updatedT);
+      const apiUrl = isTrueWebcast(t) ? `${BASE_URL}/webcasts/${closingTicketId}` : `${TICKETS_API}/${closingTicketId}`;
+      await axios.put(apiUrl, updatedT);
       setTickets(p => p.map(x => x.id === closingTicketId ? { ...updatedT, updated: new Date(nowISO) } : x));
       if (selTicket?.id === closingTicketId) setSelTicket({ ...updatedT, updated: new Date(nowISO) });
       addDailyNotif({ type: "ticket_closed", icon: "✅", text: `${currentUser.name} closed ticket ${closingTicketId}`, ticketId: closingTicketId, by: currentUser.name });
@@ -2564,6 +2570,22 @@ export default function HelpDesk() {
   };
 
   const toggleSel = id => { const s = new Set(selectedIds); s.has(id) ? s.delete(id) : s.add(id); setSelectedIds(s); };
+  // Toggle only the tickets visible on the current page
+  const toggleCurrentPage = () => {
+    const pageIds = currentTickets.map(t => t.id);
+    const allPageSelected = pageIds.every(id => selectedIds.has(id));
+    const s = new Set(selectedIds);
+    if (allPageSelected) {
+      pageIds.forEach(id => s.delete(id));
+    } else {
+      pageIds.forEach(id => s.add(id));
+    }
+    setSelectedIds(s);
+  };
+  // Toggle all tickets in the current filtered/classified view (across all pages)
+  const toggleAllFiltered = () => selectedIds.size === allSortedTickets.length && allSortedTickets.length > 0
+    ? setSelectedIds(new Set())
+    : setSelectedIds(new Set(allSortedTickets.map(t => t.id)));
   const toggleAll = () => selectedIds.size === filtered.length && filtered.length > 0 ? setSelectedIds(new Set()) : setSelectedIds(new Set(filtered.map(t => t.id)));
   const selTickets = filtered.filter(t => selectedIds.has(t.id));
 
@@ -2590,7 +2612,8 @@ export default function HelpDesk() {
               action: `✉️ Forwarded to Agent: ${agent.name}`,
               by: currentUser.name,
               date: nowISO,
-              note: `Role: ${currentUser.role} | Reason: ${fwdReason}`
+              note: `Role: ${currentUser.role} | Reason: ${fwdReason}`,
+              visibility: "internal"
             }
           ]
         };
@@ -2672,7 +2695,8 @@ export default function HelpDesk() {
             action: `✉️ Forwarded to Agent: ${request.toAgent.name}`,
             by: currentUser.name,
             date: nowISO,
-            note: `Request from ${request.fromRole} ${request.fromUser}. Reason: ${request.reason}`
+            note: `Request from ${request.fromRole} ${request.fromUser}. Reason: ${request.reason}`,
+            visibility: "internal"
           }
         ]
       };
@@ -2742,7 +2766,7 @@ export default function HelpDesk() {
     const t = selTicket;
     try {
       const nowISO = new Date().toISOString();
-      const update = { ...t, status: "Pending", updated: nowISO, timeline: [...(t.timeline || []), { action: `Sent for Repair: ${vendorName}`, by: currentUser.name, date: nowISO, note: `Contact: ${contactInfo}\nReason: ${fwdReason}` }] };
+      const update = { ...t, status: "Pending", updated: nowISO, timeline: [...(t.timeline || []), { action: `Sent for Repair: ${vendorName}`, by: currentUser.name, date: nowISO, note: `Contact: ${contactInfo}\nReason: ${fwdReason}`, visibility: "internal" }] };
       await axios.put(`${TICKETS_API}/${t.id}`, update);
       setTickets(p => p.map(x => x.id === t.id ? { ...update, updated: new Date(nowISO) } : x));
       setSelTicket({ ...update, updated: new Date(nowISO) });
@@ -3950,7 +3974,8 @@ export default function HelpDesk() {
         timeline: [...(ticket.timeline || []), {
           action: `✉️ Forwarded to Agent: ${agent.name}`,
           by: currentUser.name, date: nowISO,
-          note: `Inbox approval. From: ${item.fromUser}. Reason: ${item.reason}`
+          note: `Inbox approval. From: ${item.fromUser}. Reason: ${item.reason}`,
+          visibility: "internal"
         }]
       };
       await axios.put(`${TICKETS_API}/${ticket.id}`, update);
@@ -4443,7 +4468,10 @@ export default function HelpDesk() {
             </button>
           ))}
           {view === "tickets" && <div style={{ marginTop: 6, paddingTop: 6, borderTop: "1px solid #1e293b" }}>
-            {TICKET_VIEWS.map(v => (
+            {TICKET_VIEWS.filter(v => {
+              if (v.id === "unassigned") return currentUser?.role === "Admin" || currentUser?.role === "Manager";
+              return true;
+            }).map(v => (
               <button key={v.id} onClick={() => setTvFilter(v.id)} style={{ display: "flex", alignItems: "center", gap: 7, width: "100%", padding: "6px 11px", borderRadius: 6, border: "none", cursor: "pointer", background: tvFilter === v.id ? "#0f172a" : "transparent", color: tvFilter === v.id ? "#93c5fd" : "#475569", fontSize: 11.5, textAlign: "left", fontFamily: "'DM Sans',sans-serif", marginBottom: 1 }}>
                 <span style={{ fontSize: 12 }}>{v.icon}</span>{v.label}
               </button>
@@ -5033,7 +5061,7 @@ export default function HelpDesk() {
               <div style={{ display: "grid", gridTemplateColumns: "repeat(6,1fr)", gap: 9, marginBottom: 20 }}>
                 {[
                   { label: "Open", value: dashboardStats.open, bg: "#fef3c7", accent: "#f59e0b", icon: "📬", action: () => { setView("tickets"); setTvFilter("open"); setStatusF("All"); setPriorityF("All"); } },
-                  { label: "Unassigned", value: dashboardData.filter(t => (!t.assignees || t.assignees.length === 0) && t.status !== "Closed" && !isTrueWebcast(t)).length, bg: "#f3e8ff", accent: "#a855f7", icon: "🔸", action: () => { setView("tickets"); setTvFilter("unassigned"); } },
+                  ...((currentUser?.role === "Admin" || currentUser?.role === "Manager") ? [{ label: "Unassigned", value: dashboardData.filter(t => (!t.assignees || t.assignees.length === 0) && t.status !== "Closed" && !isTrueWebcast(t)).length, bg: "#f3e8ff", accent: "#a855f7", icon: "🔸", action: () => { setView("tickets"); setTvFilter("unassigned"); } }] : []),
                   { label: "In Progress", value: dashboardStats.inProgress, bg: "#ede9fe", accent: "#6366f1", icon: "⚙️", action: () => { setView("tickets"); setTvFilter("all"); setStatusF("In Progress"); setPriorityF("All"); } },
                   { label: "Critical", value: dashboardStats.critical, bg: "#fee2e2", accent: "#ef4444", icon: "🔥", action: () => { setView("tickets"); setTvFilter("alerts"); setStatusF("All"); setPriorityF("Critical"); } },
                   { label: "Closed", value: dashboardStats.closed, bg: "#dcfce7", accent: "#22c55e", icon: "✅", action: () => { setView("tickets"); setTvFilter("closed"); setStatusF("All"); setPriorityF("All"); } },
@@ -5127,49 +5155,97 @@ export default function HelpDesk() {
                 <button onClick={() => { setForm(emptyForm()); setShowNewTicket(true); }} style={{ ...bP, padding: "7px 13px", fontSize: 12 }}>+ New Ticket</button>
                 {selectedIds.size > 0 && <span style={{ fontSize: 12, color: "#3b82f6", fontWeight: 600, background: "#eff6ff", padding: "4px 10px", borderRadius: 99 }}>{selectedIds.size} selected</span>}
 
-                {/* ✅ Mark All as Closed Button - ADMIN ONLY */}
+                {/* ── Bulk Close - ADMIN ONLY ── */}
                 {selectedIds.size > 0 && currentUser?.role === "Admin" && (
                   <button onClick={() => {
-                    // ✅ NEW: Show popup for mass close with remarks
                     setConfirmModal({
                       show: true,
                       title: `Close ${selectedIds.size} Ticket(s)?`,
-                      message: `Are you sure you want to close ${selectedIds.size} ticket(s)? Each ticket will need a closing remark.`,
+                      message: `Enter one closing reason — it will be applied to all ${selectedIds.size} selected ticket(s).`,
                       fields: [
-                        { name: "remark", label: "📝 Closing Remark (for all)", type: "textarea", placeholder: "Describe what was done...", value: "" }
+                        { name: "remark", label: "📝 Closing Reason", type: "textarea", placeholder: "Describe what was done or why these tickets are being closed…", value: "" }
                       ],
+                      confirmLabel: `Close ${selectedIds.size} Ticket(s)`,
+                      confirmDanger: false,
                       onConfirm: async (data) => {
-                        const remark = data.remark || "Batch closed by admin";
+                        const remark = (data.remark || "").trim();
+                        if (!remark) {
+                          setCustomAlert({ show: true, message: "⚠️ Please enter a closing reason before proceeding", type: "error" });
+                          return;
+                        }
                         const nowISO = new Date().toISOString();
+                        const count = selectedIds.size;
                         try {
                           for (const id of selectedIds) {
                             const t = tickets.find(x => x.id === id);
                             if (t) {
                               const newTimelineEvent = { action: "Status changed to Closed", by: currentUser.name, date: nowISO, note: `Remark: ${remark}` };
                               const update = { ...t, status: "Closed", updated: nowISO, timeline: [...(t.timeline || []), newTimelineEvent] };
-                              await axios.put(`${TICKETS_API}/${id}`, update);
+                              const apiUrl = isTrueWebcast(t) ? `${BASE_URL}/webcasts/${id}` : `${TICKETS_API}/${id}`;
+                              await axios.put(apiUrl, update);
                             }
                           }
                           setTickets(p => p.map(x => selectedIds.has(x.id) ? { ...x, status: "Closed", updated: new Date(nowISO) } : x));
                           setSelectedIds(new Set());
-                          setCustomAlert({ show: true, message: `✅ ${selectedIds.size} ticket(s) closed with remark`, type: "success" });
-                        } catch (e) { setCustomAlert({ show: true, message: "Failed to close tickets", type: "error" }); }
+                          setConfirmModal({ show: false });
+                          setCustomAlert({ show: true, message: `✅ ${count} ticket(s) closed successfully`, type: "success" });
+                        } catch (e) {
+                          setCustomAlert({ show: true, message: "Failed to close tickets. Please try again.", type: "error" });
+                        }
                       },
                       onCancel: () => setConfirmModal({ show: false })
                     });
-                  }} style={{ ...bP, padding: "7px 13px", fontSize: 12, background: "#22c55e", color: "#fff" }}>✓ Close Multiple</button>
+                  }} style={{ ...bP, padding: "7px 13px", fontSize: 12, background: "#22c55e", color: "#fff" }}>✓ Close {selectedIds.size} Ticket(s)</button>
                 )}
 
               </div>
             </div>
 
             <div style={{ overflowX: "auto" }}>
+              {/* Select-all-filtered banner — shown when current page is fully selected but more exist */}
+              {currentUser?.role === "Admin" && (() => {
+                const pageIds = currentTickets.map(t => t.id);
+                const allPageSelected = pageIds.length > 0 && pageIds.every(id => selectedIds.has(id));
+                const allFilteredSelected = allSortedTickets.length > 0 && allSortedTickets.every(t => selectedIds.has(t.id));
+                const hasMorePages = allSortedTickets.length > currentTickets.length;
+                if (!allPageSelected || !hasMorePages) return null;
+                return (
+                  <div style={{ background: "#eff6ff", borderBottom: "1px solid #bfdbfe", padding: "9px 16px", display: "flex", alignItems: "center", gap: 12, fontSize: 13 }}>
+                    {allFilteredSelected ? (
+                      <>
+                        <span style={{ color: "#1d4ed8", fontWeight: 600 }}>✓ All {allSortedTickets.length} tickets in this view are selected.</span>
+                        <button onClick={() => setSelectedIds(new Set())} style={{ fontSize: 12, color: "#ef4444", fontWeight: 600, background: "none", border: "none", cursor: "pointer", padding: 0 }}>Clear selection</button>
+                      </>
+                    ) : (
+                      <>
+                        <span style={{ color: "#1d4ed8" }}>All <strong>{pageIds.length}</strong> tickets on this page are selected.</span>
+                        <button onClick={toggleAllFiltered} style={{ fontSize: 12, color: "#1d4ed8", fontWeight: 700, background: "none", border: "none", cursor: "pointer", padding: 0, textDecoration: "underline" }}>
+                          Select all {allSortedTickets.length} tickets in this view
+                        </button>
+                      </>
+                    )}
+                  </div>
+                );
+              })()}
               <table style={{ width: "100%", borderCollapse: "collapse" }}>
                 <thead><tr style={{ background: "#f8fafc" }}>
-                  {/* ✅ Checkboxes only for Admin */}
-                  {currentUser?.role === "Admin" && (
-                    <th style={{ ...thStyle, width: 40 }}></th>
-                  )}
+                  {/* Checkbox column — Admin only: checks/unchecks current page */}
+                  {currentUser?.role === "Admin" && (() => {
+                    const pageIds = currentTickets.map(t => t.id);
+                    const allPageSelected = pageIds.length > 0 && pageIds.every(id => selectedIds.has(id));
+                    const somePageSelected = pageIds.some(id => selectedIds.has(id));
+                    return (
+                      <th style={{ ...thStyle, width: 40 }} title="Select / deselect this page">
+                        <input
+                          type="checkbox"
+                          checked={allPageSelected}
+                          ref={el => { if (el) el.indeterminate = !allPageSelected && somePageSelected; }}
+                          onChange={toggleCurrentPage}
+                          style={{ cursor: "pointer" }}
+                        />
+                      </th>
+                    );
+                  })()}
                   <FilterableHeader label="ID" field="id" data={filtered} filters={ticketSort} onFilter={setTicketSort} style={thStyle} />
                   <FilterableHeader label="Summary" field="summary" data={filtered} filters={ticketSort} onFilter={setTicketSort} style={thStyle} />
                   <FilterableHeader label="Org" field="org" data={filtered} filters={ticketSort} onFilter={setTicketSort} style={thStyle} />
@@ -5842,7 +5918,7 @@ export default function HelpDesk() {
               {settingsTab === "ticketviews" && <div style={{ background: "#fff", borderRadius: 12, padding: 22, boxShadow: "0 1px 4px rgba(0,0,0,0.06)" }}>
                 <h3 style={{ margin: "0 0 4px", fontSize: 15, fontWeight: 700 }}>Ticket Views</h3>
                 <p style={{ margin: "0 0 18px", fontSize: 12, color: "#64748b" }}>Predefined views for quick ticket filtering.</p>
-                {TICKET_VIEWS.map(v => (
+                {TICKET_VIEWS.filter(v => v.id !== "unassigned" || currentUser?.role === "Admin" || currentUser?.role === "Manager").map(v => (
                   <div key={v.id} style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px 14px", borderRadius: 10, border: "1.5px solid #f1f5f9", marginBottom: 7, background: "#fafafa" }}>
                     <div style={{ fontSize: 20, width: 32, textAlign: "center" }}>{v.icon}</div>
                     <div style={{ flex: 1 }}><div style={{ fontSize: 13, fontWeight: 600 }}>{v.label}</div><div style={{ fontSize: 11, color: "#94a3b8" }}>{v.desc}</div></div>
@@ -6654,7 +6730,7 @@ export default function HelpDesk() {
       </Modal>
 
       {/* ── TICKET DETAIL MODAL (v1 full - timeline, forward, custom attrs, vendor) ── */}
-      <Modal open={!!selTicket} onClose={() => { setSelTicket(null); setPendingTicketStatus(null); setShowForward(false); setFwdReason(""); setEditMode(false); setEditTicket(null); }} title={selTicket?.id || ""} width={720}>
+      <Modal open={!!selTicket} onClose={() => { setSelTicket(null); setPendingTicketStatus(null); setShowForward(false); setFwdReason(""); setEditMode(false); setEditTicket(null); setCommentVisibility("external"); }} title={selTicket?.id || ""} width={720}>
         {selTicket && <div>
           {/* Edit/View Toggle Button - Admin/Manager Only */}
           <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginBottom: 14 }}>
@@ -6824,7 +6900,7 @@ export default function HelpDesk() {
           <button onClick={() => setShowForward(true)} style={{ ...bG, padding: "6px 14px", marginBottom: 14, fontSize: 12 }}>Forward Ticket ➦</button>
 
           {/* Timeline View Button */}
-          <button onClick={() => setShowTimelineView(true)} style={{ ...bG, padding: "6px 14px", marginBottom: 14, marginLeft: 8, fontSize: 12, background: "#f3e8ff", color: "#7c3aed" }}>📜 View Timeline</button>
+          <button onClick={() => { setShowTimelineView(true); setTimelineTab("external"); }} style={{ ...bG, padding: "6px 14px", marginBottom: 14, marginLeft: 8, fontSize: 12, background: "#f3e8ff", color: "#7c3aed" }}>📜 View Timeline</button>
 
           {/* Send to Vendor Button */}
           <button onClick={() => setShowVendor(true)} style={{ ...bG, padding: "6px 14px", marginBottom: 14, marginLeft: 8, fontSize: 12, background: "#fff7ed", color: "#ea580c" }}>Send to Vendor 🏭</button>
@@ -6989,36 +7065,82 @@ export default function HelpDesk() {
           </div>
 
           {/* Comments Display */}
-          {(selTicket.comments || []).length > 0 && (
-            <div style={{ marginBottom: 14, paddingBottom: 14, borderBottom: "1px solid #f1f5f9" }}>
-              <div style={{ fontSize: 11, fontWeight: 600, color: "#374151", marginBottom: 10 }}>COMMENTS ({selTicket.comments.length})</div>
-              <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-                {(selTicket.comments || []).map((comment, idx) => (
-                  <div key={idx} style={{ padding: 12, background: "#f8fafc", borderRadius: 8, border: "1px solid #e2e8f0" }}>
-                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
-                      <div style={{ fontWeight: 600, fontSize: 12, color: "#1f2937" }}>{comment.by}</div>
-                      <div style={{ fontSize: 11, color: "#94a3b8" }}>{new Date(comment.date).toLocaleString()}</div>
+          {(() => {
+            const isPrivileged = currentUser?.role !== "Viewer";
+            const visibleComments = (selTicket.comments || []).filter(c => {
+              if (!c.visibility || c.visibility === "external") return true;
+              // internal comments: only admin, manager, or assigned agents see them
+              return isPrivileged;
+            });
+            return visibleComments.length > 0 && (
+              <div style={{ marginBottom: 14, paddingBottom: 14, borderBottom: "1px solid #f1f5f9" }}>
+                <div style={{ fontSize: 11, fontWeight: 600, color: "#374151", marginBottom: 10 }}>COMMENTS ({visibleComments.length})</div>
+                <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                  {visibleComments.map((comment, idx) => (
+                    <div key={idx} style={{
+                      padding: 12,
+                      background: comment.visibility === "internal" ? "#faf5ff" : "#f8fafc",
+                      borderRadius: 8,
+                      border: `1px solid ${comment.visibility === "internal" ? "#e9d5ff" : "#e2e8f0"}`
+                    }}>
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: 7 }}>
+                          <div style={{ fontWeight: 600, fontSize: 12, color: "#1f2937" }}>{comment.by}</div>
+                          {comment.visibility === "internal" && (
+                            <span style={{ fontSize: 10, background: "#ede9fe", color: "#7c3aed", fontWeight: 700, padding: "1px 7px", borderRadius: 99 }}>🔒 Internal</span>
+                          )}
+                        </div>
+                        <div style={{ fontSize: 11, color: "#94a3b8" }}>{new Date(comment.date).toLocaleString()}</div>
+                      </div>
+                      {comment.text && (
+                        <div style={{ fontSize: 13, color: "#475569", marginBottom: comment.image ? 8 : 0, lineHeight: 1.5 }}>
+                          {comment.text}
+                        </div>
+                      )}
+                      {comment.image && (
+                        <div style={{ marginTop: 8 }}>
+                          <img src={comment.image} style={{ maxWidth: "100%", maxHeight: 200, borderRadius: 6, border: "1px solid #e2e8f0", cursor: "pointer" }} alt="comment" onClick={() => { window.open(comment.image, "_blank"); }} title="Click to view full image" />
+                        </div>
+                      )}
                     </div>
-                    {comment.text && (
-                      <div style={{ fontSize: 13, color: "#475569", marginBottom: comment.image ? 8 : 0, lineHeight: 1.5 }}>
-                        {comment.text}
-                      </div>
-                    )}
-                    {comment.image && (
-                      <div style={{ marginTop: 8 }}>
-                        <img src={comment.image} style={{ maxWidth: "100%", maxHeight: 200, borderRadius: 6, border: "1px solid #e2e8f0", cursor: "pointer" }} alt="comment" onClick={() => { window.open(comment.image, "_blank"); }} title="Click to view full image" />
-                      </div>
-                    )}
-                  </div>
-                ))}
+                  ))}
+                </div>
               </div>
-            </div>
-          )}
+            );
+          })()}
 
           {/* Comment */}
           <div style={{ borderTop: "1px solid #f1f5f9", paddingTop: 13 }}>
             <div style={{ fontSize: 11, fontWeight: 600, color: "#374151", marginBottom: 7 }}>ADD COMMENT</div>
-            <textarea style={{ ...iS, height: 68, resize: "none" }} placeholder="Add a note or reply…" value={newComment} onChange={e => setNewComment(e.target.value)} />
+            {/* Internal / External toggle — only for privileged users */}
+            {(currentUser?.role !== "Viewer") && (
+              <div style={{ display: "flex", gap: 6, marginBottom: 10 }}>
+                <button
+                  onClick={() => setCommentVisibility("external")}
+                  style={{
+                    padding: "5px 14px", borderRadius: 7, border: "none", cursor: "pointer", fontSize: 12, fontWeight: 600,
+                    background: commentVisibility === "external" ? "#dbeafe" : "#f1f5f9",
+                    color: commentVisibility === "external" ? "#1d4ed8" : "#64748b",
+                    transition: "all 0.15s"
+                  }}
+                >🌐 External</button>
+                <button
+                  onClick={() => setCommentVisibility("internal")}
+                  style={{
+                    padding: "5px 14px", borderRadius: 7, border: "none", cursor: "pointer", fontSize: 12, fontWeight: 600,
+                    background: commentVisibility === "internal" ? "#ede9fe" : "#f1f5f9",
+                    color: commentVisibility === "internal" ? "#7c3aed" : "#64748b",
+                    transition: "all 0.15s"
+                  }}
+                >🔒 Internal</button>
+              </div>
+            )}
+            {commentVisibility === "internal" && (currentUser?.role !== "Viewer") && (
+              <div style={{ fontSize: 11, color: "#7c3aed", marginBottom: 8, background: "#faf5ff", padding: "6px 10px", borderRadius: 6, border: "1px solid #e9d5ff" }}>
+                🔒 This note is internal — only visible to Admins, Managers, and assigned Agents.
+              </div>
+            )}
+            <textarea style={{ ...iS, height: 68, resize: "none", borderColor: commentVisibility === "internal" ? "#c4b5fd" : undefined }} placeholder={commentVisibility === "internal" ? "Add an internal note (not visible to ticket creator)…" : "Add a note or reply…"} value={newComment} onChange={e => setNewComment(e.target.value)} />
             {/* Image attachment */}
             <div style={{ display: "flex", gap: 8, marginTop: 8, alignItems: "center" }}>
               <label style={{ cursor: "pointer", padding: "6px 12px", borderRadius: 6, border: "1.5px dashed #3b82f6", background: "#eff6ff", color: "#1d4ed8", fontSize: 12, fontWeight: 600, display: "inline-flex", alignItems: "center", gap: 4 }}>
@@ -7055,9 +7177,12 @@ export default function HelpDesk() {
                 by: currentUser.name,
                 date: nowISO,
                 text: newComment.trim(),
-                image: commentImage || null
+                image: commentImage || null,
+                visibility: commentVisibility
               };
-              const updatedT = { ...selTicket, updated: nowISO, comments: [...(selTicket.comments || []), comment], timeline: [...(selTicket.timeline || []), { action: "Comment added", by: currentUser.name, date: nowISO, note: newComment.trim() + (commentImage ? " [with image]" : "") }] };
+              const timelineNote = newComment.trim() + (commentImage ? " [with image]" : "");
+              const timelineEvent = { action: "Comment added", by: currentUser.name, date: nowISO, note: timelineNote, visibility: commentVisibility };
+              const updatedT = { ...selTicket, updated: nowISO, comments: [...(selTicket.comments || []), comment], timeline: [...(selTicket.timeline || []), timelineEvent] };
               try {
                 await axios.put(`${TICKETS_API}/${selTicket.id}`, updatedT);
                 setTickets(p => p.map(x => x.id === selTicket.id ? { ...updatedT, updated: new Date(nowISO) } : x));
@@ -7066,55 +7191,120 @@ export default function HelpDesk() {
                 setCommentImage(null);
                 setCommentImagePreview(null);
               } catch (e) { setCustomAlert({ show: true, message: "Failed to post comment", type: "error" }); }
-            }} style={{ ...bP, marginTop: 7, padding: "7px 15px", fontSize: 13 }}>Post Comment</button>
+            }} style={{ ...bP, marginTop: 7, padding: "7px 15px", fontSize: 13, background: commentVisibility === "internal" ? "linear-gradient(135deg,#7c3aed,#6d28d9)" : "linear-gradient(135deg,#3b82f6,#6366f1)" }}>
+              {commentVisibility === "internal" ? "🔒 Post Internal Note" : "🌐 Post Comment"}
+            </button>
           </div>
         </div>}
       </Modal>
 
-      {/* ✅ NEW: TIMELINE VIEW MODAL */}
-      <Modal open={showTimelineView} onClose={() => setShowTimelineView(false)} title={`📜 Ticket Timeline - ${selTicket?.id || ""}`} width={600}>
-        {selTicket && (
-          <div style={{ maxHeight: "600px", overflowY: "auto" }}>
-            {(!selTicket.timeline || selTicket.timeline.length === 0) ? (
-              <div style={{ textAlign: "center", padding: "30px", color: "#94a3b8" }}>
-                <div style={{ fontSize: 14, marginBottom: 8 }}>📭 No timeline events yet</div>
-                <div style={{ fontSize: 12 }}>This ticket hasn't been updated yet</div>
-              </div>
-            ) : (
-              <div>
-                {[...selTicket.timeline].reverse().map((entry, idx) => (
-                  <div key={idx} style={{ marginBottom: 16, paddingBottom: 16, borderBottom: idx < selTicket.timeline.length - 1 ? "1px solid #f1f5f9" : "none" }}>
-                    <div style={{ display: "flex", alignItems: "flex-start", gap: 10 }}>
-                      {/* Timeline dot */}
-                      <div style={{ width: 32, height: 32, minWidth: 32, background: "#dbeafe", borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 14 }}>
-                        {entry.action.includes("Created") && "✨"}
-                        {entry.action.includes("Forwarded") && "➦"}
-                        {entry.action.includes("Sent") && "🏭"}
-                        {entry.action.includes("Reopened") && "🔄"}
-                        {entry.action.includes("Closed") && "✓"}
-                        {entry.action.includes("Updated") && "✏️"}
-                        {!entry.action.includes("Created") && !entry.action.includes("Forwarded") && !entry.action.includes("Sent") && !entry.action.includes("Reopened") && !entry.action.includes("Closed") && !entry.action.includes("Updated") && "📝"}
-                      </div>
+      {/* ✅ UPDATED: TIMELINE VIEW MODAL — Internal / External tabs */}
+      <Modal open={showTimelineView} onClose={() => setShowTimelineView(false)} title={`📜 Ticket Timeline - ${selTicket?.id || ""}`} width={640}>
+        {selTicket && (() => {
+          const isPrivileged = currentUser?.role !== "Viewer";
 
-                      {/* Timeline content */}
-                      <div style={{ flex: 1, minWidth: 0 }}>
-                        <div style={{ fontSize: 13, fontWeight: 600, color: "#1f2937", marginBottom: 2 }}>{entry.action}</div>
-                        <div style={{ fontSize: 11, color: "#64748b", marginBottom: 4 }}>
-                          By <strong>{entry.by}</strong> • {new Date(entry.date).toLocaleString()}
-                        </div>
-                        {entry.note && (
-                          <div style={{ fontSize: 12, color: "#475569", background: "#f8fafc", padding: "8px 10px", borderRadius: 6, borderLeft: "3px solid #3b82f6", marginTop: 6 }}>
-                            {entry.note}
-                          </div>
-                        )}
-                      </div>
-                    </div>
+          // External events: only public events (no internal-tagged ones) — what ticket creator sees
+          const externalEvents = (selTicket.timeline || []).filter(e => e.visibility !== "internal");
+
+          // Internal timeline = ALL events (public + internal), so agents see the complete picture
+          const allEvents = selTicket.timeline || [];
+          const internalOnlyCount = allEvents.filter(e => e.visibility === "internal").length;
+
+          const renderEntry = (entry, idx, arr) => (
+            <div key={idx} style={{ marginBottom: 16, paddingBottom: 16, borderBottom: idx < arr.length - 1 ? "1px solid #f1f5f9" : "none" }}>
+              <div style={{ display: "flex", alignItems: "flex-start", gap: 10 }}>
+                {/* dot */}
+                <div style={{
+                  width: 32, height: 32, minWidth: 32, borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 14,
+                  background: entry.visibility === "internal" ? "#ede9fe" : "#dbeafe"
+                }}>
+                  {entry.action.includes("Created") && "✨"}
+                  {entry.action.includes("Forwarded") && "➦"}
+                  {entry.action.includes("Sent") && "🏭"}
+                  {entry.action.includes("Reopened") && "🔄"}
+                  {entry.action.includes("Closed") && "✓"}
+                  {entry.action.includes("Updated") && "✏️"}
+                  {entry.action.includes("Comment") && (entry.visibility === "internal" ? "🔒" : "💬")}
+                  {!entry.action.includes("Created") && !entry.action.includes("Forwarded") && !entry.action.includes("Sent") && !entry.action.includes("Reopened") && !entry.action.includes("Closed") && !entry.action.includes("Updated") && !entry.action.includes("Comment") && "📝"}
+                </div>
+                {/* content */}
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 7, marginBottom: 2 }}>
+                    <div style={{ fontSize: 13, fontWeight: 600, color: "#1f2937" }}>{entry.action}</div>
+                    {entry.visibility === "internal" && <span style={{ fontSize: 10, background: "#ede9fe", color: "#7c3aed", fontWeight: 700, padding: "1px 7px", borderRadius: 99 }}>🔒 Internal</span>}
                   </div>
-                ))}
+                  <div style={{ fontSize: 11, color: "#64748b", marginBottom: 4 }}>
+                    By <strong>{entry.by}</strong> • {new Date(entry.date).toLocaleString()}
+                  </div>
+                  {entry.note && (
+                    <div style={{ fontSize: 12, color: "#475569", background: entry.visibility === "internal" ? "#faf5ff" : "#f8fafc", padding: "8px 10px", borderRadius: 6, borderLeft: `3px solid ${entry.visibility === "internal" ? "#7c3aed" : "#3b82f6"}`, marginTop: 6 }}>
+                      {entry.note}
+                    </div>
+                  )}
+                </div>
               </div>
-            )}
-          </div>
-        )}
+            </div>
+          );
+
+          return (
+            <div>
+              {/* Tab bar — internal tab only for privileged users */}
+              <div style={{ display: "flex", gap: 6, marginBottom: 18, borderBottom: "2px solid #f1f5f9", paddingBottom: 0 }}>
+                <button
+                  onClick={() => setTimelineTab("external")}
+                  style={{
+                    padding: "8px 18px", border: "none", cursor: "pointer", fontSize: 13, fontWeight: 600, background: "none",
+                    color: timelineTab === "external" ? "#1d4ed8" : "#94a3b8",
+                    borderBottom: timelineTab === "external" ? "2px solid #3b82f6" : "2px solid transparent",
+                    marginBottom: -2, transition: "all 0.15s"
+                  }}
+                >🌐 External Timeline</button>
+                {isPrivileged && (
+                  <button
+                    onClick={() => setTimelineTab("internal")}
+                    style={{
+                      padding: "8px 18px", border: "none", cursor: "pointer", fontSize: 13, fontWeight: 600, background: "none",
+                      color: timelineTab === "internal" ? "#7c3aed" : "#94a3b8",
+                      borderBottom: timelineTab === "internal" ? "2px solid #7c3aed" : "2px solid transparent",
+                      marginBottom: -2, transition: "all 0.15s"
+                    }}
+                  >🔒 Internal Timeline {internalOnlyCount > 0 && <span style={{ background: "#ede9fe", color: "#7c3aed", borderRadius: 99, padding: "0 6px", fontSize: 11 }}>+{internalOnlyCount} internal</span>}</button>
+                )}
+              </div>
+
+              {/* External timeline */}
+              {timelineTab === "external" && (
+                <div style={{ maxHeight: 520, overflowY: "auto" }}>
+                  {externalEvents.length === 0 ? (
+                    <div style={{ textAlign: "center", padding: "30px", color: "#94a3b8" }}>
+                      <div style={{ fontSize: 14, marginBottom: 8 }}>📭 No external events yet</div>
+                      <div style={{ fontSize: 12 }}>Ticket creation, status changes and public comments appear here</div>
+                    </div>
+                  ) : (
+                    <div>{[...externalEvents].reverse().map((e, i, arr) => renderEntry(e, i, arr))}</div>
+                  )}
+                </div>
+              )}
+
+              {/* Internal timeline — privileged only, shows ALL events with internal ones highlighted */}
+              {timelineTab === "internal" && isPrivileged && (
+                <div style={{ maxHeight: 520, overflowY: "auto" }}>
+                  <div style={{ fontSize: 11, color: "#7c3aed", marginBottom: 14, background: "#faf5ff", padding: "8px 12px", borderRadius: 7, border: "1px solid #e9d5ff" }}>
+                    🔒 Full internal view — includes all public events plus internal notes, forwards, and agent actions not visible to the ticket creator.
+                  </div>
+                  {allEvents.length === 0 ? (
+                    <div style={{ textAlign: "center", padding: "30px", color: "#94a3b8" }}>
+                      <div style={{ fontSize: 14, marginBottom: 8 }}>📭 No events yet</div>
+                      <div style={{ fontSize: 12 }}>All ticket activity will appear here</div>
+                    </div>
+                  ) : (
+                    <div>{[...allEvents].reverse().map((e, i, arr) => renderEntry(e, i, arr))}</div>
+                  )}
+                </div>
+              )}
+            </div>
+          );
+        })()}
       </Modal>
 
       {/* Forward requests now handled via Inbox (✉️) and floating alerts */}
