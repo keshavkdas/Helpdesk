@@ -960,10 +960,6 @@ export default function HelpDesk() {
   const [exportFilterValue, setExportFilterValue] = useState(""); // assignee id, category name, type
   const [exportFormat, setExportFormat] = useState("csv"); // csv, json, pdf
 
-  // ✅ NEW: Form Layout State
-  const [formLayout, setFormLayout] = useState([]);
-  const [showLayoutDesigner, setShowLayoutDesigner] = useState(false);
-
   // ✅ NEW: Advanced Export Modal State
   const [showAdvancedExportModal, setShowAdvancedExportModal] = useState(false);
   const [advancedExportFilters, setAdvancedExportFilters] = useState({
@@ -1439,13 +1435,6 @@ export default function HelpDesk() {
       })).sort((a, b) => b.created - a.created);
 
       setProjects(parsedProjects);
-
-      // ✅ NEW: Load form layout
-      try {
-        const flRes = await axios.get(`${BASE_URL}/formLayout`);
-        setFormLayout(flRes.data?.layout || []);
-      } catch (e) { console.log("FormLayout loading from API:", e.message); }
-
       setLoading(false); // ✅ MUST set to false on success
     } catch (e) {
       console.error("Error loading data:", e);
@@ -1518,12 +1507,6 @@ export default function HelpDesk() {
       })).sort((a, b) => b.created - a.created);
 
       setProjects(parsedProjects);
-
-      try {
-        const flRes = await axios.get(`${BASE_URL}/formLayout`);
-        setFormLayout(flRes.data?.layout || []);
-      } catch (e) { }
-
     } catch (e) {
       console.error("Silent refresh failed:", e);
     }
@@ -2976,18 +2959,6 @@ export default function HelpDesk() {
       const created = response.data;
       setCustomAttrs([...customAttrs, created]);
       setNewAttr({ name: "", type: "text", options: "", required: false });
-
-      setConfirmModal({
-        show: true,
-        title: "Attribute Added",
-        message: "Custom attribute added! Would you like to design the New Ticket form layout?",
-        confirmLabel: "Yes, Design Layout",
-        onConfirm: () => {
-          setConfirmModal({ show: false, title: "", message: "", onConfirm: null, onCancel: null });
-          setShowLayoutDesigner(true);
-        },
-        onCancel: () => setConfirmModal({ show: false, title: "", message: "", onConfirm: null, onCancel: null })
-      });
     } catch (err) {
       console.error("Error adding attribute:", err);
       setCustomAlert({ show: true, message: "Failed to add attribute", type: "error" });
@@ -5768,12 +5739,7 @@ export default function HelpDesk() {
                 </table>
               </div>}
               {settingsTab === "customattrs" && <div style={{ background: "#fff", borderRadius: 12, padding: 22, boxShadow: "0 1px 4px rgba(0,0,0,0.06)" }}>
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
-                  <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700 }}>Custom Attributes</h3>
-                  {currentUser?.role === "Admin" && (
-                    <button onClick={() => setShowLayoutDesigner(true)} style={{ ...bP, background: "#8b5cf6", padding: "6px 14px", fontSize: 12 }}>🎨 Design Form Layout</button>
-                  )}
-                </div>
+                <h3 style={{ margin: "0 0 4px", fontSize: 15, fontWeight: 700 }}>Custom Attributes</h3>
                 <p style={{ margin: "0 0 14px", fontSize: 12, color: "#64748b" }}>Custom fields will appear on every new ticket form.</p>
                 {currentUser?.role === "Admin" ? (
                   <div style={{ display: "grid", gridTemplateColumns: "1fr auto auto auto auto", gap: 9, marginBottom: 18, padding: 14, background: "#f8fafc", borderRadius: 9, alignItems: "end" }}>
