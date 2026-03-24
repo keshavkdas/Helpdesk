@@ -117,6 +117,7 @@ const Ticket = sequelize.define("Ticket", {
     comments: { type: DataTypes.JSON, defaultValue: [] },
     vendor: { type: DataTypes.JSON, defaultValue: null },
     dueDate: { type: DataTypes.DATE, defaultValue: null },
+    image: { type: DataTypes.TEXT, defaultValue: null },
     satsangId: { type: DataTypes.INTEGER, defaultValue: null },
 }, { timestamps: true });
 
@@ -141,6 +142,7 @@ const Webcast = sequelize.define("Webcast", {
     comments: { type: DataTypes.JSON, defaultValue: [] },
     vendor: { type: DataTypes.JSON, defaultValue: null },
     dueDate: { type: DataTypes.DATE, defaultValue: null },
+    image: { type: DataTypes.TEXT, defaultValue: null },
     satsangId: { type: DataTypes.INTEGER, defaultValue: null },
 }, { timestamps: true });
 
@@ -167,6 +169,7 @@ const Project = sequelize.define("Project", {
     startDate: { type: DataTypes.DATEONLY, defaultValue: null },
     dueDate: { type: DataTypes.DATEONLY, defaultValue: null },
     comments: { type: DataTypes.JSON, defaultValue: [] },
+    image: { type: DataTypes.TEXT, defaultValue: null },
     tasks: { type: DataTypes.JSON, defaultValue: [] }
 }, { timestamps: true });
 

@@ -1122,6 +1122,10 @@ export default function HelpDesk() {
 
   // ── Comments ──
   const [newComment, setNewComment] = useState("");
+  const [commentImage, setCommentImage] = useState(null);
+  const [commentImagePreview, setCommentImagePreview] = useState(null);
+  const [ticketImage, setTicketImage] = useState(null);
+  const [ticketImagePreview, setTicketImagePreview] = useState(null);
   const [newProjComment, setNewProjComment] = useState("");
 
   // ── Ticket form ──
@@ -2296,6 +2300,40 @@ export default function HelpDesk() {
     document.body.removeChild(a);
   };
 
+  // ✅ NEW: Compress image to base64 with minimal size
+  const compressImage = (file, callback) => {
+    const reader = new FileReader();
+    reader.readAsDataURL(file);
+    reader.onload = (e) => {
+      const img = new Image();
+      img.src = e.target.result;
+      img.onload = () => {
+        const canvas = document.createElement("canvas");
+        let width = img.width;
+        let height = img.height;
+        const maxWidth = 640;
+        const maxHeight = 480;
+        if (width > height) {
+          if (width > maxWidth) {
+            height = Math.round((height * maxWidth) / width);
+            width = maxWidth;
+          }
+        } else {
+          if (height > maxHeight) {
+            width = Math.round((width * maxHeight) / height);
+            height = maxHeight;
+          }
+        }
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext("2d");
+        ctx.drawImage(img, 0, 0, width, height);
+        const compressed = canvas.toDataURL("image/jpeg", 0.6);
+        callback(compressed);
+      };
+    };
+  };
+
   const handleSubmit = async () => {
     if (!form.summary || !form.org) return setCustomAlert({ show: true, message: "Organisation and Summary are required", type: "error" });
 
@@ -2312,8 +2350,9 @@ export default function HelpDesk() {
       // ✅ Don't send created/updated - Sequelize timestamps handle these
       dueDate: form.dueDate || null,
       status: "Open",
+      image: ticketImage || null,
       comments: [],
-      timeline: [{ action: "Created", by: currentUser.name, date: new Date().toISOString(), note: "Ticket opened." }]
+      timeline: [{ action: "Created", by: currentUser.name, date: new Date().toISOString(), note: "Ticket opened." + (ticketImage ? " [with image]" : "") }]
     };
 
     // ✅ NEW: If webcast, create separate entry and send to /api/webcasts
@@ -2337,8 +2376,9 @@ export default function HelpDesk() {
           category: form.category,
           dueDate: form.dueDate || null,
           status: "Open",
+          image: ticketImage || null,
           comments: [],
-          timeline: [{ action: "Created", by: currentUser.name, date: new Date().toISOString(), note: "Webcast created." }]
+          timeline: [{ action: "Created", by: currentUser.name, date: new Date().toISOString(), note: "Webcast created." + (ticketImage ? " [with image]" : "") }]
         };
 
         // Send to webcasts API endpoint
@@ -2355,6 +2395,8 @@ export default function HelpDesk() {
         setSelTicket(webcastWithDates);
         setShowNewTicket(false);
         setForm(emptyForm());
+        setTicketImage(null);
+        setTicketImagePreview(null);
         setAssigneeSearch("");
         setShowAssigneeDD(false);
         setCustomAlert({ show: true, message: "✅ Webcast created successfully!", type: "success" });
@@ -2378,6 +2420,8 @@ export default function HelpDesk() {
       setSelTicket(ticketWithDates);  // ✅ Auto-open ticket details
       setShowNewTicket(false);
       setForm(emptyForm());
+      setTicketImage(null);
+      setTicketImagePreview(null);
       setAssigneeSearch("");
       setShowAssigneeDD(false);
       setCustomAlert({ show: true, message: "✅ Ticket created successfully!", type: "success" });
@@ -6449,6 +6493,35 @@ export default function HelpDesk() {
         {form.category === "Webcast" && <WebcastFields f={form} setF={setForm} isProject={false} />}
         <FF label="Summary" required><input style={iS} placeholder="Brief description of the issue" value={form.summary} onChange={e => setForm({ ...form, summary: e.target.value })} /></FF>
         <FF label="Description"><textarea style={{ ...iS, height: 88, resize: "vertical" }} placeholder="Detailed description…" value={form.description} onChange={e => setForm({ ...form, description: e.target.value })} /></FF>
+        {/* Attachment: Image */}
+        <div style={{ marginBottom: 18 }}>
+          <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+            <label style={{ cursor: "pointer", padding: "8px 16px", borderRadius: 8, border: "1.5px dashed #3b82f6", background: "#eff6ff", color: "#1d4ed8", fontSize: 13, fontWeight: 700, display: "inline-flex", alignItems: "center", gap: 6, transition: "all 0.2s" }} onMouseEnter={e => e.currentTarget.style.background = "#dbeafe"} onMouseLeave={e => e.currentTarget.style.background = "#eff6ff"}>
+              📷 Add Image
+              <input
+                type="file"
+                accept="image/*"
+                style={{ display: "none" }}
+                onChange={e => {
+                  const file = e.target.files?.[0];
+                  if (file) {
+                    compressImage(file, (compressed) => {
+                      setTicketImage(compressed);
+                      setTicketImagePreview(compressed);
+                    });
+                  }
+                }}
+              />
+            </label>
+            {ticketImagePreview && (
+              <div style={{ position: "relative", display: "inline-block" }}>
+                <img src={ticketImagePreview} style={{ height: 42, width: 42, objectFit: "cover", borderRadius: 8, border: "1.5px solid #e2e8f0" }} alt="preview" />
+                <button onClick={() => { setTicketImage(null); setTicketImagePreview(null); }} style={{ position: "absolute", top: -6, right: -6, background: "#ef4444", color: "#fff", border: "none", borderRadius: "50%", width: 18, height: 18, fontSize: 10, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 900, boxShadow: "0 2px 4px rgba(0,0,0,0.1)" }}>×</button>
+              </div>
+            )}
+            <div style={{ fontSize: 11, color: "#94a3b8" }}>Attach an image to the ticket description (Max 1)</div>
+          </div>
+        </div>
         {customAttrs.filter(a => (a.section || "grid") === "bottom").sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0)).length > 0 && (
           <>
             <div style={{ fontSize: 11, fontWeight: 600, color: "#475569", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 9, marginTop: 4 }}>Custom Fields</div>
@@ -6676,6 +6749,11 @@ export default function HelpDesk() {
               <p style={{ margin: "0 0 16px", color: "#64748b", fontSize: 14, lineHeight: 1.6 }}>
                 {selTicket.description}
               </p>
+              {selTicket.image && (
+                <div style={{ marginBottom: 16, borderRadius: 12, overflow: "hidden", border: "1.5px solid #e2e8f0" }}>
+                  <img src={selTicket.image} style={{ width: "100%", maxHeight: 300, objectFit: "contain", background: "#f8fafc", display: "block" }} alt="ticket attachment" />
+                </div>
+              )}
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 9, marginBottom: 14 }}>
                 {[
                   { l: "Organisation", v: selTicket.org },
@@ -6906,20 +6984,83 @@ export default function HelpDesk() {
             )}
           </div>
 
+          {/* Comments Display */}
+          {(selTicket.comments || []).length > 0 && (
+            <div style={{ marginBottom: 14, paddingBottom: 14, borderBottom: "1px solid #f1f5f9" }}>
+              <div style={{ fontSize: 11, fontWeight: 600, color: "#374151", marginBottom: 10 }}>COMMENTS ({selTicket.comments.length})</div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                {(selTicket.comments || []).map((comment, idx) => (
+                  <div key={idx} style={{ padding: 12, background: "#f8fafc", borderRadius: 8, border: "1px solid #e2e8f0" }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+                      <div style={{ fontWeight: 600, fontSize: 12, color: "#1f2937" }}>{comment.by}</div>
+                      <div style={{ fontSize: 11, color: "#94a3b8" }}>{new Date(comment.date).toLocaleString()}</div>
+                    </div>
+                    {comment.text && (
+                      <div style={{ fontSize: 13, color: "#475569", marginBottom: comment.image ? 8 : 0, lineHeight: 1.5 }}>
+                        {comment.text}
+                      </div>
+                    )}
+                    {comment.image && (
+                      <div style={{ marginTop: 8 }}>
+                        <img src={comment.image} style={{ maxWidth: "100%", maxHeight: 200, borderRadius: 6, border: "1px solid #e2e8f0", cursor: "pointer" }} alt="comment" onClick={() => { window.open(comment.image, "_blank"); }} title="Click to view full image" />
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
           {/* Comment */}
           <div style={{ borderTop: "1px solid #f1f5f9", paddingTop: 13 }}>
             <div style={{ fontSize: 11, fontWeight: 600, color: "#374151", marginBottom: 7 }}>ADD COMMENT</div>
             <textarea style={{ ...iS, height: 68, resize: "none" }} placeholder="Add a note or reply…" value={newComment} onChange={e => setNewComment(e.target.value)} />
+            {/* Image attachment */}
+            <div style={{ display: "flex", gap: 8, marginTop: 8, alignItems: "center" }}>
+              <label style={{ cursor: "pointer", padding: "6px 12px", borderRadius: 6, border: "1.5px dashed #3b82f6", background: "#eff6ff", color: "#1d4ed8", fontSize: 12, fontWeight: 600, display: "inline-flex", alignItems: "center", gap: 4 }}>
+                📷 Add Image
+                <input
+                  type="file"
+                  accept="image/*"
+                  style={{ display: "none" }}
+                  onChange={e => {
+                    const file = e.target.files?.[0];
+                    if (file) {
+                      compressImage(file, (compressed) => {
+                        setCommentImage(compressed);
+                        setCommentImagePreview(compressed);
+                      });
+                    }
+                  }}
+                />
+              </label>
+              {commentImagePreview && (
+                <button onClick={() => { setCommentImage(null); setCommentImagePreview(null); }} style={{ padding: "4px 8px", borderRadius: 4, border: "1px solid #e2e8f0", background: "#fff", color: "#ef4444", fontSize: 11, fontWeight: 600, cursor: "pointer" }}>✕ Remove</button>
+              )}
+            </div>
+            {/* Image preview */}
+            {commentImagePreview && (
+              <div style={{ marginTop: 8, maxWidth: 200 }}>
+                <img src={commentImagePreview} style={{ maxWidth: "100%", maxHeight: 150, borderRadius: 6, border: "1px solid #e2e8f0" }} alt="preview" />
+              </div>
+            )}
             <button onClick={async () => {
-              if (!newComment.trim()) return;
+              if (!newComment.trim() && !commentImage) return;
               const nowISO = new Date().toISOString();
-              const comment = { by: currentUser.name, date: nowISO, text: newComment.trim() };
-              const updatedT = { ...selTicket, updated: nowISO, comments: [...(selTicket.comments || []), comment], timeline: [...(selTicket.timeline || []), { action: "Comment added", by: currentUser.name, date: nowISO, note: newComment.trim() }] };
+              const comment = {
+                by: currentUser.name,
+                date: nowISO,
+                text: newComment.trim(),
+                image: commentImage || null
+              };
+              const updatedT = { ...selTicket, updated: nowISO, comments: [...(selTicket.comments || []), comment], timeline: [...(selTicket.timeline || []), { action: "Comment added", by: currentUser.name, date: nowISO, note: newComment.trim() + (commentImage ? " [with image]" : "") }] };
               try {
                 await axios.put(`${TICKETS_API}/${selTicket.id}`, updatedT);
                 setTickets(p => p.map(x => x.id === selTicket.id ? { ...updatedT, updated: new Date(nowISO) } : x));
                 setSelTicket({ ...updatedT, updated: new Date(nowISO) });
                 setNewComment("");
+                setCommentImage(null);
+                setCommentImagePreview(null);
               } catch (e) { setCustomAlert({ show: true, message: "Failed to post comment", type: "error" }); }
             }} style={{ ...bP, marginTop: 7, padding: "7px 15px", fontSize: 13 }}>Post Comment</button>
           </div>
