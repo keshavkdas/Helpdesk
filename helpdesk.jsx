@@ -5033,7 +5033,7 @@ export default function HelpDesk() {
               <div style={{ display: "grid", gridTemplateColumns: "repeat(6,1fr)", gap: 9, marginBottom: 20 }}>
                 {[
                   { label: "Open", value: dashboardStats.open, bg: "#fef3c7", accent: "#f59e0b", icon: "📬", action: () => { setView("tickets"); setTvFilter("open"); setStatusF("All"); setPriorityF("All"); } },
-                  { label: "Unassigned", value: dashboardData.filter(t => (!t.assignees || t.assignees.length === 0) && t.status !== "Closed").length, bg: "#f3e8ff", accent: "#a855f7", icon: "🔸", action: () => { setView("tickets"); setTvFilter("unassigned"); } },
+                  { label: "Unassigned", value: dashboardData.filter(t => (!t.assignees || t.assignees.length === 0) && t.status !== "Closed" && !isTrueWebcast(t)).length, bg: "#f3e8ff", accent: "#a855f7", icon: "🔸", action: () => { setView("tickets"); setTvFilter("unassigned"); } },
                   { label: "In Progress", value: dashboardStats.inProgress, bg: "#ede9fe", accent: "#6366f1", icon: "⚙️", action: () => { setView("tickets"); setTvFilter("all"); setStatusF("In Progress"); setPriorityF("All"); } },
                   { label: "Critical", value: dashboardStats.critical, bg: "#fee2e2", accent: "#ef4444", icon: "🔥", action: () => { setView("tickets"); setTvFilter("alerts"); setStatusF("All"); setPriorityF("Critical"); } },
                   { label: "Closed", value: dashboardStats.closed, bg: "#dcfce7", accent: "#22c55e", icon: "✅", action: () => { setView("tickets"); setTvFilter("closed"); setStatusF("All"); setPriorityF("All"); } },
@@ -5326,13 +5326,14 @@ export default function HelpDesk() {
               const myWebcasts = allWebcasts.filter(t => t.assignees?.some(a => a.id === currentUser?.id));
               const webcastBase = isAdminOrManager ? allWebcasts : myWebcasts;
               return (
-                <div style={{ display: "grid", gridTemplateColumns: "repeat(5,1fr)", gap: 9, marginBottom: 16 }}>
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(6,1fr)", gap: 9, marginBottom: 16 }}>
                   {[
                     { label: isAdminOrManager ? "Total Webcasts" : "My Webcasts", value: webcastBase.length, color: "#f97316", icon: "📡", filter: null },
                     { label: "Open", value: webcastBase.filter(t => t.status === "Open").length, color: "#3b82f6", icon: "📂", filter: "open" },
                     { label: "In Progress", value: webcastBase.filter(t => t.status === "In Progress").length, color: "#eab308", icon: "⚙️", filter: "inprogress" },
                     { label: "Closed", value: webcastBase.filter(t => t.status === "Closed").length, color: "#64748b", icon: "✅", filter: "closed" },
                     { label: "Critical", value: webcastBase.filter(t => t.priority === "Critical" && t.status !== "Closed").length, color: "#ef4444", icon: "🔥", filter: "critical" },
+                    { label: "Unassigned", value: allWebcasts.filter(t => (!t.assignees || t.assignees.length === 0) && t.status !== "Closed").length, color: "#a855f7", icon: "🔸", filter: "unassigned" },
                   ].map(s => (
                     <div key={s.label} onClick={() => setWebcastFilter(webcastFilter === s.filter ? null : s.filter)} style={{ background: "#fff", borderRadius: 12, padding: "14px 16px", boxShadow: "0 1px 4px rgba(0,0,0,0.06)", borderTop: `3px solid ${s.color}`, cursor: "pointer", transition: "all 0.2s", transform: webcastFilter === s.filter ? "scale(1.05)" : "scale(1)", opacity: webcastFilter === s.filter ? 1 : 0.8 }}>
                       <div style={{ fontSize: 20, marginBottom: 5 }}>{s.icon}</div>
@@ -5346,7 +5347,7 @@ export default function HelpDesk() {
 
             {/* Webcast Table - Only show tickets assigned to current user (or all for Admin) */}
             <div style={{ background: "#fff", borderRadius: 12, padding: 22, boxShadow: "0 1px 4px rgba(0,0,0,0.06)" }}>
-              <h3 style={{ margin: "0 0 14px", fontSize: 15, fontWeight: 700 }}>My Webcast Tickets</h3>
+              <h3 style={{ margin: "0 0 14px", fontSize: 15, fontWeight: 700 }}>{webcastFilter === "unassigned" ? "⚠️ Unassigned Webcast Tickets" : (currentUser?.role === "Admin" || currentUser?.role === "Manager") ? "All Webcast Tickets" : "My Webcast Tickets"}</h3>
               <div style={{ overflowX: "auto" }}>
                 <table style={{ width: "100%", borderCollapse: "collapse" }}>
                   <thead><tr style={{ background: "#f8fafc" }}>
@@ -5359,6 +5360,7 @@ export default function HelpDesk() {
                   </tr></thead>
                   <tbody>{applySort(tickets.filter(t => {
                     if (!isTrueWebcast(t)) return false;
+                    if (webcastFilter === "unassigned") return (!t.assignees || t.assignees.length === 0) && t.status !== "Closed";
                     if (!t.assignees?.some(a => a.id === currentUser?.id) && currentUser?.role !== "Admin" && currentUser?.role !== "Manager") return false;
                     if (webcastFilter === null) return true;
                     if (webcastFilter === "open") return t.status === "Open";
