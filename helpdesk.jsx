@@ -1033,6 +1033,7 @@ export default function HelpDesk() {
 
   // ✅ NEW: Departments and filters
   const [departments, setDepartments] = useState([]);
+  const [pendingDepartments, setPendingDepartments] = useState([]);
   const [deptFilter, setDeptFilter] = useState("all");
   const [categoryFilter, setCategoryFilter] = useState("all");
   const [orgFilter, setOrgFilter] = useState("all");
@@ -1104,6 +1105,7 @@ export default function HelpDesk() {
   const [showNewTicket, setShowNewTicket] = useState(false);
   const [showNewProject, setShowNewProject] = useState(false);
   const [selTicket, setSelTicket] = useState(null);
+  const [pendingTicketStatus, setPendingTicketStatus] = useState(null);
   const [selProject, setSelProject] = useState(null);
   const [selAgent, setSelAgent] = useState(null);
   const [agentStatusFilter, setAgentStatusFilter] = useState("all");
@@ -1341,6 +1343,7 @@ export default function HelpDesk() {
   const [locSort, setLocSort] = useState({});
   const [vendorSort, setVendorSort] = useState({});
   const [webcastSort, setWebcastSort] = useState({});
+  const [webcastFilter, setWebcastFilter] = useState(null);
   const [agentSort, setAgentSort] = useState({});
 
   // ✅ NEW: Admin edit user modal
@@ -2443,6 +2446,9 @@ export default function HelpDesk() {
           statusMessage = "✅ Ticket status updated";
       }
       setCustomAlert({ show: true, message: statusMessage, type: "success" });
+
+      // ✅ Reset pending status after successful update
+      setPendingTicketStatus(null);
 
       if (status === "Closed") {
         addDailyNotif({ type: "ticket_closed", icon: "✅", text: `${currentUser.name} closed ticket ${id}`, ticketId: id, by: currentUser.name });
@@ -5276,13 +5282,13 @@ export default function HelpDesk() {
               return (
                 <div style={{ display: "grid", gridTemplateColumns: "repeat(5,1fr)", gap: 9, marginBottom: 16 }}>
                   {[
-                    { label: isAdminOrManager ? "Total Webcasts" : "My Webcasts", value: webcastBase.length, color: "#f97316", icon: "📡" },
-                    { label: "Open", value: webcastBase.filter(t => t.status === "Open").length, color: "#3b82f6", icon: "📂" },
-                    { label: "In Progress", value: webcastBase.filter(t => t.status === "In Progress").length, color: "#eab308", icon: "⚙️" },
-                    { label: "Closed", value: webcastBase.filter(t => t.status === "Closed").length, color: "#64748b", icon: "✅" },
-                    { label: "Critical", value: webcastBase.filter(t => t.priority === "Critical" && t.status !== "Closed").length, color: "#ef4444", icon: "🔥" },
+                    { label: isAdminOrManager ? "Total Webcasts" : "My Webcasts", value: webcastBase.length, color: "#f97316", icon: "📡", filter: null },
+                    { label: "Open", value: webcastBase.filter(t => t.status === "Open").length, color: "#3b82f6", icon: "📂", filter: "open" },
+                    { label: "In Progress", value: webcastBase.filter(t => t.status === "In Progress").length, color: "#eab308", icon: "⚙️", filter: "inprogress" },
+                    { label: "Closed", value: webcastBase.filter(t => t.status === "Closed").length, color: "#64748b", icon: "✅", filter: "closed" },
+                    { label: "Critical", value: webcastBase.filter(t => t.priority === "Critical" && t.status !== "Closed").length, color: "#ef4444", icon: "🔥", filter: "critical" },
                   ].map(s => (
-                    <div key={s.label} style={{ background: "#fff", borderRadius: 12, padding: "14px 16px", boxShadow: "0 1px 4px rgba(0,0,0,0.06)", borderTop: `3px solid ${s.color}` }}>
+                    <div key={s.label} onClick={() => setWebcastFilter(webcastFilter === s.filter ? null : s.filter)} style={{ background: "#fff", borderRadius: 12, padding: "14px 16px", boxShadow: "0 1px 4px rgba(0,0,0,0.06)", borderTop: `3px solid ${s.color}`, cursor: "pointer", transition: "all 0.2s", transform: webcastFilter === s.filter ? "scale(1.05)" : "scale(1)", opacity: webcastFilter === s.filter ? 1 : 0.8 }}>
                       <div style={{ fontSize: 20, marginBottom: 5 }}>{s.icon}</div>
                       <div style={{ fontSize: 24, fontWeight: 700, color: s.color }}>{s.value}</div>
                       <div style={{ fontSize: 11, color: "#64748b" }}>{s.label}</div>
@@ -5305,7 +5311,16 @@ export default function HelpDesk() {
                     <FilterableHeader label="Priority" field="priority" data={tickets.filter(t => (t.category === "Webcast") && (t.assignees?.some(a => a.id === currentUser?.id) || currentUser?.role === "Admin" || currentUser?.role === "Manager"))} filters={webcastSort} onFilter={setWebcastSort} style={thStyle} />
                     <FilterableHeader label="Status" field="status" data={tickets.filter(t => (t.category === "Webcast") && (t.assignees?.some(a => a.id === currentUser?.id) || currentUser?.role === "Admin" || currentUser?.role === "Manager"))} filters={webcastSort} onFilter={setWebcastSort} style={thStyle} />
                   </tr></thead>
-                  <tbody>{applySort(tickets.filter(t => (t.category === "Webcast") && (t.assignees?.some(a => a.id === currentUser?.id) || currentUser?.role === "Admin" || currentUser?.role === "Manager")), webcastSort).slice(0, 10).map((t, i) => (
+                  <tbody>{applySort(tickets.filter(t => {
+                    if (t.category !== "Webcast") return false;
+                    if (!t.assignees?.some(a => a.id === currentUser?.id) && currentUser?.role !== "Admin" && currentUser?.role !== "Manager") return false;
+                    if (webcastFilter === null) return true;
+                    if (webcastFilter === "open") return t.status === "Open";
+                    if (webcastFilter === "inprogress") return t.status === "In Progress";
+                    if (webcastFilter === "closed") return t.status === "Closed";
+                    if (webcastFilter === "critical") return t.priority === "Critical" && t.status !== "Closed";
+                    return true;
+                  }), webcastSort).slice(0, 10).map((t, i) => (
                     <tr key={t.id + i} className="rh" onClick={() => setSelTicket(t)} style={{ cursor: "pointer" }}>
                       <td style={tdStyle}><span style={{ fontFamily: "'DM Mono',monospace", fontSize: 11.5, color: "#3b82f6" }}>{t.id}</span></td>
                       <td style={{ ...tdStyle, maxWidth: 200 }}><div style={{ whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{t.summary}</div></td>
@@ -5882,7 +5897,8 @@ export default function HelpDesk() {
                 {/* Group departments by org */}
                 {(() => {
                   const grouped = {};
-                  [...departments].forEach(d => {
+                  const deptSource = pendingDepartments.length > 0 ? pendingDepartments : departments;
+                  [...deptSource].forEach(d => {
                     const org = d.orgName || "General";
                     if (!grouped[org]) grouped[org] = [];
                     grouped[org].push(d);
@@ -5892,77 +5908,105 @@ export default function HelpDesk() {
                   orgs.forEach(o => { if (!grouped[o.name]) grouped[o.name] = []; });
                   const orgNames = Object.keys(grouped).sort();
 
-                  return orgNames.map(orgName => (
-                    <div key={orgName} style={{ marginBottom: 20 }}
-                      onDragOver={e => e.preventDefault()}
-                      onDrop={async e => {
-                        e.preventDefault();
-                        const raw = e.dataTransfer.getData("text/plain");
-                        if (!raw) return;
-                        const src = JSON.parse(raw);
-                        if (src.orgName === orgName) return; // same org, skip
-                        // Move department to this org
-                        try {
-                          await axios.put(`${BASE_URL}/departments/${src.id}`, { orgName });
-                          setDepartments(prev => prev.map(d => d.id === src.id ? { ...d, orgName } : d));
-                          setCustomAlert({ show: true, message: `✅ Moved to ${orgName}`, type: "success" });
-                        } catch { setCustomAlert({ show: true, message: "Failed to move department", type: "error" }); }
-                      }}
-                    >
-                      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10, padding: "6px 10px", background: "#f8fafc", borderRadius: 8, border: "1.5px dashed #e2e8f0" }}>
-                        <span style={{ fontSize: 13, fontWeight: 700, color: "#1e293b" }}>🏢 {orgName}</span>
-                        <span style={{ fontSize: 11, color: "#94a3b8", background: "#f1f5f9", borderRadius: 99, padding: "2px 8px" }}>{grouped[orgName].length}</span>
-                        {currentUser?.role === "Admin" && <span style={{ fontSize: 10, color: "#94a3b8", marginLeft: "auto" }}>Drop here to move</span>}
-                      </div>
-                      <div style={{ display: "flex", flexWrap: "wrap", gap: 8, minHeight: 36, padding: "4px 6px", borderRadius: 8, border: grouped[orgName].length === 0 ? "1.5px dashed #e2e8f0" : "none", background: grouped[orgName].length === 0 ? "#fafafa" : "transparent" }}>
-                        {grouped[orgName].length === 0 && <span style={{ fontSize: 11, color: "#cbd5e1", alignSelf: "center" }}>No departments — drag one here</span>}
-                        {grouped[orgName].map((d, idx) => {
-                          const color = getItemColor(d);
-                          return (
-                            <div
-                              key={d.id}
-                              draggable={currentUser?.role === "Admin"}
-                              onDragStart={e => { e.stopPropagation(); e.dataTransfer.setData("text/plain", JSON.stringify({ id: d.id, orgName, idx })); }}
-                              onDragOver={e => e.preventDefault()}
-                              onDrop={async e => {
-                                e.preventDefault();
-                                e.stopPropagation();
-                                const raw = e.dataTransfer.getData("text/plain");
-                                if (!raw) return;
-                                const src = JSON.parse(raw);
-                                if (src.orgName !== orgName || src.id === d.id) return;
-                                // Reorder within same org
-                                const grp = [...grouped[orgName]];
-                                const fromIdx = grp.findIndex(x => x.id === src.id);
-                                const toIdx = idx;
-                                if (fromIdx === toIdx) return;
-                                const moved = grp.splice(fromIdx, 1)[0];
-                                grp.splice(toIdx, 0, moved);
-                                const orders = grp.map((x, i) => ({ id: x.id, sortOrder: i + 1 }));
-                                try {
-                                  await axios.put(`${BASE_URL}/departments/reorder`, { orders });
-                                  const updated = departments.map(dep => {
-                                    const o = orders.find(x => x.id === dep.id);
-                                    return o ? { ...dep, sortOrder: o.sortOrder } : dep;
-                                  });
-                                  setDepartments(updated);
-                                } catch { setCustomAlert({ show: true, message: "Failed to reorder", type: "error" }); }
-                              }}
-                              style={{ padding: "6px 10px", borderRadius: 8, background: color + "20", border: `1.5px solid ${color}40`, display: "flex", alignItems: "center", gap: 6, cursor: currentUser?.role === "Admin" ? "grab" : "default", transition: "all 0.15s", userSelect: "none" }}
-                              onMouseEnter={e => { e.currentTarget.style.boxShadow = `0 3px 10px ${color}40`; }}
-                              onMouseLeave={e => { e.currentTarget.style.boxShadow = "none"; }}
-                            >
-                              <div style={{ width: 8, height: 8, borderRadius: 2, background: color, flexShrink: 0 }} />
-                              <span style={{ fontSize: 12, fontWeight: 600, color: "#1f2937" }}>{d.name}</span>
-                              {currentUser?.role === "Admin" && (
-                                <button onClick={e => { e.stopPropagation(); deleteDept(d.id); }} style={{ border: "none", background: "transparent", color: "#94a3b8", cursor: "pointer", fontSize: 13, fontWeight: 700, lineHeight: 1, padding: "0 2px" }}>×</button>
-                              )}
-                            </div>
-                          );
-                        })}
-                      </div>
-                    </div>
-                  ));
+                  return (
+                    <>
+                      {/* Save Changes Button - Top */}
+                      {pendingDepartments.length > 0 && (
+                        <div style={{ display: "flex", gap: 8, marginBottom: 20 }}>
+                          <button onClick={async () => {
+                            try {
+                              const orders = [];
+                              const grouped = {};
+                              pendingDepartments.forEach(d => {
+                                const org = d.orgName || "General";
+                                if (!grouped[org]) grouped[org] = [];
+                                grouped[org].push(d);
+                              });
+                              Object.keys(grouped).forEach(org => {
+                                grouped[org].sort((a, b) => (a.sortOrder || 0) - (b.sortOrder || 0));
+                                grouped[org].forEach((d, i) => {
+                                  orders.push({ id: d.id, orgName: d.orgName, sortOrder: i + 1 });
+                                });
+                              });
+                              await axios.put(`${BASE_URL}/departments/reorder`, { orders });
+                              setDepartments(pendingDepartments);
+                              setPendingDepartments([]);
+                              setCustomAlert({ show: true, message: "✅ Departments updated successfully", type: "success" });
+                            } catch {
+                              setCustomAlert({ show: true, message: "Failed to save changes", type: "error" });
+                            }
+                          }} style={{ padding: "8px 16px", borderRadius: 6, border: "none", background: "#22c55e", color: "#fff", cursor: "pointer", fontSize: 12, fontWeight: 600, fontFamily: "'DM Sans',sans-serif" }}>💾 Save Changes</button>
+                          <button onClick={() => setPendingDepartments([])} style={{ padding: "8px 16px", borderRadius: 6, border: "1px solid #e2e8f0", background: "#fff", color: "#64748b", cursor: "pointer", fontSize: 12, fontWeight: 600, fontFamily: "'DM Sans',sans-serif" }}>Cancel</button>
+                        </div>
+                      )}
+                      {orgNames.map(orgName => (
+                        <div key={orgName} style={{ marginBottom: 20 }}
+                          onDragOver={e => e.preventDefault()}
+                          onDrop={e => {
+                            e.preventDefault();
+                            const raw = e.dataTransfer.getData("text/plain");
+                            if (!raw) return;
+                            const src = JSON.parse(raw);
+                            if (src.orgName === orgName) return; // same org, skip
+                            // Move department to this org (in pending state)
+                            const updated = (pendingDepartments.length > 0 ? pendingDepartments : departments).map(d => d.id === src.id ? { ...d, orgName } : d);
+                            setPendingDepartments(updated);
+                          }}
+                        >
+                          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10, padding: "6px 10px", background: "#f8fafc", borderRadius: 8, border: "1.5px dashed #e2e8f0" }}>
+                            <span style={{ fontSize: 13, fontWeight: 700, color: "#1e293b" }}>🏢 {orgName}</span>
+                            <span style={{ fontSize: 11, color: "#94a3b8", background: "#f1f5f9", borderRadius: 99, padding: "2px 8px" }}>{grouped[orgName].length}</span>
+                            {currentUser?.role === "Admin" && <span style={{ fontSize: 10, color: "#94a3b8", marginLeft: "auto" }}>Drop here to move</span>}
+                          </div>
+                          <div style={{ display: "flex", flexWrap: "wrap", gap: 8, minHeight: 36, padding: "4px 6px", borderRadius: 8, border: grouped[orgName].length === 0 ? "1.5px dashed #e2e8f0" : "none", background: grouped[orgName].length === 0 ? "#fafafa" : "transparent" }}>
+                            {grouped[orgName].length === 0 && <span style={{ fontSize: 11, color: "#cbd5e1", alignSelf: "center" }}>No departments — drag one here</span>}
+                            {grouped[orgName].map((d, idx) => {
+                              const color = getItemColor(d);
+                              return (
+                                <div
+                                  key={d.id}
+                                  draggable={currentUser?.role === "Admin"}
+                                  onDragStart={e => { e.stopPropagation(); e.dataTransfer.setData("text/plain", JSON.stringify({ id: d.id, orgName, idx })); }}
+                                  onDragOver={e => e.preventDefault()}
+                                  onDrop={e => {
+                                    e.preventDefault();
+                                    e.stopPropagation();
+                                    const raw = e.dataTransfer.getData("text/plain");
+                                    if (!raw) return;
+                                    const src = JSON.parse(raw);
+                                    if (src.orgName !== orgName || src.id === d.id) return;
+                                    // Reorder within same org (in pending state)
+                                    const grp = [...grouped[orgName]];
+                                    const fromIdx = grp.findIndex(x => x.id === src.id);
+                                    const toIdx = idx;
+                                    if (fromIdx === toIdx) return;
+                                    const moved = grp.splice(fromIdx, 1)[0];
+                                    grp.splice(toIdx, 0, moved);
+                                    const orders = grp.map((x, i) => ({ id: x.id, sortOrder: i + 1 }));
+                                    const deptSource = pendingDepartments.length > 0 ? pendingDepartments : departments;
+                                    const updated = deptSource.map(dep => {
+                                      const o = orders.find(x => x.id === dep.id);
+                                      return o && dep.orgName === orgName ? { ...dep, sortOrder: o.sortOrder } : dep;
+                                    });
+                                    setPendingDepartments(updated);
+                                  }}
+                                  style={{ padding: "6px 10px", borderRadius: 8, background: color + "20", border: `1.5px solid ${color}40`, display: "flex", alignItems: "center", gap: 6, cursor: currentUser?.role === "Admin" ? "grab" : "default", transition: "all 0.15s", userSelect: "none" }}
+                                  onMouseEnter={e => { e.currentTarget.style.boxShadow = `0 3px 10px ${color}40`; }}
+                                  onMouseLeave={e => { e.currentTarget.style.boxShadow = "none"; }}
+                                >
+                                  <div style={{ width: 8, height: 8, borderRadius: 2, background: color, flexShrink: 0 }} />
+                                  <span style={{ fontSize: 12, fontWeight: 600, color: "#1f2937" }}>{d.name}</span>
+                                  {currentUser?.role === "Admin" && (
+                                    <button onClick={e => { e.stopPropagation(); deleteDept(d.id); }} style={{ border: "none", background: "transparent", color: "#94a3b8", cursor: "pointer", fontSize: 13, fontWeight: 700, lineHeight: 1, padding: "0 2px" }}>×</button>
+                                  )}
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      ))}
+                    </>
+                  );
                 })()}
                 {departments.length === 0 && orgs.length === 0 && <div style={{ textAlign: "center", color: "#94a3b8", padding: 28 }}>No organisations yet. Add an organisation first, then add departments.</div>}
               </div>}
@@ -6533,7 +6577,7 @@ export default function HelpDesk() {
       </Modal>
 
       {/* ── TICKET DETAIL MODAL (v1 full - timeline, forward, custom attrs, vendor) ── */}
-      <Modal open={!!selTicket} onClose={() => { setSelTicket(null); setShowForward(false); setFwdReason(""); setEditMode(false); setEditTicket(null); }} title={selTicket?.id || ""} width={720}>
+      <Modal open={!!selTicket} onClose={() => { setSelTicket(null); setPendingTicketStatus(null); setShowForward(false); setFwdReason(""); setEditMode(false); setEditTicket(null); }} title={selTicket?.id || ""} width={720}>
         {selTicket && <div>
           {/* Edit/View Toggle Button - Admin/Manager Only */}
           <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginBottom: 14 }}>
@@ -6832,17 +6876,17 @@ export default function HelpDesk() {
           <div style={{ marginBottom: 14 }}>
             <div style={{ fontSize: 11, fontWeight: 600, color: "#374151", marginBottom: 7 }}>UPDATE STATUS</div>
             <div style={{ display: "flex", gap: 7, flexWrap: "wrap", marginBottom: 10 }}>
-              {STATUSES.map(s => <button key={s} onClick={() => updateStatus(selTicket.id, s)} style={{ padding: "5px 13px", borderRadius: 7, border: "none", cursor: "pointer", fontSize: 12, fontWeight: 600, fontFamily: "'DM Sans',sans-serif", background: selTicket.status === s ? STATUS_COLOR[s].text : "#f1f5f9", color: selTicket.status === s ? "#fff" : "#64748b" }}>{s}</button>)}
+              {STATUSES.map(s => <button key={s} onClick={() => s === "Closed" ? updateStatus(selTicket.id, s) : setPendingTicketStatus(s)} style={{ padding: "5px 13px", borderRadius: 7, border: "none", cursor: "pointer", fontSize: 12, fontWeight: 600, fontFamily: "'DM Sans',sans-serif", background: (pendingTicketStatus === s || selTicket.status === s) ? STATUS_COLOR[s].text : "#f1f5f9", color: (pendingTicketStatus === s || selTicket.status === s) ? "#fff" : "#64748b", opacity: pendingTicketStatus === s && selTicket.status !== s ? 0.7 : 1 }}>{s}</button>)}
               {/* ✅ NEW: Reopen Button for Closed Tickets */}
               {selTicket.status === "Closed" && (
                 <button
-                  onClick={() => updateStatus(selTicket.id, "Open")}
+                  onClick={() => setPendingTicketStatus("Open")}
                   style={{
                     padding: "5px 13px",
                     borderRadius: 7,
                     border: "1.5px solid #3b82f6",
-                    background: "#eff6ff",
-                    color: "#1d4ed8",
+                    background: pendingTicketStatus === "Open" ? "#3b82f6" : "#eff6ff",
+                    color: pendingTicketStatus === "Open" ? "#fff" : "#1d4ed8",
                     cursor: "pointer",
                     fontSize: 12,
                     fontWeight: 600,
@@ -6853,6 +6897,13 @@ export default function HelpDesk() {
                 </button>
               )}
             </div>
+            {/* Save button for pending status changes */}
+            {pendingTicketStatus && pendingTicketStatus !== selTicket.status && (
+              <div style={{ display: "flex", gap: 6 }}>
+                <button onClick={() => updateStatus(selTicket.id, pendingTicketStatus)} style={{ padding: "6px 12px", borderRadius: 6, border: "none", cursor: "pointer", fontSize: 12, fontWeight: 600, fontFamily: "'DM Sans',sans-serif", background: "#22c55e", color: "#fff" }}>✓ Save Status</button>
+                <button onClick={() => setPendingTicketStatus(null)} style={{ padding: "6px 12px", borderRadius: 6, border: "1px solid #e2e8f0", cursor: "pointer", fontSize: 12, fontWeight: 600, fontFamily: "'DM Sans',sans-serif", background: "#fff", color: "#64748b" }}>Cancel</button>
+              </div>
+            )}
           </div>
 
           {/* Comment */}
