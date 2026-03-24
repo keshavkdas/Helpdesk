@@ -906,13 +906,31 @@ app.post("/api/webcasts", async (req, res) => {
         if (!req.body.summary || !req.body.summary.trim()) {
             return res.status(400).json({ error: "Summary is required" });
         }
-        
+
         // Clean data
         const webcastData = { ...req.body };
         delete webcastData.created;
         delete webcastData.updated;
         delete webcastData.createdAt;
         delete webcastData.updatedAt;
+
+        // ✅ FIX: Generate a WEB-XXXX ID if none is provided by the client
+        if (!webcastData.id || String(webcastData.id).trim() === "") {
+            const allWebcasts = await Webcast.findAll({
+                where: { id: { [Op.like]: "WEB-%" } },
+                order: [["createdAt", "DESC"]]
+            });
+            const sequential = allWebcasts.filter(w => {
+                const parts = w.id.split("-");
+                return parts.length === 2 && parts[1].length === 4 && /^\d{4}$/.test(parts[1]);
+            });
+            let nextIdNum = 1001;
+            if (sequential.length > 0) {
+                const lastNum = parseInt(sequential[0].id.split("-")[1], 10);
+                if (!isNaN(lastNum)) nextIdNum = lastNum + 1;
+            }
+            webcastData.id = `WEB-${String(nextIdNum).padStart(4, "0")}`;
+        }
 
         const webcast = await Webcast.create(webcastData);
         res.status(201).json(fmt(webcast));
