@@ -1102,6 +1102,12 @@ export default function HelpDesk() {
 
   // ── Satsangs ──
   const [satsangs, setSatsangs] = useState([]);
+  const [satsangTypes, setSatsangTypes] = useState([]);
+  const [satsangTypeSearch, setSatsangTypeSearch] = useState("");
+  const [showSatsangTypeDD, setShowSatsangTypeDD] = useState(false);
+  const [newSatsangType, setNewSatsangType] = useState("");
+  const [projSatsangTypeSearch, setProjSatsangTypeSearch] = useState("");
+  const [showProjSatsangTypeDD, setShowProjSatsangTypeDD] = useState(false);
 
   // ── Comments ──
   const [newComment, setNewComment] = useState("");
@@ -1113,7 +1119,7 @@ export default function HelpDesk() {
     tomorrow.setDate(tomorrow.getDate() + 1);
     return tomorrow.toISOString().split("T")[0];
   };
-  const emptyForm = () => ({ org: "", department: "", contact: "", reportedBy: "", summary: "", description: "", assignees: [], priority: "Medium", category: "", customAttrs: {}, dueDate: getDefaultDueDate(), isWebcast: false, satsangType: "", location: "", satsangId: null });
+  const emptyForm = () => ({ org: "", department: "", contact: "", reportedBy: "", summary: "", description: "", assignees: [], priority: "Medium", category: "", customAttrs: {}, dueDate: getDefaultDueDate(), satsangType: "", location: "", webcastId: null });
   const [form, setForm] = useState(emptyForm);
   const [ccInput, setCcInput] = useState("");
   const [assigneeSearch, setAssigneeSearch] = useState("");
@@ -1132,7 +1138,7 @@ export default function HelpDesk() {
   const [showLocationDD, setShowLocationDD] = useState(false);
 
   // ── Project form ──
-  const emptyProjectForm = { org: "", department: "", reportedBy: "", title: "", description: "", assignees: [], priority: "Medium", category: "", status: "Open", location: "", dueDate: "", isWebcast: false, satsangType: "", progress: 0, customAttrs: {}, satsangId: null };
+  const emptyProjectForm = { org: "", department: "", reportedBy: "", title: "", description: "", assignees: [], priority: "Medium", category: "", status: "Open", location: "", dueDate: "", satsangType: "", progress: 0, customAttrs: {}, webcastId: null };
   const [projForm, setProjForm] = useState(emptyProjectForm);
   const [projCcInput, setProjCcInput] = useState("");
 
@@ -1376,13 +1382,13 @@ export default function HelpDesk() {
         setLocations([]);
       }
 
-      // ✅ NEW: Load vendors from database
+      // ✅ NEW: Load satsang types from database
       try {
-        const vendResponse = await axios.get(VENDORS_API);
-        setVendors(vendResponse.data || []);
+        const satTypeResponse = await axios.get(`${BASE_URL}/satsang-types`);
+        setSatsangTypes((satTypeResponse.data || []).map(st => st.name));
       } catch (e) {
-        console.log("Vendors loading from API:", e.message);
-        setVendors([]);
+        console.log("Satsang types loading from API:", e.message);
+        setSatsangTypes([]);
       }
 
       const allRaw = [...(data.tickets || []), ...(data.webcasts || [])];
@@ -1393,7 +1399,7 @@ export default function HelpDesk() {
           ...t,
           created: new Date(t.createdAt || t.created),
           updated: new Date(t.updatedAt || t.updated),
-          isWebcast: t.isWebcast || false,
+
           satsangType: t.satsangType || "",
           location: t.location || ""
         })).sort((a, b) => b.created - a.created);
@@ -1406,7 +1412,7 @@ export default function HelpDesk() {
         created: new Date(p.createdAt || p.created),
         updated: new Date(p.updatedAt || p.updated),
         dueDate: p.dueDate ? new Date(p.dueDate) : null,
-        isWebcast: p.isWebcast || false,
+
         progress: p.progress || 0,
         org: p.org || "",
         department: p.department || "",
@@ -1418,7 +1424,7 @@ export default function HelpDesk() {
         assignees: Array.isArray(p.assignees) ? p.assignees : [],
         cc: Array.isArray(p.cc) ? p.cc : [],
         customAttrs: p.customAttrs || {},
-        satsangId: p.satsangId || null,
+        webcastId: p.webcastId || null,
         satsangType: p.satsangType || "",
       })).sort((a, b) => b.created - a.created);
 
@@ -1465,7 +1471,7 @@ export default function HelpDesk() {
           ...t,
           created: new Date(t.createdAt || t.created),
           updated: new Date(t.updatedAt || t.updated),
-          isWebcast: t.isWebcast || false,
+
           satsangType: t.satsangType || "",
           location: t.location || ""
         })).sort((a, b) => b.created - a.created);
@@ -1478,7 +1484,7 @@ export default function HelpDesk() {
         created: new Date(p.createdAt || p.created),
         updated: new Date(p.updatedAt || p.updated),
         dueDate: p.dueDate ? new Date(p.dueDate) : null,
-        isWebcast: p.isWebcast || false,
+
         progress: p.progress || 0,
         org: p.org || "",
         department: p.department || "",
@@ -1490,7 +1496,7 @@ export default function HelpDesk() {
         assignees: Array.isArray(p.assignees) ? p.assignees : [],
         cc: Array.isArray(p.cc) ? p.cc : [],
         customAttrs: p.customAttrs || {},
-        satsangId: p.satsangId || null,
+        webcastId: p.webcastId || null,
         satsangType: p.satsangType || "",
       })).sort((a, b) => b.created - a.created);
 
@@ -1819,9 +1825,9 @@ export default function HelpDesk() {
       data = data.filter(t => t.category === exportFilterValue);
     } else if (exportFilterType === "type" && exportFilterValue) {
       if (exportFilterValue === "webcast") {
-        data = data.filter(t => t.isWebcast === true);
+        data = data.filter(t => t.category === "Webcast");
       } else if (exportFilterValue === "ticket") {
-        data = data.filter(t => !t.isWebcast);
+        data = data.filter(t => t.category !== "Webcast");
       }
     } else if (exportFilterType === "status" && exportFilterValue) {
       data = data.filter(t => t.status === exportFilterValue);
@@ -1842,7 +1848,7 @@ export default function HelpDesk() {
 
   const filtered = useMemo(() => tickets.filter(t => {
     // ✅ Exclude webcast tickets from regular tickets view
-    const isWebcastCategory = t.category && (t.category.toLowerCase().includes("webcast") || t.isWebcast);
+    const isWebcastCategory = t.category && t.category.toLowerCase().includes("webcast");
     if (isWebcastCategory) return false;
 
     if (!currentUser || !cvd.filter(t, currentUser)) return false;
@@ -1866,7 +1872,7 @@ export default function HelpDesk() {
 
   // ✅ NEW: Filter for webcast tickets only
   const webcastFiltered = useMemo(() => tickets.filter(t => {
-    const isWebcastCategory = t.category && (t.category.toLowerCase().includes("webcast") || t.isWebcast);
+    const isWebcastCategory = t.category && t.category.toLowerCase().includes("webcast");
     if (!isWebcastCategory) return false;
 
     if (!currentUser || !cvd.filter(t, currentUser)) return false;
@@ -2230,9 +2236,9 @@ export default function HelpDesk() {
         dataToExport = dataToExport.filter(t => t.category === exportFilterValue);
       } else if (exportFilterType === "type" && exportFilterValue) {
         if (exportFilterValue === "webcast") {
-          dataToExport = dataToExport.filter(t => t.isWebcast === true);
+          dataToExport = dataToExport.filter(t => t.category === "Webcast");
         } else if (exportFilterValue === "ticket") {
-          dataToExport = dataToExport.filter(t => !t.isWebcast);
+          dataToExport = dataToExport.filter(t => t.category !== "Webcast");
         }
       }
     } else if (targetTable === "users" && exportFilterType === "role" && exportFilterValue) {
@@ -2262,6 +2268,14 @@ export default function HelpDesk() {
 
   const handleSubmit = async () => {
     if (!form.summary || !form.org) return setCustomAlert({ show: true, message: "Organisation and Summary are required", type: "error" });
+
+    // ✅ NEW: Validate webcast fields if category is Webcast
+    if (form.category === "Webcast") {
+      if (!form.satsangType || !form.location) {
+        return setCustomAlert({ show: true, message: "Satsang Type and Location are required for Webcast", type: "error" });
+      }
+    }
+
     const newT = {
       ...form,
       // ✅ Don't send ID - server will generate TKT-1001, TKT-1002, etc.
@@ -2271,6 +2285,57 @@ export default function HelpDesk() {
       comments: [],
       timeline: [{ action: "Created", by: currentUser.name, date: new Date().toISOString(), note: "Ticket opened." }]
     };
+
+    // ✅ NEW: If webcast, create separate entry and send to /api/webcasts
+    if (form.category === "Webcast") {
+      try {
+        // Generate unique webcast ID (WC-timestamp-random)
+        const webcastId = `WC-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+
+        const webcastData = {
+          webcastId,
+          summary: form.summary,
+          description: form.description,
+          satsangType: form.satsangType,
+          location: form.location,
+          contact: form.contact,
+          reportedBy: form.reportedBy,
+          org: form.org,
+          department: form.department,
+          priority: form.priority,
+          assignees: form.assignees,
+          category: form.category,
+          dueDate: form.dueDate || null,
+          status: "Open",
+          comments: [],
+          timeline: [{ action: "Created", by: currentUser.name, date: new Date().toISOString(), note: "Webcast created." }]
+        };
+
+        // Send to webcasts API endpoint
+        const webcastRes = await axios.post(`${BASE_URL}/webcasts`, webcastData);
+        const createdWebcast = webcastRes.data;
+        const webcastWithDates = {
+          ...createdWebcast,
+          created: new Date(createdWebcast.createdAt || createdWebcast.created || new Date()),
+          updated: new Date(createdWebcast.updatedAt || createdWebcast.updated || new Date())
+        };
+
+        // Update tickets list with webcast entry
+        setTickets(prev => [webcastWithDates, ...prev]);
+        setSelTicket(webcastWithDates);
+        setShowNewTicket(false);
+        setForm(emptyForm());
+        setAssigneeSearch("");
+        setShowAssigneeDD(false);
+        setCustomAlert({ show: true, message: "✅ Webcast created successfully!", type: "success" });
+        addDailyNotif({ type: "webcast_created", icon: "📡", text: `${currentUser.name} created webcast ${webcastId}`, webcastId: webcastId, by: currentUser.name });
+      } catch (e) {
+        setCustomAlert({ show: true, message: "Failed to create webcast: " + (e.response?.data?.error || e.message), type: "error" });
+      }
+      return;
+    }
+
+    // ✅ Regular ticket creation
     try {
       const res = await axios.post(TICKETS_API, newT);
       const created = res.data;
@@ -2337,6 +2402,21 @@ export default function HelpDesk() {
       await axios.put(`${TICKETS_API}/${id}`, updatedT);
       setTickets(p => p.map(x => x.id === id ? { ...updatedT, updated: new Date(nowISO) } : x));
       if (selTicket?.id === id) setSelTicket({ ...updatedT, updated: new Date(nowISO) });
+
+      // ✅ NEW: Status-specific messages
+      let statusMessage = "";
+      switch (status) {
+        case "In Progress":
+          statusMessage = "⚙️ Ticket status changed to In Progress";
+          break;
+        case "Open":
+          statusMessage = "📬 Ticket reopened";
+          break;
+        default:
+          statusMessage = "✅ Ticket status updated";
+      }
+      setCustomAlert({ show: true, message: statusMessage, type: "success" });
+
       if (status === "Closed") {
         addDailyNotif({ type: "ticket_closed", icon: "✅", text: `${currentUser.name} closed ticket ${id}`, ticketId: id, by: currentUser.name });
         // Notify all other assignees that ticket was closed
@@ -2355,7 +2435,7 @@ export default function HelpDesk() {
       } else {
         addDailyNotif({ type: "ticket_status", icon: "🔄", text: `${currentUser.name} changed ${id} to ${status}`, ticketId: id, by: currentUser.name });
       }
-    } catch (e) { setCustomAlert({ show: true, message: "Failed to update", type: "error" }); }
+    } catch (e) { setCustomAlert({ show: true, message: "❌ Failed to update ticket", type: "error" }); }
   };
 
   // ✅ NEW: Close ticket with remark
@@ -2389,11 +2469,13 @@ export default function HelpDesk() {
         }).catch(() => { });
       }
 
-      // Reset and close modal
+      // Reset and close modals
       setShowRemarkModal(false);
       setClosingTicketId(null);
       setTicketRemark("");
-      setCustomAlert({ show: true, message: "✅ Ticket closed with remark", type: "success" });
+      setCustomAlert({ show: true, message: "✅ Ticket successfully closed", type: "success" });
+      // Close the ticket details modal after 1 second to show the success message
+      setTimeout(() => setSelTicket(null), 1000);
     } catch (e) {
       setCustomAlert({ show: true, message: "Failed to close ticket", type: "error" });
       console.error(e);
@@ -2900,6 +2982,14 @@ export default function HelpDesk() {
   // ─── PROJECT HANDLERS (v1 API) ────────────────────────────────────────────
   const handleProjectSubmit = async () => {
     if (!projForm.title || !projForm.org) return setCustomAlert({ show: true, message: "Organisation and Title are required", type: "error" });
+
+    // ✅ NEW: Validate webcast fields if category is Webcast
+    if (projForm.category === "Webcast") {
+      if (!projForm.satsangType || !projForm.location) {
+        return setCustomAlert({ show: true, message: "Satsang Type and Location are required for Webcast", type: "error" });
+      }
+    }
+
     const newP = {
       ...projForm,
       // ✅ Don't send ID - server will generate PRJ-1001, PRJ-1002, etc.
@@ -2910,6 +3000,50 @@ export default function HelpDesk() {
       progress: projForm.progress || 0,
       tasks: projForm.tasks || []
     };
+
+    // ✅ NEW: If webcast, create separate entry and send to /api/webcasts
+    if (projForm.category === "Webcast") {
+      try {
+        // Generate unique webcast ID
+        const webcastId = `WC-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+
+        const webcastData = {
+          webcastId,
+          title: projForm.title,
+          description: projForm.description,
+          satsangType: projForm.satsangType,
+          location: projForm.location,
+          reportedBy: projForm.reportedBy,
+          org: projForm.org,
+          department: projForm.department,
+          priority: projForm.priority,
+          assignees: projForm.assignees,
+          category: projForm.category,
+          dueDate: projForm.dueDate || null,
+          status: projForm.status || "Open",
+          progress: projForm.progress || 0,
+          comments: [],
+          timeline: [{ action: "Created", by: currentUser.name, date: new Date().toISOString(), note: "Webcast created." }]
+        };
+
+        const webcastRes = await axios.post(`${BASE_URL}/webcasts`, webcastData);
+        const createdWebcast = webcastRes.data;
+        const webcastWithDates = { ...createdWebcast, created: new Date(createdWebcast.createdAt || createdWebcast.created), updated: new Date(createdWebcast.updatedAt || createdWebcast.updated) };
+
+        setProjects(prev => [webcastWithDates, ...prev]);
+        setSelProject(webcastWithDates);
+        setShowNewProject(false);
+        setProjForm(emptyProjectForm);
+        setCustomAlert({ show: true, message: "✅ Webcast project created successfully!", type: "success" });
+        addDailyNotif({ type: "webcast_created", icon: "📡", text: `${currentUser.name} created webcast project ${webcastId}`, webcastId: webcastId, by: currentUser.name });
+        return;
+      } catch (e) {
+        setCustomAlert({ show: true, message: "Failed to create webcast: " + (e.response?.data?.error || e.message), type: "error" });
+      }
+      return;
+    }
+
+    // ✅ Regular project creation
     try {
       const res = await axios.post(PROJECTS_API, newP);
       const created = res.data;
@@ -3031,6 +3165,56 @@ export default function HelpDesk() {
           setCustomAlert({ show: true, message: "✅ Location deleted!", type: "success" });
         } catch (e) {
           setCustomAlert({ show: true, message: "Failed to delete location", type: "error" });
+        }
+        setConfirmModal({ show: false, title: "", message: "", onConfirm: null, onCancel: null });
+      },
+      onCancel: () => setConfirmModal({ show: false, title: "", message: "", onConfirm: null, onCancel: null })
+    });
+  };
+
+  // ✅ NEW: Satsang Type Management Functions
+  const addSatsangType = async () => {
+    if (!newSatsangType?.trim()) {
+      setCustomAlert({ show: true, message: "Satsang type name required", type: "error" });
+      return;
+    }
+    if (satsangTypes.some(t => t.toLowerCase() === newSatsangType.trim().toLowerCase())) {
+      setCustomAlert({ show: true, message: `⚠️ Satsang type "${newSatsangType.trim()}" already exists`, type: "error" });
+      return;
+    }
+    try {
+      const res = await axios.post(`${BASE_URL}/satsang-types`, { name: newSatsangType.trim() });
+      setSatsangTypes([...satsangTypes, res.data.name]);
+      setNewSatsangType("");
+      setCustomAlert({ show: true, message: "✅ Satsang type added!", type: "success" });
+      addDailyNotif({ type: "satsang_type_added", icon: "📡", text: `${currentUser.name} added satsang type "${res.data.name}"`, by: currentUser.name });
+    } catch (e) {
+      setCustomAlert({ show: true, message: "Failed to add satsang type", type: "error" });
+    }
+  };
+
+  const deleteSatsangType = async (typeName) => {
+    setConfirmModal({
+      show: true, title: "Delete Satsang Type",
+      confirmLabel: "Delete", confirmDanger: true, message: `Are you sure you want to delete "${typeName}"?`,
+      onConfirm: async () => {
+        try {
+          const typeToDelete = satsangTypes.find(t => t === typeName);
+          if (!typeToDelete) {
+            setCustomAlert({ show: true, message: "Satsang type not found", type: "error" });
+            setConfirmModal({ show: false, title: "", message: "", onConfirm: null, onCancel: null });
+            return;
+          }
+          // Delete by finding the database entry and deleting it
+          const allTypes = await axios.get(`${BASE_URL}/satsang-types`);
+          const typeRecord = allTypes.data.find(t => t.name === typeName);
+          if (typeRecord) {
+            await axios.delete(`${BASE_URL}/satsang-types/${typeRecord.id}`);
+          }
+          setSatsangTypes(satsangTypes.filter(t => t !== typeName));
+          setCustomAlert({ show: true, message: "✅ Satsang type deleted!", type: "success" });
+        } catch (e) {
+          setCustomAlert({ show: true, message: "Failed to delete satsang type", type: "error" });
         }
         setConfirmModal({ show: false, title: "", message: "", onConfirm: null, onCancel: null });
       },
@@ -3457,6 +3641,7 @@ export default function HelpDesk() {
     { id: "categories", label: "Categories", icon: "🏷" },
     { id: "departments", label: "Departments", icon: "🏛" },
     { id: "locations", label: "Locations", icon: "📍" },
+    { id: "satsangtypes", label: "Satsang Types", icon: "📡" },
     { id: "vendors", label: "Vendors", icon: "🏭" },
     { id: "usermgmt", label: "User Management", icon: "👥" },
     { id: "customattrs", label: "Custom Attributes", icon: "✏️" },
@@ -3468,6 +3653,7 @@ export default function HelpDesk() {
     { id: "categories", label: "Categories", icon: "🏷" },
     { id: "departments", label: "Departments", icon: "🏛" },
     { id: "locations", label: "Locations", icon: "📍" },
+    { id: "satsangtypes", label: "Satsang Types", icon: "📡" },
     { id: "vendors", label: "Vendors", icon: "🏭" },
     { id: "usermgmt", label: "User Management", icon: "👥" },
     { id: "customattrs", label: "Custom Attributes", icon: "✏️" },
@@ -3489,34 +3675,67 @@ export default function HelpDesk() {
   const tdStyle = { padding: "10px 11px", borderBottom: "1px solid #f8fafc", fontSize: 13 };
 
   // Webcast fields shared component
-  const WebcastFields = ({ f, setF }) => <>
-    <div style={{ padding: "12px 14px", background: "#fff7ed", borderRadius: 9, border: "1px solid #fed7aa", marginBottom: 14 }}>
-      <label style={{ display: "flex", alignItems: "center", gap: 9, cursor: "pointer" }}>
-        <input type="checkbox" checked={f.isWebcast} onChange={e => setF({ ...f, isWebcast: e.target.checked })} style={{ width: 15, height: 15, cursor: "pointer" }} />
-        <span style={{ fontSize: 13, fontWeight: 600, color: "#9a3412" }}>📡 Webcast / Live Ticket</span>
-      </label>
-      {f.isWebcast && <div style={{ marginTop: 12, display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px 14px" }}>
-        <div style={{ gridColumn: "1 / -1" }}>
-          <FF label="Associate Satsang Record">
-            <select style={sS} value={f.satsangId || ""} onChange={e => {
-              const sid = e.target.value;
-              const s = satsangs.find(x => String(x.id) === sid);
-              if (s) {
-                setF({ ...f, satsangId: s.id, summary: f.summary || s.name, satsangType: s.type, location: s.location });
-              } else {
-                setF({ ...f, satsangId: null });
-              }
-            }}>
-              <option value="">-- Link to an event (Optional) --</option>
-              {satsangs.map(s => <option key={s.id} value={s.id}>{s.date} - {s.name} ({s.location})</option>)}
-            </select>
+  const WebcastFields = ({ f, setF, isProject = false }) => {
+    const satsangSearch = isProject ? projSatsangTypeSearch : satsangTypeSearch;
+    const setSatsangSearch = isProject ? setProjSatsangTypeSearch : setSatsangTypeSearch;
+    const showDD = isProject ? showProjSatsangTypeDD : showSatsangTypeDD;
+    const setShowDD = isProject ? setShowProjSatsangTypeDD : setShowSatsangTypeDD;
+
+    return (
+      <div style={{ background: "#fff7ed", borderRadius: 9, border: "1px solid #fed7aa", padding: "12px 14px", marginBottom: 14, position: "relative", zIndex: 1 }}>
+        <div style={{ fontSize: 13, fontWeight: 600, color: "#9a3412", marginBottom: 12 }}>📡 Webcast Details (Required)</div>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px 14px" }}>
+          <FF label="Satsang Type" required>
+            <div style={{ position: "relative", zIndex: 210 }}>
+              <input
+                type="text"
+                placeholder="Search satsang type..."
+                value={satsangSearch || f.satsangType}
+                onChange={e => setSatsangSearch(e.target.value)}
+                onFocus={() => setShowDD(true)}
+                style={{ ...iS, width: "100%", fontSize: 12 }}
+              />
+              {showDD && (
+                <>
+                  <div style={{ position: "fixed", inset: 0, zIndex: 199 }} onClick={() => { setShowDD(false); setSatsangSearch(""); }} />
+                  <div style={{ position: "absolute", top: "calc(100% + 3px)", left: 0, right: 0, background: "#fff", border: "1.5px solid #e2e8f0", borderRadius: 8, zIndex: 210, boxShadow: "0 4px 12px rgba(0,0,0,0.1)", maxHeight: 240, overflowY: "auto" }}>
+                    <div style={{ padding: 8, borderBottom: "1px solid #f1f5f9", position: "sticky", top: 0, background: "#fff" }}>
+                      <input type="text" placeholder="Search types..." value={satsangSearch} onChange={e => setSatsangSearch(e.target.value)} onClick={e => e.stopPropagation()} autoFocus style={{ ...iS, width: "100%", fontSize: 12 }} />
+                    </div>
+                    {satsangTypes.filter(t => satsangSearch === "" || t.toLowerCase().includes(satsangSearch.toLowerCase())).map(t => (
+                      <div key={t} onClick={() => { setF({ ...f, satsangType: t }); setShowDD(false); setSatsangSearch(""); }} style={{ padding: "8px 12px", cursor: "pointer", borderBottom: "1px solid #f1f5f9", backgroundColor: f.satsangType === t ? "#eff6ff" : "transparent" }}>
+                        <div style={{ fontSize: 12, fontWeight: 600 }}>{t}</div>
+                      </div>
+                    ))}
+                    {satsangTypes.filter(t => satsangSearch === "" || t.toLowerCase().includes(satsangSearch.toLowerCase())).length === 0 && <div style={{ padding: "12px", textAlign: "center", fontSize: 12, color: "#94a3b8" }}>No satsang type found</div>}
+                  </div>
+                </>
+              )}
+            </div>
+          </FF>
+          <FF label="Location / Venue" required>
+            <div style={{ position: "relative", zIndex: 200 }}>
+              <input type="text" placeholder="Search location..." value={locationSearch ? locationSearch : (f.location ? locations.find(l => l.name === f.location)?.name || "" : "")} onChange={e => setLocationSearch(e.target.value)} onFocus={() => { setLocationSearch(""); setShowLocationDD(true); }} style={{ ...iS, width: "100%", fontSize: 12 }} />
+              {showLocationDD && <>
+                <div style={{ position: "fixed", inset: 0, zIndex: 199 }} onClick={() => { setShowLocationDD(false); setLocationSearch(""); }} />
+                <div style={{ position: "absolute", top: "calc(100% + 3px)", left: 0, right: 0, background: "#fff", border: "1.5px solid #e2e8f0", borderRadius: 8, zIndex: 200, boxShadow: "0 4px 12px rgba(0,0,0,0.1)", maxHeight: 240, overflowY: "auto" }}>
+                  <div style={{ padding: 8, borderBottom: "1px solid #f1f5f9", position: "sticky", top: 0, background: "#fff" }}>
+                    <input type="text" placeholder="Search locations..." value={locationSearch} onChange={e => setLocationSearch(e.target.value)} onClick={e => e.stopPropagation()} autoFocus style={{ ...iS, width: "100%", fontSize: 12 }} />
+                  </div>
+                  {locations.filter(l => locationSearch === "" || l.name.toLowerCase().includes(locationSearch.toLowerCase())).map(l => (
+                    <div key={l.id} onClick={() => { setF({ ...f, location: l.name }); setShowLocationDD(false); setLocationSearch(""); }} style={{ padding: "8px 12px", cursor: "pointer", borderBottom: "1px solid #f1f5f9", backgroundColor: f.location === l.name ? "#eff6ff" : "transparent" }}>
+                      <div style={{ fontSize: 12, fontWeight: 600 }}>{l.name}</div>
+                    </div>
+                  ))}
+                  {locations.filter(l => locationSearch === "" || l.name.toLowerCase().includes(locationSearch.toLowerCase())).length === 0 && <div style={{ padding: "12px", textAlign: "center", fontSize: 12, color: "#94a3b8" }}>No locations found</div>}
+                </div>
+              </>}
+            </div>
           </FF>
         </div>
-        <FF label="Satsang Type"><select style={sS} value={f.satsangType} onChange={e => setF({ ...f, satsangType: e.target.value })}><option value="">Select type…</option>{SATSANG_TYPES.map(t => <option key={t}>{t}</option>)}</select></FF>
-        <FF label="Location / Venue"><select style={sS} value={f.location} onChange={e => setF({ ...f, location: e.target.value })}><option value="">Select venue…</option>{locations.map(l => <option key={l.id}>{l.name}</option>)}</select></FF>
-      </div>}
-    </div>
-  </>;
+      </div>
+    );
+  };
 
   // ─── LOADING SCREEN ─────────────────────────────────────────────────────────
   if (loading) return (
@@ -4523,7 +4742,7 @@ export default function HelpDesk() {
                     {currentUser?.role === "Admin" && (
                       <td style={tdStyle} onClick={e => e.stopPropagation()}><input type="checkbox" checked={selectedIds.has(t.id)} onChange={() => toggleSel(t.id)} style={{ cursor: "pointer" }} /></td>
                     )}
-                    <td style={tdStyle} onClick={() => setSelTicket(t)}><span style={{ fontFamily: "'DM Mono',monospace", fontSize: 11.5, color: "#3b82f6", fontWeight: 500 }}>{t.id}</span>{t.isWebcast && <span style={{ marginLeft: 5, fontSize: 10, background: "#fff7ed", color: "#f97316", padding: "1px 5px", borderRadius: 4, fontWeight: 600 }}>📡</span>}</td>
+                    <td style={tdStyle} onClick={() => setSelTicket(t)}><span style={{ fontFamily: "'DM Mono',monospace", fontSize: 11.5, color: "#3b82f6", fontWeight: 500 }}>{t.id}</span>{t.category === "Webcast" && <span style={{ marginLeft: 5, fontSize: 10, background: "#fff7ed", color: "#f97316", padding: "1px 5px", borderRadius: 4, fontWeight: 600 }}>📡</span>}</td>
                     <td style={{ ...tdStyle, maxWidth: 180 }} onClick={() => setSelTicket(t)}><div style={{ fontWeight: 500, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{t.summary}</div></td>
                     <td style={tdStyle} onClick={() => setSelTicket(t)}><div style={{ fontSize: 12, fontWeight: 500 }}>{t.org}</div></td>
                     <td style={tdStyle} onClick={() => setSelTicket(t)}><div style={{ fontSize: 12, color: "#64748b" }}>{t.department || "—"}</div></td>
@@ -4656,7 +4875,7 @@ export default function HelpDesk() {
             {/* Webcast Stats Cards */}
             {(() => {
               const isAdminOrManager = currentUser?.role === "Admin" || currentUser?.role === "Manager";
-              const allWebcasts = tickets.filter(t => t.isWebcast || (t.category && t.category.toLowerCase().includes("webcast")));
+              const allWebcasts = tickets.filter(t => t.category === "Webcast");
               const myWebcasts = allWebcasts.filter(t => t.assignees?.some(a => a.id === currentUser?.id));
               const webcastBase = isAdminOrManager ? allWebcasts : myWebcasts;
               return (
@@ -4684,14 +4903,14 @@ export default function HelpDesk() {
               <div style={{ overflowX: "auto" }}>
                 <table style={{ width: "100%", borderCollapse: "collapse" }}>
                   <thead><tr style={{ background: "#f8fafc" }}>
-                    <FilterableHeader label="ID" field="id" data={tickets.filter(t => (t.isWebcast || (t.category && t.category.toLowerCase().includes("webcast"))) && (t.assignees?.some(a => a.id === currentUser?.id) || currentUser?.role === "Admin" || currentUser?.role === "Manager"))} filters={webcastSort} onFilter={setWebcastSort} style={thStyle} />
-                    <FilterableHeader label="Summary" field="summary" data={tickets.filter(t => (t.isWebcast || (t.category && t.category.toLowerCase().includes("webcast"))) && (t.assignees?.some(a => a.id === currentUser?.id) || currentUser?.role === "Admin" || currentUser?.role === "Manager"))} filters={webcastSort} onFilter={setWebcastSort} style={thStyle} />
-                    <FilterableHeader label="Location" field="location" data={tickets.filter(t => (t.isWebcast || (t.category && t.category.toLowerCase().includes("webcast"))) && (t.assignees?.some(a => a.id === currentUser?.id) || currentUser?.role === "Admin" || currentUser?.role === "Manager"))} filters={webcastSort} onFilter={setWebcastSort} style={thStyle} />
-                    <FilterableHeader label="Satsang Type" field="satsangType" data={tickets.filter(t => (t.isWebcast || (t.category && t.category.toLowerCase().includes("webcast"))) && (t.assignees?.some(a => a.id === currentUser?.id) || currentUser?.role === "Admin" || currentUser?.role === "Manager"))} filters={webcastSort} onFilter={setWebcastSort} style={thStyle} />
-                    <FilterableHeader label="Priority" field="priority" data={tickets.filter(t => (t.isWebcast || (t.category && t.category.toLowerCase().includes("webcast"))) && (t.assignees?.some(a => a.id === currentUser?.id) || currentUser?.role === "Admin" || currentUser?.role === "Manager"))} filters={webcastSort} onFilter={setWebcastSort} style={thStyle} />
-                    <FilterableHeader label="Status" field="status" data={tickets.filter(t => (t.isWebcast || (t.category && t.category.toLowerCase().includes("webcast"))) && (t.assignees?.some(a => a.id === currentUser?.id) || currentUser?.role === "Admin" || currentUser?.role === "Manager"))} filters={webcastSort} onFilter={setWebcastSort} style={thStyle} />
+                    <FilterableHeader label="ID" field="id" data={tickets.filter(t => (t.category === "Webcast") && (t.assignees?.some(a => a.id === currentUser?.id) || currentUser?.role === "Admin" || currentUser?.role === "Manager"))} filters={webcastSort} onFilter={setWebcastSort} style={thStyle} />
+                    <FilterableHeader label="Summary" field="summary" data={tickets.filter(t => (t.category === "Webcast") && (t.assignees?.some(a => a.id === currentUser?.id) || currentUser?.role === "Admin" || currentUser?.role === "Manager"))} filters={webcastSort} onFilter={setWebcastSort} style={thStyle} />
+                    <FilterableHeader label="Location" field="location" data={tickets.filter(t => (t.category === "Webcast") && (t.assignees?.some(a => a.id === currentUser?.id) || currentUser?.role === "Admin" || currentUser?.role === "Manager"))} filters={webcastSort} onFilter={setWebcastSort} style={thStyle} />
+                    <FilterableHeader label="Satsang Type" field="satsangType" data={tickets.filter(t => (t.category === "Webcast") && (t.assignees?.some(a => a.id === currentUser?.id) || currentUser?.role === "Admin" || currentUser?.role === "Manager"))} filters={webcastSort} onFilter={setWebcastSort} style={thStyle} />
+                    <FilterableHeader label="Priority" field="priority" data={tickets.filter(t => (t.category === "Webcast") && (t.assignees?.some(a => a.id === currentUser?.id) || currentUser?.role === "Admin" || currentUser?.role === "Manager"))} filters={webcastSort} onFilter={setWebcastSort} style={thStyle} />
+                    <FilterableHeader label="Status" field="status" data={tickets.filter(t => (t.category === "Webcast") && (t.assignees?.some(a => a.id === currentUser?.id) || currentUser?.role === "Admin" || currentUser?.role === "Manager"))} filters={webcastSort} onFilter={setWebcastSort} style={thStyle} />
                   </tr></thead>
-                  <tbody>{applySort(tickets.filter(t => (t.isWebcast || (t.category && t.category.toLowerCase().includes("webcast"))) && (t.assignees?.some(a => a.id === currentUser?.id) || currentUser?.role === "Admin" || currentUser?.role === "Manager")), webcastSort).slice(0, 10).map((t, i) => (
+                  <tbody>{applySort(tickets.filter(t => (t.category === "Webcast") && (t.assignees?.some(a => a.id === currentUser?.id) || currentUser?.role === "Admin" || currentUser?.role === "Manager")), webcastSort).slice(0, 10).map((t, i) => (
                     <tr key={t.id + i} className="rh" onClick={() => setSelTicket(t)} style={{ cursor: "pointer" }}>
                       <td style={tdStyle}><span style={{ fontFamily: "'DM Mono',monospace", fontSize: 11.5, color: "#3b82f6" }}>{t.id}</span></td>
                       <td style={{ ...tdStyle, maxWidth: 200 }}><div style={{ whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{t.summary}</div></td>
@@ -4701,7 +4920,7 @@ export default function HelpDesk() {
                       <td style={tdStyle}><Badge label={t.status} style={{ ...STATUS_COLOR[t.status] }} /></td>
                     </tr>
                   ))}
-                    {tickets.filter(t => (t.isWebcast || (t.category && t.category.toLowerCase().includes("webcast"))) && (t.assignees?.some(a => a.id === currentUser?.id) || currentUser?.role === "Admin" || currentUser?.role === "Manager")).length === 0 && <tr><td colSpan={6} style={{ padding: 24, textAlign: "center", color: "#94a3b8", fontSize: 13 }}>No webcast tickets assigned to you yet.</td></tr>}
+                    {tickets.filter(t => (t.category === "Webcast") && (t.assignees?.some(a => a.id === currentUser?.id) || currentUser?.role === "Admin" || currentUser?.role === "Manager")).length === 0 && <tr><td colSpan={6} style={{ padding: 24, textAlign: "center", color: "#94a3b8", fontSize: 13 }}>No webcast tickets assigned to you yet.</td></tr>}
                   </tbody>
                 </table>
               </div>
@@ -4760,8 +4979,8 @@ export default function HelpDesk() {
               <div style={{ background: "#fff", borderRadius: 12, padding: 18, boxShadow: "0 1px 4px rgba(0,0,0,0.06)" }}>
                 <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 12 }}>Ticket Type Distribution</div>
                 <DonutChart data={[
-                  { label: "Regular Tickets", value: reportFilteredData.filter(t => !t.isWebcast && !(t.category && t.category.toLowerCase().includes("webcast"))).length, color: "#3b82f6" },
-                  { label: "Webcasts", value: reportFilteredData.filter(t => t.isWebcast || (t.category && t.category.toLowerCase().includes("webcast"))).length, color: "#f97316" }
+                  { label: "Regular Tickets", value: reportFilteredData.filter(t => t.category !== "Webcast").length, color: "#3b82f6" },
+                  { label: "Webcasts", value: reportFilteredData.filter(t => t.category === "Webcast").length, color: "#f97316" }
                 ]} />
               </div>
             </div>
@@ -5358,7 +5577,33 @@ export default function HelpDesk() {
                 {locations.length === 0 && <div style={{ textAlign: "center", color: "#94a3b8", padding: 28 }}>No locations yet. Add one to get started.</div>}
               </div>}
 
-              {/* ✅ NEW: Vendors Settings Section */}
+              {/* ✅ NEW: Satsang Types Management */}
+              {settingsTab === "satsangtypes" && <div style={{ background: "#fff", borderRadius: 12, padding: 22, boxShadow: "0 1px 4px rgba(0,0,0,0.06)" }}>
+                <h3 style={{ margin: "0 0 4px", fontSize: 15, fontWeight: 700 }}>📡 Satsang Types ({satsangTypes.length})</h3>
+                <p style={{ margin: "0 0 18px", fontSize: 12, color: "#64748b" }}>Manage webcast satsang types for ticket creation.</p>
+                {currentUser?.role === "Admin" ? (
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: 9, marginBottom: 18, padding: 14, background: "#f8fafc", borderRadius: 9 }}>
+                    <input
+                      style={iS}
+                      placeholder="New satsang type name *"
+                      value={newSatsangType}
+                      onChange={e => setNewSatsangType(e.target.value)}
+                      onKeyPress={e => e.key === "Enter" && newSatsangType.trim() && addSatsangType()}
+                    />
+                    <button onClick={addSatsangType} style={bP}>Add</button>
+                  </div>
+                ) : <div style={{ marginBottom: 18, padding: "10px 14px", background: "#fef3c7", color: "#92400e", borderRadius: 8, fontSize: 13, fontWeight: 500 }}>Read Only: Adding or removing satsang types is restricted to Admins.</div>}
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(6, 1fr)", gap: 8, justifyItems: "stretch" }}>
+                  {satsangTypes.sort().map(t => (
+                    <div key={t} style={{ padding: 12, borderRadius: 6, background: "#f0f7ff", display: "flex", flexDirection: "column", alignItems: "center", gap: 6, cursor: currentUser?.role === "Admin" ? "pointer" : "default", transition: "all 0.2s ease", textAlign: "center", transform: "scale(1)", border: "1px solid #bfdbfe" }} onMouseEnter={e => { if (currentUser?.role === "Admin") { e.currentTarget.style.transform = "scale(1.08)"; e.currentTarget.style.boxShadow = "0 6px 16px rgba(0,0,0,0.12)"; } }} onMouseLeave={e => { e.currentTarget.style.transform = "scale(1)"; e.currentTarget.style.boxShadow = "none"; }}>
+                      <div style={{ fontSize: 16 }}>📡</div>
+                      <div style={{ fontSize: 12, fontWeight: 600, wordBreak: "break-word", flex: 1, color: "#1f2937" }}>{t}</div>
+                      {currentUser?.role === "Admin" && <button onClick={e => { e.stopPropagation(); deleteSatsangType(t); }} style={{ border: "none", background: "#fee2e2", color: "#dc2626", borderRadius: 3, padding: "3px 8px", cursor: "pointer", fontSize: 10, fontWeight: 600 }}>Remove</button>}
+                    </div>
+                  ))}
+                </div>
+                {satsangTypes.length === 0 && <div style={{ textAlign: "center", color: "#94a3b8", padding: 28 }}>No satsang types yet. Add one to get started.</div>}
+              </div>}
               {settingsTab === "vendors" && <div style={{ background: "#fff", borderRadius: 12, padding: 22, boxShadow: "0 1px 4px rgba(0,0,0,0.06)" }}>
                 <h3 style={{ margin: "0 0 4px", fontSize: 15, fontWeight: 700 }}>🏭 Vendors ({vendors.length})</h3>
                 <p style={{ margin: "0 0 18px", fontSize: 12, color: "#64748b" }}>Manage vendors with contact information for sending tickets.</p>
@@ -5698,7 +5943,7 @@ export default function HelpDesk() {
         </FF>
         <FF label="Summary" required><input style={iS} placeholder="Brief description of the issue" value={form.summary} onChange={e => setForm({ ...form, summary: e.target.value })} /></FF>
         <FF label="Description"><textarea style={{ ...iS, height: 88, resize: "vertical" }} placeholder="Detailed description…" value={form.description} onChange={e => setForm({ ...form, description: e.target.value })} /></FF>
-        {form.category === "Webcast" && <WebcastFields f={form} setF={setForm} />}
+        {form.category === "Webcast" && <WebcastFields f={form} setF={setForm} isProject={false} />}
         {customAttrs.length > 0 && <>
           <div style={{ fontSize: 11, fontWeight: 600, color: "#475569", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 9, marginTop: 4 }}>Custom Fields</div>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0 18px" }}>
@@ -5790,7 +6035,7 @@ export default function HelpDesk() {
           </FF>
           <FF label="Due Date"><input type="date" style={iS} value={projForm.dueDate} onChange={e => setProjForm({ ...projForm, dueDate: e.target.value })} /></FF>
         </div>
-        {projForm.category === "Webcast" && <WebcastFields f={projForm} setF={setProjForm} />}
+        {projForm.category === "Webcast" && <WebcastFields f={projForm} setF={setProjForm} isProject={true} />}
         <FF label="Assignees">
           <div style={{ position: "relative" }}>
             <div onClick={() => setShowAssigneeDD(!showAssigneeDD)} style={{ ...iS, cursor: "pointer", minHeight: 40, display: "flex", alignItems: "center", flexWrap: "wrap", gap: 5, padding: projForm.assignees.length ? "6px 10px" : "9px 12px" }}>
@@ -5814,7 +6059,7 @@ export default function HelpDesk() {
         </FF>
         <FF label="Project Title" required><input style={iS} placeholder="Brief project name" value={projForm.title} onChange={e => setProjForm({ ...projForm, title: e.target.value })} /></FF>
         <FF label="Description"><textarea style={{ ...iS, height: 88, resize: "vertical" }} placeholder="Detailed description…" value={projForm.description} onChange={e => setProjForm({ ...projForm, description: e.target.value })} /></FF>
-        {projForm.category === "Webcast" && <WebcastFields f={projForm} setF={setProjForm} />}
+        {projForm.category === "Webcast" && <WebcastFields f={projForm} setF={setProjForm} isProject={true} />}
         <div style={{ display: "flex", justifyContent: "flex-end", gap: 9, marginTop: 6 }}>
           <button onClick={() => setShowNewProject(false)} style={bG}>Cancel</button>
           <button onClick={handleProjectSubmit} style={{ ...bP, background: "linear-gradient(135deg,#8b5cf6,#6366f1)" }}>Create Project</button>
@@ -5912,7 +6157,7 @@ export default function HelpDesk() {
               <div style={{ display: "flex", gap: 9, marginBottom: 16, flexWrap: "wrap" }}>
                 <Badge label={selTicket.status} style={{ ...STATUS_COLOR[selTicket.status], padding: "4px 12px", fontSize: 12 }} />
                 <div style={{ display: "flex", alignItems: "center", gap: 5 }}><span style={{ width: 9, height: 9, borderRadius: "50%", background: PRIORITY_COLOR[selTicket.priority] }} /><span style={{ fontSize: 13, fontWeight: 600 }}>{selTicket.priority} Priority</span></div>
-                {selTicket.isWebcast && <Badge label="📡 Webcast" style={{ background: "#fff7ed", color: "#f97316" }} />}
+                {selTicket.category === "Webcast" && <Badge label="📡 Webcast" style={{ background: "#fff7ed", color: "#f97316" }} />}
                 <span style={{ fontSize: 12, color: "#94a3b8" }}>Created {new Date(selTicket.created).toLocaleString()}</span>
               </div>
               <h2 style={{ margin: "0 0 9px", fontSize: 17, fontWeight: 700, color: "#1e293b" }}>
@@ -6120,16 +6365,28 @@ export default function HelpDesk() {
           {/* Status Update */}
           <div style={{ marginBottom: 14 }}>
             <div style={{ fontSize: 11, fontWeight: 600, color: "#374151", marginBottom: 7 }}>UPDATE STATUS</div>
-            <div style={{ display: "flex", gap: 7, flexWrap: "wrap", marginBottom: 10 }}>{STATUSES.map(s => <button key={s} onClick={() => updateStatus(selTicket.id, s)} style={{ padding: "5px 13px", borderRadius: 7, border: "none", cursor: "pointer", fontSize: 12, fontWeight: 600, fontFamily: "'DM Sans',sans-serif", background: selTicket.status === s ? STATUS_COLOR[s].text : "#f1f5f9", color: selTicket.status === s ? "#fff" : "#64748b" }}>{s}</button>)}</div>
-            {/* ✅ NEW: Save Changes Button */}
-            <button
-              onClick={() => {
-                setCustomAlert({ show: true, message: "✅ Ticket changes saved!", type: "success" });
-              }}
-              style={{ ...bP, background: "#22c55e", color: "#fff", fontWeight: 600, padding: "8px 16px", fontSize: 12 }}
-            >
-              💾 Save Changes
-            </button>
+            <div style={{ display: "flex", gap: 7, flexWrap: "wrap", marginBottom: 10 }}>
+              {STATUSES.map(s => <button key={s} onClick={() => updateStatus(selTicket.id, s)} style={{ padding: "5px 13px", borderRadius: 7, border: "none", cursor: "pointer", fontSize: 12, fontWeight: 600, fontFamily: "'DM Sans',sans-serif", background: selTicket.status === s ? STATUS_COLOR[s].text : "#f1f5f9", color: selTicket.status === s ? "#fff" : "#64748b" }}>{s}</button>)}
+              {/* ✅ NEW: Reopen Button for Closed Tickets */}
+              {selTicket.status === "Closed" && (
+                <button
+                  onClick={() => updateStatus(selTicket.id, "Open")}
+                  style={{
+                    padding: "5px 13px",
+                    borderRadius: 7,
+                    border: "1.5px solid #3b82f6",
+                    background: "#eff6ff",
+                    color: "#1d4ed8",
+                    cursor: "pointer",
+                    fontSize: 12,
+                    fontWeight: 600,
+                    fontFamily: "'DM Sans',sans-serif"
+                  }}
+                >
+                  🔄 Reopen Ticket
+                </button>
+              )}
+            </div>
           </div>
 
           {/* Comment */}
@@ -6206,7 +6463,7 @@ export default function HelpDesk() {
           <div style={{ display: "flex", gap: 9, marginBottom: 16, flexWrap: "wrap" }}>
             <Badge label={selProject.status} style={{ ...STATUS_COLOR[selProject.status], padding: "4px 12px", fontSize: 12 }} />
             <div style={{ display: "flex", alignItems: "center", gap: 5 }}><span style={{ width: 9, height: 9, borderRadius: "50%", background: PRIORITY_COLOR[selProject.priority] }} /><span style={{ fontSize: 13, fontWeight: 600 }}>{selProject.priority} Priority</span></div>
-            {selProject.isWebcast && <Badge label="📡 Webcast" style={{ background: "#fff7ed", color: "#f97316" }} />}
+            {selProject.category === "Webcast" && <Badge label="📡 Webcast" style={{ background: "#fff7ed", color: "#f97316" }} />}
             <span style={{ fontSize: 12, color: "#94a3b8" }}>Created {selProject.created.toLocaleString()}</span>
           </div>
           <h2 style={{ margin: "0 0 9px", fontSize: 17, fontWeight: 700 }}>{selProject.title}</h2>

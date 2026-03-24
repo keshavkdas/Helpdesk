@@ -81,6 +81,11 @@ const Satsang = sequelize.define("Satsang", {
     status: { type: DataTypes.ENUM("Live", "Completed"), defaultValue: "Completed" },
 }, { timestamps: true });
 
+// ✅ NEW: SatsangType Model for webcast satsang types
+const SatsangType = sequelize.define("SatsangType", {
+    name: { type: DataTypes.STRING, allowNull: false, unique: true },
+}, { timestamps: true });
+
 const Ticket = sequelize.define("Ticket", {
     // We explicitly mark this as the Primary Key so Sequelize is happy
     id: {
@@ -421,6 +426,30 @@ app.put("/api/satsangs/:id", async (req, res) => {
         const s = await Satsang.findByPk(req.params.id);
         if (s) await s.update(req.body);
         res.json(fmt(s));
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ✅ NEW: SatsangType Endpoints
+app.get("/api/satsang-types", async (req, res) => {
+    try {
+        const types = await SatsangType.findAll({ order: [['name', 'ASC']] });
+        res.json(types.map(fmt));
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.post("/api/satsang-types", async (req, res) => {
+    try {
+        const existing = await SatsangType.findOne({ where: { name: req.body.name } });
+        if (existing) return res.status(400).json({ error: "Satsang type already exists" });
+        res.status(201).json(fmt(await SatsangType.create(req.body)));
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.delete("/api/satsang-types/:id", async (req, res) => {
+    try {
+        const type = await SatsangType.findByPk(req.params.id);
+        if (type) await type.destroy();
+        res.json({ success: true });
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 app.delete("/api/satsangs/:id", async (req, res) => {
@@ -843,8 +872,8 @@ app.delete("/api/projects/:id", async (req, res) => {
 
 app.get("/api/all-data", async (req, res) => {
     try {
-        const [users, orgs, categories, customAttrs, tickets, webcasts, satsangs, projects, departments, locations, vendors] = await Promise.all([
-            User.findAll(), Org.findAll(), Category.findAll(), CustomAttr.findAll(), Ticket.findAll(), Webcast.findAll(), Satsang.findAll(), Project.findAll(), Department.findAll(), Location.findAll(), Vendor.findAll()
+        const [users, orgs, categories, customAttrs, tickets, webcasts, satsangs, satsangTypes, projects, departments, locations, vendors] = await Promise.all([
+            User.findAll(), Org.findAll(), Category.findAll(), CustomAttr.findAll(), Ticket.findAll(), Webcast.findAll(), Satsang.findAll(), SatsangType.findAll(), Project.findAll(), Department.findAll(), Location.findAll(), Vendor.findAll()
         ]);
         res.json({
             users: users.map(fmt),
@@ -854,6 +883,7 @@ app.get("/api/all-data", async (req, res) => {
             tickets: tickets.map(fmt),
             webcasts: webcasts.map(fmt),
             satsangs: satsangs.map(fmt),
+            satsangTypes: satsangTypes.map(fmt),
             projects: projects.map(fmt),
             departments: departments.map(fmt),
             locations: locations.map(fmt),
