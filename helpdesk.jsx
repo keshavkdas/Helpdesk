@@ -1880,10 +1880,16 @@ export default function HelpDesk() {
   const cvd = TICKET_VIEWS.find(v => v.id === tvFilter) || TICKET_VIEWS[5];
   const cpv = PROJECT_VIEWS.find(v => v.id === pvFilter) || PROJECT_VIEWS[5];
 
+  // ✅ A ticket is a TRUE webcast only if isWebcast=true OR ID starts with WEB- or WC-
+  // TKT- tickets with category "Webcast" are regular tickets that got migrated — NOT webcasts
+  const isTrueWebcast = (t) =>
+    t.isWebcast === true ||
+    String(t.id).startsWith("WEB-") ||
+    String(t.id).startsWith("WC-");
+
   const filtered = useMemo(() => tickets.filter(t => {
-    // ✅ Exclude webcast tickets from regular tickets view
-    const isWebcastCategory = t.category && t.category.toLowerCase().includes("webcast");
-    if (isWebcastCategory) return false;
+    // ✅ Exclude true webcast tickets from regular tickets view
+    if (isTrueWebcast(t)) return false;
 
     if (!currentUser || !cvd.filter(t, currentUser)) return false;
     // Non-admins/managers only see tickets assigned to them or reported by them
@@ -1906,8 +1912,8 @@ export default function HelpDesk() {
 
   // ✅ NEW: Filter for webcast tickets only
   const webcastFiltered = useMemo(() => tickets.filter(t => {
-    const isWebcastCategory = t.category && t.category.toLowerCase().includes("webcast");
-    if (!isWebcastCategory) return false;
+    // ✅ Only show true webcasts (WEB-/WC- IDs or isWebcast=true), never TKT- tickets
+    if (!isTrueWebcast(t)) return false;
 
     if (!currentUser || !cvd.filter(t, currentUser)) return false;
     // Non-admins/managers only see tickets assigned to them or reported by them
@@ -2270,9 +2276,9 @@ export default function HelpDesk() {
         dataToExport = dataToExport.filter(t => t.category === exportFilterValue);
       } else if (exportFilterType === "type" && exportFilterValue) {
         if (exportFilterValue === "webcast") {
-          dataToExport = dataToExport.filter(t => t.category === "Webcast");
+          dataToExport = dataToExport.filter(t => isTrueWebcast(t));
         } else if (exportFilterValue === "ticket") {
-          dataToExport = dataToExport.filter(t => t.category !== "Webcast");
+          dataToExport = dataToExport.filter(t => !isTrueWebcast(t));
         }
       }
     } else if (targetTable === "users" && exportFilterType === "role" && exportFilterValue) {
@@ -2358,11 +2364,9 @@ export default function HelpDesk() {
     // ✅ NEW: If webcast, create separate entry and send to /api/webcasts
     if (form.category === "Webcast") {
       try {
-        // Generate unique webcast ID (WC-timestamp-random)
-        const webcastId = `WC-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-
+        // Let server assign a clean sequential WEB-XXXX ID
         const webcastData = {
-          id: webcastId,
+          // id intentionally omitted — server will generate WEB-XXXX
           summary: form.summary,
           description: form.description,
           satsangType: form.satsangType,
@@ -2400,7 +2404,7 @@ export default function HelpDesk() {
         setAssigneeSearch("");
         setShowAssigneeDD(false);
         setCustomAlert({ show: true, message: "✅ Webcast created successfully!", type: "success" });
-        addDailyNotif({ type: "webcast_created", icon: "📡", text: `${currentUser.name} created webcast ${webcastId}`, webcastId: webcastId, by: currentUser.name });
+        addDailyNotif({ type: "webcast_created", icon: "📡", text: `${currentUser.name} created webcast ${createdWebcast.id}`, ticketId: createdWebcast.id, by: currentUser.name });
       } catch (e) {
         setCustomAlert({ show: true, message: "Failed to create webcast: " + (e.response?.data?.error || e.message), type: "error" });
       }
@@ -3127,10 +3131,8 @@ export default function HelpDesk() {
     if (projForm.category === "Webcast") {
       try {
         // Generate unique webcast ID
-        const webcastId = `WC-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-
         const webcastData = {
-          webcastId,
+          // id intentionally omitted — server will generate WEB-XXXX
           title: projForm.title,
           description: projForm.description,
           satsangType: projForm.satsangType,
@@ -3157,7 +3159,7 @@ export default function HelpDesk() {
         setShowNewProject(false);
         setProjForm(emptyProjectForm);
         setCustomAlert({ show: true, message: "✅ Webcast project created successfully!", type: "success" });
-        addDailyNotif({ type: "webcast_created", icon: "📡", text: `${currentUser.name} created webcast project ${webcastId}`, webcastId: webcastId, by: currentUser.name });
+        addDailyNotif({ type: "webcast_created", icon: "📡", text: `${currentUser.name} created webcast project ${createdWebcast.id}`, ticketId: createdWebcast.id, by: currentUser.name });
         return;
       } catch (e) {
         setCustomAlert({ show: true, message: "Failed to create webcast: " + (e.response?.data?.error || e.message), type: "error" });
@@ -5320,7 +5322,7 @@ export default function HelpDesk() {
             {/* Webcast Stats Cards */}
             {(() => {
               const isAdminOrManager = currentUser?.role === "Admin" || currentUser?.role === "Manager";
-              const allWebcasts = tickets.filter(t => t.category === "Webcast");
+              const allWebcasts = tickets.filter(t => isTrueWebcast(t));
               const myWebcasts = allWebcasts.filter(t => t.assignees?.some(a => a.id === currentUser?.id));
               const webcastBase = isAdminOrManager ? allWebcasts : myWebcasts;
               return (
@@ -5348,15 +5350,15 @@ export default function HelpDesk() {
               <div style={{ overflowX: "auto" }}>
                 <table style={{ width: "100%", borderCollapse: "collapse" }}>
                   <thead><tr style={{ background: "#f8fafc" }}>
-                    <FilterableHeader label="ID" field="id" data={tickets.filter(t => (t.category === "Webcast") && (t.assignees?.some(a => a.id === currentUser?.id) || currentUser?.role === "Admin" || currentUser?.role === "Manager"))} filters={webcastSort} onFilter={setWebcastSort} style={thStyle} />
-                    <FilterableHeader label="Summary" field="summary" data={tickets.filter(t => (t.category === "Webcast") && (t.assignees?.some(a => a.id === currentUser?.id) || currentUser?.role === "Admin" || currentUser?.role === "Manager"))} filters={webcastSort} onFilter={setWebcastSort} style={thStyle} />
-                    <FilterableHeader label="Location" field="location" data={tickets.filter(t => (t.category === "Webcast") && (t.assignees?.some(a => a.id === currentUser?.id) || currentUser?.role === "Admin" || currentUser?.role === "Manager"))} filters={webcastSort} onFilter={setWebcastSort} style={thStyle} />
-                    <FilterableHeader label="Satsang Type" field="satsangType" data={tickets.filter(t => (t.category === "Webcast") && (t.assignees?.some(a => a.id === currentUser?.id) || currentUser?.role === "Admin" || currentUser?.role === "Manager"))} filters={webcastSort} onFilter={setWebcastSort} style={thStyle} />
-                    <FilterableHeader label="Priority" field="priority" data={tickets.filter(t => (t.category === "Webcast") && (t.assignees?.some(a => a.id === currentUser?.id) || currentUser?.role === "Admin" || currentUser?.role === "Manager"))} filters={webcastSort} onFilter={setWebcastSort} style={thStyle} />
-                    <FilterableHeader label="Status" field="status" data={tickets.filter(t => (t.category === "Webcast") && (t.assignees?.some(a => a.id === currentUser?.id) || currentUser?.role === "Admin" || currentUser?.role === "Manager"))} filters={webcastSort} onFilter={setWebcastSort} style={thStyle} />
+                    <FilterableHeader label="ID" field="id" data={tickets.filter(t => isTrueWebcast(t) && (t.assignees?.some(a => a.id === currentUser?.id) || currentUser?.role === "Admin" || currentUser?.role === "Manager"))} filters={webcastSort} onFilter={setWebcastSort} style={thStyle} />
+                    <FilterableHeader label="Summary" field="summary" data={tickets.filter(t => isTrueWebcast(t) && (t.assignees?.some(a => a.id === currentUser?.id) || currentUser?.role === "Admin" || currentUser?.role === "Manager"))} filters={webcastSort} onFilter={setWebcastSort} style={thStyle} />
+                    <FilterableHeader label="Location" field="location" data={tickets.filter(t => isTrueWebcast(t) && (t.assignees?.some(a => a.id === currentUser?.id) || currentUser?.role === "Admin" || currentUser?.role === "Manager"))} filters={webcastSort} onFilter={setWebcastSort} style={thStyle} />
+                    <FilterableHeader label="Satsang Type" field="satsangType" data={tickets.filter(t => isTrueWebcast(t) && (t.assignees?.some(a => a.id === currentUser?.id) || currentUser?.role === "Admin" || currentUser?.role === "Manager"))} filters={webcastSort} onFilter={setWebcastSort} style={thStyle} />
+                    <FilterableHeader label="Priority" field="priority" data={tickets.filter(t => isTrueWebcast(t) && (t.assignees?.some(a => a.id === currentUser?.id) || currentUser?.role === "Admin" || currentUser?.role === "Manager"))} filters={webcastSort} onFilter={setWebcastSort} style={thStyle} />
+                    <FilterableHeader label="Status" field="status" data={tickets.filter(t => isTrueWebcast(t) && (t.assignees?.some(a => a.id === currentUser?.id) || currentUser?.role === "Admin" || currentUser?.role === "Manager"))} filters={webcastSort} onFilter={setWebcastSort} style={thStyle} />
                   </tr></thead>
                   <tbody>{applySort(tickets.filter(t => {
-                    if (t.category !== "Webcast") return false;
+                    if (!isTrueWebcast(t)) return false;
                     if (!t.assignees?.some(a => a.id === currentUser?.id) && currentUser?.role !== "Admin" && currentUser?.role !== "Manager") return false;
                     if (webcastFilter === null) return true;
                     if (webcastFilter === "open") return t.status === "Open";
@@ -5374,7 +5376,7 @@ export default function HelpDesk() {
                       <td style={tdStyle}><Badge label={t.status} style={{ ...STATUS_COLOR[t.status] }} /></td>
                     </tr>
                   ))}
-                    {tickets.filter(t => (t.category === "Webcast") && (t.assignees?.some(a => a.id === currentUser?.id) || currentUser?.role === "Admin" || currentUser?.role === "Manager")).length === 0 && <tr><td colSpan={6} style={{ padding: 24, textAlign: "center", color: "#94a3b8", fontSize: 13 }}>No webcast tickets assigned to you yet.</td></tr>}
+                    {tickets.filter(t => isTrueWebcast(t) && (t.assignees?.some(a => a.id === currentUser?.id) || currentUser?.role === "Admin" || currentUser?.role === "Manager")).length === 0 && <tr><td colSpan={6} style={{ padding: 24, textAlign: "center", color: "#94a3b8", fontSize: 13 }}>No webcast tickets assigned to you yet.</td></tr>}
                   </tbody>
                 </table>
               </div>
@@ -5433,8 +5435,8 @@ export default function HelpDesk() {
               <div style={{ background: "#fff", borderRadius: 12, padding: 18, boxShadow: "0 1px 4px rgba(0,0,0,0.06)" }}>
                 <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 12 }}>Ticket Type Distribution</div>
                 <DonutChart data={[
-                  { label: "Regular Tickets", value: reportFilteredData.filter(t => t.category !== "Webcast").length, color: "#3b82f6" },
-                  { label: "Webcasts", value: reportFilteredData.filter(t => t.category === "Webcast").length, color: "#f97316" }
+                  { label: "Regular Tickets", value: reportFilteredData.filter(t => !isTrueWebcast(t)).length, color: "#3b82f6" },
+                  { label: "Webcasts", value: reportFilteredData.filter(t => isTrueWebcast(t)).length, color: "#f97316" }
                 ]} />
               </div>
             </div>
