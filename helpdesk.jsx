@@ -2362,7 +2362,7 @@ export default function HelpDesk() {
         const webcastId = `WC-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
 
         const webcastData = {
-          webcastId,
+          id: webcastId,
           summary: form.summary,
           description: form.description,
           satsangType: form.satsangType,

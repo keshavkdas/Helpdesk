@@ -169,7 +169,6 @@ const Project = sequelize.define("Project", {
     startDate: { type: DataTypes.DATEONLY, defaultValue: null },
     dueDate: { type: DataTypes.DATEONLY, defaultValue: null },
     comments: { type: DataTypes.JSON, defaultValue: [] },
-    image: { type: DataTypes.TEXT, defaultValue: null },
     tasks: { type: DataTypes.JSON, defaultValue: [] }
 }, { timestamps: true });
 
@@ -890,6 +889,52 @@ app.delete("/api/tickets/:id", async (req, res) => {
     try {
         const ticket = await Ticket.findByPk(req.params.id);
         if (ticket) await ticket.destroy();
+        res.json({ success: true });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ✅ NEW: Webcast Endpoints
+app.get("/api/webcasts", async (req, res) => {
+    try {
+        const webcasts = await Webcast.findAll({ order: [['createdAt', 'DESC']] });
+        res.json(webcasts.map(fmt));
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.post("/api/webcasts", async (req, res) => {
+    try {
+        if (!req.body.summary || !req.body.summary.trim()) {
+            return res.status(400).json({ error: "Summary is required" });
+        }
+        
+        // Clean data
+        const webcastData = { ...req.body };
+        delete webcastData.created;
+        delete webcastData.updated;
+        delete webcastData.createdAt;
+        delete webcastData.updatedAt;
+
+        const webcast = await Webcast.create(webcastData);
+        res.status(201).json(fmt(webcast));
+    } catch (err) {
+        console.error("Webcast creation error:", err.message);
+        res.status(500).json({ error: err.message || "Failed to create webcast" });
+    }
+});
+
+app.put("/api/webcasts/:id", async (req, res) => {
+    try {
+        const webcast = await Webcast.findByPk(req.params.id);
+        if (!webcast) return res.status(404).json({ error: "Webcast not found" });
+        await webcast.update(req.body);
+        res.json(fmt(webcast));
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.delete("/api/webcasts/:id", async (req, res) => {
+    try {
+        const webcast = await Webcast.findByPk(req.params.id);
+        if (webcast) await webcast.destroy();
         res.json({ success: true });
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
