@@ -1137,6 +1137,12 @@ export default function HelpDesk() {
   const [locationSearch, setLocationSearch] = useState("");
   const [showLocationDD, setShowLocationDD] = useState(false);
 
+  // ✅ NEW: Separate location dropdown states for webcast fields
+  const [webcastLocationSearch, setWebcastLocationSearch] = useState("");
+  const [showWebcastLocationDD, setShowWebcastLocationDD] = useState(false);
+  const [projWebcastLocationSearch, setProjWebcastLocationSearch] = useState("");
+  const [showProjWebcastLocationDD, setShowProjWebcastLocationDD] = useState(false);
+
   // ── Project form ──
   const emptyProjectForm = { org: "", department: "", reportedBy: "", title: "", description: "", assignees: [], priority: "Medium", category: "", status: "Open", location: "", dueDate: "", satsangType: "", progress: 0, customAttrs: {}, webcastId: null };
   const [projForm, setProjForm] = useState(emptyProjectForm);
@@ -3681,55 +3687,69 @@ export default function HelpDesk() {
     const showDD = isProject ? showProjSatsangTypeDD : showSatsangTypeDD;
     const setShowDD = isProject ? setShowProjSatsangTypeDD : setShowSatsangTypeDD;
 
+    const locSearch = isProject ? projWebcastLocationSearch : webcastLocationSearch;
+    const setLocSearch = isProject ? setProjWebcastLocationSearch : setWebcastLocationSearch;
+    const showLocDD = isProject ? showProjWebcastLocationDD : showWebcastLocationDD;
+    const setShowLocDD = isProject ? setShowProjWebcastLocationDD : setShowWebcastLocationDD;
+
     return (
-      <div style={{ background: "#fff7ed", borderRadius: 9, border: "1px solid #fed7aa", padding: "12px 14px", marginBottom: 14, position: "relative", zIndex: 1 }}>
+      <div style={{ background: "#fff7ed", borderRadius: 9, border: "1px solid #fed7aa", padding: "12px 14px", marginBottom: 14 }}>
         <div style={{ fontSize: 13, fontWeight: 600, color: "#9a3412", marginBottom: 12 }}>📡 Webcast Details (Required)</div>
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px 14px" }}>
           <FF label="Satsang Type" required>
-            <div style={{ position: "relative", zIndex: 210 }}>
+            <div style={{ position: "relative" }}>
               <input
                 type="text"
                 placeholder="Search satsang type..."
                 value={satsangSearch || f.satsangType}
                 onChange={e => setSatsangSearch(e.target.value)}
                 onFocus={() => setShowDD(true)}
+                onBlur={() => setTimeout(() => setShowDD(false), 200)}
                 style={{ ...iS, width: "100%", fontSize: 12 }}
               />
               {showDD && (
-                <>
-                  <div style={{ position: "fixed", inset: 0, zIndex: 199 }} onClick={() => { setShowDD(false); setSatsangSearch(""); }} />
-                  <div style={{ position: "absolute", top: "calc(100% + 3px)", left: 0, right: 0, background: "#fff", border: "1.5px solid #e2e8f0", borderRadius: 8, zIndex: 210, boxShadow: "0 4px 12px rgba(0,0,0,0.1)", maxHeight: 240, overflowY: "auto" }}>
-                    <div style={{ padding: 8, borderBottom: "1px solid #f1f5f9", position: "sticky", top: 0, background: "#fff" }}>
-                      <input type="text" placeholder="Search types..." value={satsangSearch} onChange={e => setSatsangSearch(e.target.value)} onClick={e => e.stopPropagation()} autoFocus style={{ ...iS, width: "100%", fontSize: 12 }} />
-                    </div>
+                <div style={{ position: "absolute", top: "calc(100% + 3px)", left: 0, right: 0, background: "#fff", border: "1.5px solid #e2e8f0", borderRadius: 8, zIndex: 300, boxShadow: "0 4px 12px rgba(0,0,0,0.15)", maxHeight: 280, overflowY: "scroll", overflow: "visible" }}>
+                  <div style={{ padding: 8, borderBottom: "1px solid #f1f5f9", position: "sticky", top: 0, background: "#fff", zIndex: 301 }}>
+                    <input type="text" placeholder="Search types..." value={satsangSearch} onChange={e => setSatsangSearch(e.target.value)} onClick={e => e.stopPropagation()} style={{ ...iS, width: "100%", fontSize: 12 }} />
+                  </div>
+                  <div style={{ maxHeight: 220, overflowY: "auto" }}>
                     {satsangTypes.filter(t => satsangSearch === "" || t.toLowerCase().includes(satsangSearch.toLowerCase())).map(t => (
-                      <div key={t} onClick={() => { setF({ ...f, satsangType: t }); setShowDD(false); setSatsangSearch(""); }} style={{ padding: "8px 12px", cursor: "pointer", borderBottom: "1px solid #f1f5f9", backgroundColor: f.satsangType === t ? "#eff6ff" : "transparent" }}>
+                      <div key={t} onClick={() => { setF({ ...f, satsangType: t }); setShowDD(false); setSatsangSearch(""); }} onMouseDown={e => e.preventDefault()} style={{ padding: "10px 12px", cursor: "pointer", borderBottom: "1px solid #f1f5f9", backgroundColor: f.satsangType === t ? "#eff6ff" : "transparent", transition: "background 0.15s" }}>
                         <div style={{ fontSize: 12, fontWeight: 600 }}>{t}</div>
                       </div>
                     ))}
                     {satsangTypes.filter(t => satsangSearch === "" || t.toLowerCase().includes(satsangSearch.toLowerCase())).length === 0 && <div style={{ padding: "12px", textAlign: "center", fontSize: 12, color: "#94a3b8" }}>No satsang type found</div>}
                   </div>
-                </>
+                </div>
               )}
             </div>
           </FF>
           <FF label="Location / Venue" required>
-            <div style={{ position: "relative", zIndex: 200 }}>
-              <input type="text" placeholder="Search location..." value={locationSearch ? locationSearch : (f.location ? locations.find(l => l.name === f.location)?.name || "" : "")} onChange={e => setLocationSearch(e.target.value)} onFocus={() => { setLocationSearch(""); setShowLocationDD(true); }} style={{ ...iS, width: "100%", fontSize: 12 }} />
-              {showLocationDD && <>
-                <div style={{ position: "fixed", inset: 0, zIndex: 199 }} onClick={() => { setShowLocationDD(false); setLocationSearch(""); }} />
-                <div style={{ position: "absolute", top: "calc(100% + 3px)", left: 0, right: 0, background: "#fff", border: "1.5px solid #e2e8f0", borderRadius: 8, zIndex: 200, boxShadow: "0 4px 12px rgba(0,0,0,0.1)", maxHeight: 240, overflowY: "auto" }}>
-                  <div style={{ padding: 8, borderBottom: "1px solid #f1f5f9", position: "sticky", top: 0, background: "#fff" }}>
-                    <input type="text" placeholder="Search locations..." value={locationSearch} onChange={e => setLocationSearch(e.target.value)} onClick={e => e.stopPropagation()} autoFocus style={{ ...iS, width: "100%", fontSize: 12 }} />
+            <div style={{ position: "relative" }}>
+              <input
+                type="text"
+                placeholder="Search location..."
+                value={locSearch || (f.location ? locations.find(l => l.name === f.location)?.name || "" : "")}
+                onChange={e => setLocSearch(e.target.value)}
+                onFocus={() => { setLocSearch(""); setShowLocDD(true); }}
+                onBlur={() => setTimeout(() => setShowLocDD(false), 200)}
+                style={{ ...iS, width: "100%", fontSize: 12 }}
+              />
+              {showLocDD && (
+                <div style={{ position: "absolute", top: "calc(100% + 3px)", left: 0, right: 0, background: "#fff", border: "1.5px solid #e2e8f0", borderRadius: 8, zIndex: 300, boxShadow: "0 4px 12px rgba(0,0,0,0.15)", maxHeight: 280, overflowY: "scroll" }}>
+                  <div style={{ padding: 8, borderBottom: "1px solid #f1f5f9", position: "sticky", top: 0, background: "#fff", zIndex: 301 }}>
+                    <input type="text" placeholder="Search locations..." value={locSearch} onChange={e => setLocSearch(e.target.value)} onClick={e => e.stopPropagation()} style={{ ...iS, width: "100%", fontSize: 12 }} />
                   </div>
-                  {locations.filter(l => locationSearch === "" || l.name.toLowerCase().includes(locationSearch.toLowerCase())).map(l => (
-                    <div key={l.id} onClick={() => { setF({ ...f, location: l.name }); setShowLocationDD(false); setLocationSearch(""); }} style={{ padding: "8px 12px", cursor: "pointer", borderBottom: "1px solid #f1f5f9", backgroundColor: f.location === l.name ? "#eff6ff" : "transparent" }}>
-                      <div style={{ fontSize: 12, fontWeight: 600 }}>{l.name}</div>
-                    </div>
-                  ))}
-                  {locations.filter(l => locationSearch === "" || l.name.toLowerCase().includes(locationSearch.toLowerCase())).length === 0 && <div style={{ padding: "12px", textAlign: "center", fontSize: 12, color: "#94a3b8" }}>No locations found</div>}
+                  <div style={{ maxHeight: 220, overflowY: "auto" }}>
+                    {locations.filter(l => locSearch === "" || l.name.toLowerCase().includes(locSearch.toLowerCase())).map(l => (
+                      <div key={l.id} onClick={() => { setF({ ...f, location: l.name }); setShowLocDD(false); setLocSearch(""); }} onMouseDown={e => e.preventDefault()} style={{ padding: "10px 12px", cursor: "pointer", borderBottom: "1px solid #f1f5f9", backgroundColor: f.location === l.name ? "#eff6ff" : "transparent", transition: "background 0.15s" }}>
+                        <div style={{ fontSize: 12, fontWeight: 600 }}>{l.name}</div>
+                      </div>
+                    ))}
+                    {locations.filter(l => locSearch === "" || l.name.toLowerCase().includes(locSearch.toLowerCase())).length === 0 && <div style={{ padding: "12px", textAlign: "center", fontSize: 12, color: "#94a3b8" }}>No locations found</div>}
+                  </div>
                 </div>
-              </>}
+              )}
             </div>
           </FF>
         </div>
@@ -5026,7 +5046,7 @@ export default function HelpDesk() {
 
                         return agentData.map((agent, i) => (
                           <tr key={i} style={{ borderBottom: "1px solid #f1f5f9" }}>
-                            <td style={{ padding: "10px 8px", color: "#374151", fontWeight: 500 }}>{agent.name}</td>
+                            <td style={{ padding: "10px 8px", color: "#374151", fontWeight: 500, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", maxWidth: "200px" }} title={agent.name}>{agent.name}</td>
                             <td style={{ padding: "10px 8px", textAlign: "right", fontWeight: 600, color: "#22c55e" }}>{agent.closed}</td>
                             <td style={{ padding: "10px 8px", textAlign: "right", color: "#94a3b8" }}>{total > 0 ? ((agent.closed / total) * 100).toFixed(1) : 0}%</td>
                           </tr>
@@ -5055,13 +5075,16 @@ export default function HelpDesk() {
                   if (chartData.length === 0) return <div style={{ textAlign: "center", color: "#94a3b8", padding: 32, fontSize: 13 }}>No agent data</div>;
                   const maxVal = Math.max(...chartData.map(a => a.assigned), 1);
                   const barH = 240;
-                  const groupW = Math.max(50, Math.min(90, Math.floor(600 / chartData.length)));
-                  const barW = Math.floor(groupW * 0.28);
-                  const gap = Math.floor(groupW * 0.07);
+                  // Adjust group width based on number of agents for readable names
+                  const groupW = Math.max(80, Math.min(140, Math.floor(600 / chartData.length)));
+                  const barW = Math.floor(groupW * 0.25);
+                  const gap = Math.floor(groupW * 0.06);
                   const totalW = chartData.length * groupW + 60;
+                  // Dynamic font size based on number of agents
+                  const nameFontSize = chartData.length > 8 ? 7 : chartData.length > 5 ? 8 : 9;
                   return (
                     <div style={{ overflowX: "auto", display: "flex", justifyContent: "center" }}>
-                      <svg width={Math.min(totalW, 700)} height={barH + 40} style={{ display: "block" }}>
+                      <svg width={Math.min(totalW, 700)} height={barH + 50} style={{ display: "block" }}>
                         {[0, 0.25, 0.5, 0.75, 1].map(p => {
                           const y = 10 + barH * (1 - p);
                           const val = Math.round(maxVal * p);
@@ -5086,7 +5109,7 @@ export default function HelpDesk() {
                               {a.closed > 0 && <text x={x + barW + gap + barW / 2} y={10 + barH - closedH - 2} textAnchor="middle" fontSize={8} fill="#22c55e" fontWeight={600} fontFamily="DM Sans">{a.closed}</text>}
                               <rect x={x + (barW + gap) * 2} y={10 + barH - openH} width={barW} height={openH} fill="#f59e0b" rx={2} opacity={0.85} />
                               {openVal > 0 && <text x={x + (barW + gap) * 2 + barW / 2} y={10 + barH - openH - 2} textAnchor="middle" fontSize={8} fill="#f59e0b" fontWeight={600} fontFamily="DM Sans">{openVal}</text>}
-                              <text x={x + barW + gap + barW / 2} y={10 + barH + 12} textAnchor="middle" fontSize={9} fill="#374151" fontWeight={600} fontFamily="DM Sans">{a.name.split(" ")[0]}</text>
+                              <text x={x + barW + gap + barW / 2} y={10 + barH + 15} textAnchor="middle" fontSize={nameFontSize} fill="#374151" fontWeight={500} fontFamily="DM Sans">{a.name}</text>
                             </g>
                           );
                         })}
