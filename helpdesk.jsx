@@ -1294,7 +1294,7 @@ export default function HelpDesk() {
       if (ticket) {
         const assigneeIds = (ticket.assignees || [])
           .filter(a => a.id !== currentUser.id &&
-            !["Admin", "Manager"].includes(users.find(u => u.id === a.id)?.role))
+            !["Admin", "Manager"].includes(Array.isArray(users) ? users.find(u => u.id === a.id)?.role : undefined))
           .map(a => a.id);
         if (assigneeIds.length > 0) {
           axios.post(NOTIFICATIONS_API, { ...payload, recipientIds: assigneeIds }).catch(err => console.error("Notif assignee POST failed:", err?.response?.data || err.message));
@@ -1592,8 +1592,9 @@ export default function HelpDesk() {
       // Send the current user email to mark as active
       const activeUserEmails = currentUser ? [currentUser.email] : [];
       const response = await axios.post(VALIDATE_SESSIONS_API, { emails: activeUserEmails });
-      const updatedUsers = response.data || [];
-      setUsers(updatedUsers);
+      // ✅ FIX: Handle the response structure { active: [...], inactive: [...] }
+      const activeUsers = response.data?.active || response.data || [];
+      setUsers(Array.isArray(activeUsers) ? activeUsers : []);
     } catch (e) {
       console.error("Error validating sessions:", e);
     }
@@ -1770,7 +1771,7 @@ export default function HelpDesk() {
 
   // You can also add this for your dropdowns
   const managersOnly = useMemo(() => {
-    return users.filter(u => u.role === "Admin" || u.role === "Manager");
+    return Array.isArray(users) ? users.filter(u => u.role === "Admin" || u.role === "Manager") : [];
   }, [users]);
 
   // ─── COMPUTED DATA ─────────────────────────────────────────────────────────
@@ -1977,7 +1978,7 @@ export default function HelpDesk() {
   }, [prbr, currentUser]);
 
   const projStats = useMemo(() => ({ total: dashboardProjects.length, open: dashboardProjects.filter(x => x.status === "Open").length, inProgress: dashboardProjects.filter(x => x.status === "In Progress").length, closed: dashboardProjects.filter(x => x.status === "Closed").length, critical: dashboardProjects.filter(x => x.priority === "Critical" && x.status !== "Closed").length }), [dashboardProjects]);
-  const agentStats = useMemo(() => users.map(u => ({ ...u, assigned: fbr.filter(t => t.assignees?.some(a => a.id === u.id)).length, closed: fbr.filter(t => t.assignees?.some(a => a.id === u.id) && t.status === "Closed").length, projAssigned: prbr.filter(p => p.assignees?.some(a => a.id === u.id)).length })), [fbr, prbr, users]);
+  const agentStats = useMemo(() => (Array.isArray(users) ? users : []).map(u => ({ ...u, assigned: fbr.filter(t => t.assignees?.some(a => a.id === u.id)).length, closed: fbr.filter(t => t.assignees?.some(a => a.id === u.id) && t.status === "Closed").length, projAssigned: prbr.filter(p => p.assignees?.some(a => a.id === u.id)).length })), [fbr, prbr, users]);
   const dailyData = useMemo(() => { const days = parseInt(range) <= 7 ? parseInt(range) : 7; return Array.from({ length: days }, (_, i) => { const d = new Date(now - (days - 1 - i) * dayMs); return { label: d.toLocaleDateString("en", { weekday: "short" }), value: fbr.filter(t => t.created.getDate() === d.getDate() && t.created.getMonth() === d.getMonth()).length }; }); }, [fbr, range, now, dayMs]);
   const priorityDist = useMemo(() => PRIORITIES.map(p => ({ label: p, value: dashboardData.filter(t => t.priority === p).length, color: PRIORITY_COLOR[p] })), [dashboardData]);
   const categoryDist = useMemo(() => categories.slice(0, 6).map(c => ({ label: c.name, value: dashboardData.filter(t => t.category === c.name).length, color: c.color })), [dashboardData, categories]);
@@ -2663,7 +2664,7 @@ export default function HelpDesk() {
       setCustomAlert({ show: true, message: "✅ Forward request sent to admin for approval", type: "success" });
       addDailyNotif({ type: "forward_requested", icon: "📬", text: `You requested to forward ${selTicket.id} to ${agent.name}`, ticketId: selTicket.id, by: currentUser.name });
       // Send inbox notification to all admins and managers
-      const adminsAndManagers = users.filter(u => u.active && (u.role === "Admin" || u.role === "Manager"));
+      const adminsAndManagers = (Array.isArray(users) ? users : []).filter(u => u.active && (u.role === "Admin" || u.role === "Manager"));
       for (const admin of adminsAndManagers) {
         try {
           await axios.post(NOTIFICATIONS_API, {
@@ -5688,12 +5689,12 @@ export default function HelpDesk() {
               {/* ✅ NEW: User Statistics Boxes */}
               <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 12, marginBottom: 20 }}>
                 {[
-                  { key: "all", icon: "👥", color: "#3b82f6", label: "Total Users", count: users.length },
-                  { key: "On Duty", icon: "🟢", color: "#22c55e", label: "On Duty", count: users.filter(u => u.status === "On Duty").length },
-                  { key: "On Ticket", icon: "🎫", color: "#6366f1", label: "On Ticket", count: users.filter(u => u.status === "On Ticket").length },
-                  { key: "Idle", icon: "🟣", color: "#a855f7", label: "Idle", count: users.filter(u => u.status === "Idle").length },
-                  { key: "On Lunch", icon: "🍽️", color: "#f97316", label: "On Lunch", count: users.filter(u => u.status === "On Lunch").length },
-                  { key: "off", icon: "⚪", color: "#f59e0b", label: "Off Duty", count: users.filter(u => u.status !== "On Duty" && u.status !== "On Ticket" && u.status !== "Idle" && u.status !== "On Lunch").length },
+                  { key: "all", icon: "👥", color: "#3b82f6", label: "Total Users", count: Array.isArray(users) ? users.length : 0 },
+                  { key: "On Duty", icon: "🟢", color: "#22c55e", label: "On Duty", count: Array.isArray(users) ? users.filter(u => u.status === "On Duty").length : 0 },
+                  { key: "On Ticket", icon: "🎫", color: "#6366f1", label: "On Ticket", count: Array.isArray(users) ? users.filter(u => u.status === "On Ticket").length : 0 },
+                  { key: "Idle", icon: "🟣", color: "#a855f7", label: "Idle", count: Array.isArray(users) ? users.filter(u => u.status === "Idle").length : 0 },
+                  { key: "On Lunch", icon: "🍽️", color: "#f97316", label: "On Lunch", count: Array.isArray(users) ? users.filter(u => u.status === "On Lunch").length : 0 },
+                  { key: "off", icon: "⚪", color: "#f59e0b", label: "Off Duty", count: Array.isArray(users) ? users.filter(u => u.status !== "On Duty" && u.status !== "On Ticket" && u.status !== "Idle" && u.status !== "On Lunch").length : 0 },
                 ].map(s => {
                   const isActive = agentStatusFilter === s.key;
                   return (
