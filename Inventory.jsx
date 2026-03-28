@@ -742,7 +742,7 @@ function LoginPage({ onLogin }) {
 }
 
 // ─── MAIN INVENTORY APP ───────────────────────────────────────────────────────
-export default function Inventory() {
+export default function Inventory({ onBack }) {
     const [currentUser, setCurrentUser] = useState(() => loadSession());
     const [view, setView] = useState("dashboard");
     const [activeType, setActiveType] = useState("laptops");

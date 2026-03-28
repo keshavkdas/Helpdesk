@@ -409,13 +409,15 @@ app.post("/api/check-logout-requirements", async (req, res) => {
 
 app.post("/api/validate-sessions", async (req, res) => {
     try {
-        const { emails } = req.body; // emails is array of current logged in emails
+        // ✅ FIXED: Accept both 'emails' and 'activeUsers' parameters for compatibility
+        const { emails, activeUsers } = req.body;
+        const userEmails = emails || activeUsers || [];
 
-        if (!emails || !Array.isArray(emails)) {
+        if (!Array.isArray(userEmails)) {
             return res.status(400).json({ error: "Emails array is required" });
         }
 
-        if (emails.length === 0) {
+        if (userEmails.length === 0) {
             return res.json({
                 active: [],
                 inactive: []
@@ -423,11 +425,11 @@ app.post("/api/validate-sessions", async (req, res) => {
         }
 
         const users = await User.findAll({
-            where: { email: { [Op.in]: emails } }
+            where: { email: { [Op.in]: userEmails } }
         });
 
         const validUsers = new Set(users.map(u => u.email));
-        const inactive = emails.filter(e => !validUsers.has(e)); // emails no longer in DB
+        const inactive = userEmails.filter(e => !validUsers.has(e)); // emails no longer in DB
 
         res.json({
             active: users.map(u => u.email),

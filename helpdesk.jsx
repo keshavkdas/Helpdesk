@@ -1589,9 +1589,9 @@ export default function HelpDesk() {
   // ✅ NEW: Validate sessions periodically and update user statuses
   const validateSessions = async () => {
     try {
-      // Send the current user ID to mark as active
-      const activeUserIds = currentUser ? [currentUser.id] : [];
-      const response = await axios.post(VALIDATE_SESSIONS_API, { activeUsers: activeUserIds });
+      // Send the current user email to mark as active
+      const activeUserEmails = currentUser ? [currentUser.email] : [];
+      const response = await axios.post(VALIDATE_SESSIONS_API, { emails: activeUserEmails });
       const updatedUsers = response.data || [];
       setUsers(updatedUsers);
     } catch (e) {
