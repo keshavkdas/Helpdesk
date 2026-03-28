@@ -1592,9 +1592,19 @@ export default function HelpDesk() {
       // Send the current user email to mark as active
       const activeUserEmails = currentUser ? [currentUser.email] : [];
       const response = await axios.post(VALIDATE_SESSIONS_API, { emails: activeUserEmails });
-      // ✅ FIX: Handle the response structure { active: [...], inactive: [...] }
-      const activeUsers = response.data?.active || response.data || [];
-      setUsers(Array.isArray(activeUsers) ? activeUsers : []);
+      // ✅ FIX: Only update user status (online/offline), NOT replace entire user list
+      // The response tells us which users are active, but we should only update their status
+      // NOT replace the entire users array from database
+      if (response.data?.active && Array.isArray(response.data.active)) {
+        const activeEmails = new Set(response.data.active);
+        // Update user statuses without replacing the list
+        setUsers(prev =>
+          Array.isArray(prev) ? prev.map(u => ({
+            ...u,
+            isOnline: activeEmails.has(u.email)
+          })) : []
+        );
+      }
     } catch (e) {
       console.error("Error validating sessions:", e);
     }
