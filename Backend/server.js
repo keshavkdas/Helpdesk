@@ -63,6 +63,56 @@ const Vendor = sequelize.define("Vendor", {
     address: { type: DataTypes.TEXT, defaultValue: "" },
 }, { timestamps: true });
 
+// ─── INVENTORY MODELS ─────────────────────────────────────────────────────────
+// Shared base columns used by every device type
+const BASE_DEVICE_COLS = {
+    assetTag: { type: DataTypes.STRING, defaultValue: "" },
+    name: { type: DataTypes.STRING, allowNull: false },
+    status: { type: DataTypes.ENUM("Active", "In Repair", "Retired", "In Storage", "Missing"), defaultValue: "Active" },
+    org: { type: DataTypes.STRING, defaultValue: "" },
+    department: { type: DataTypes.STRING, defaultValue: "" },
+    location: { type: DataTypes.STRING, defaultValue: "" },
+    assignedUserId: { type: DataTypes.INTEGER, defaultValue: null },
+    purchaseDate: { type: DataTypes.DATEONLY, defaultValue: null },
+    warrantyEnd: { type: DataTypes.DATEONLY, defaultValue: null },
+    price: { type: DataTypes.DECIMAL(12, 2), defaultValue: null },
+    vendor: { type: DataTypes.STRING, defaultValue: "" },
+    notes: { type: DataTypes.TEXT, defaultValue: "" },
+    timeline: { type: DataTypes.JSON, defaultValue: [] },
+    // specs: type-specific fields (brand, model, serial, ram, etc.) stored as JSON
+    specs: { type: DataTypes.JSON, defaultValue: {} },
+};
+
+const Laptop = sequelize.define("Laptop", {
+    ...BASE_DEVICE_COLS,
+    // specs keys used: brand, model, serialNo, processor, ram, storage, os, batteryHealth
+}, { timestamps: true });
+
+const Desktop = sequelize.define("Desktop", {
+    ...BASE_DEVICE_COLS,
+    // specs keys used: brand, model, serialNo, processor, ram, storage, os, hasMonitor
+}, { timestamps: true });
+
+const Printer = sequelize.define("Printer", {
+    ...BASE_DEVICE_COLS,
+    // specs keys used: brand, model, serialNo, printerType, ipAddress, tonerLevel, isNetworked
+}, { timestamps: true });
+
+const NetworkDevice = sequelize.define("NetworkDevice", {
+    ...BASE_DEVICE_COLS,
+    // specs keys used: brand, model, serialNo, ipAddress, macAddress, switchPort, vlan
+}, { timestamps: true });
+
+const Server = sequelize.define("Server", {
+    ...BASE_DEVICE_COLS,
+    // specs keys used: brand, model, serialNo, processor, ram, storage, os, ipAddress, rackUnit
+}, { timestamps: true });
+
+const Phone = sequelize.define("Phone", {
+    ...BASE_DEVICE_COLS,
+    // specs keys used: brand, model, serialNo, os, imei, carrier, isTablet
+}, { timestamps: true });
+
 const Category = sequelize.define("Category", {
     name: { type: DataTypes.STRING, allowNull: false },
     color: { type: DataTypes.STRING, defaultValue: "#3b82f6" },
@@ -119,6 +169,8 @@ const Ticket = sequelize.define("Ticket", {
     dueDate: { type: DataTypes.DATE, defaultValue: null },
     image: { type: DataTypes.TEXT, defaultValue: null },
     satsangId: { type: DataTypes.INTEGER, defaultValue: null },
+    // ✅ INVENTORY: Links this ticket to a specific device in the inventory
+    deviceId: { type: DataTypes.INTEGER, defaultValue: null },
 }, { timestamps: true });
 
 const Webcast = sequelize.define("Webcast", {
@@ -486,6 +538,165 @@ app.delete("/api/vendors/:id", async (req, res) => {
         res.json({ success: true });
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
+
+// ─── INVENTORY ROUTES ─────────────────────────────────────────────────────────
+
+// Map URL segment → Sequelize model
+const DEVICE_MODEL_MAP = {
+    laptops: Laptop,
+    desktops: Desktop,
+    printers: Printer,
+    network: NetworkDevice,
+    servers: Server,
+    phones: Phone,
+};
+
+// GET /api/devices/summary  ── must come BEFORE /:type to avoid route collision
+app.get("/api/devices/summary", async (req, res) => {
+    try {
+        const counts = await Promise.all(
+            Object.entries(DEVICE_MODEL_MAP).map(async ([type, Model]) => {
+                const total = await Model.count();
+                const active = await Model.count({ where: { status: "Active" } });
+                const inRepair = await Model.count({ where: { status: "In Repair" } });
+                return { type, total, active, inRepair };
+            })
+        );
+        const linkedTickets = await Ticket.count({ where: { deviceId: { [Op.not]: null } } });
+        res.json({ byType: counts, linkedTickets });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// GET /api/devices/:type  ── list all devices of a type
+app.get("/api/devices/:type", async (req, res) => {
+    const Model = DEVICE_MODEL_MAP[req.params.type];
+    if (!Model) return res.status(404).json({ error: `Unknown device type: ${req.params.type}` });
+    try {
+        const devices = await Model.findAll({ order: [["createdAt", "DESC"]] });
+        res.json(devices.map(d => d.get({ plain: true })));
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// POST /api/devices/:type  ── create a new device
+app.post("/api/devices/:type", async (req, res) => {
+    const Model = DEVICE_MODEL_MAP[req.params.type];
+    if (!Model) return res.status(404).json({ error: `Unknown device type: ${req.params.type}` });
+    if (!req.body.name || !req.body.name.trim())
+        return res.status(400).json({ error: "Device name is required" });
+    try {
+        // Auto-generate asset tag if not provided
+        if (!req.body.assetTag || !req.body.assetTag.trim()) {
+            const count = await Model.count();
+            const prefix = req.params.type.slice(0, 3).toUpperCase();
+            req.body.assetTag = `${prefix}-${String(count + 1).padStart(4, "0")}`;
+        }
+        // Start timeline with a creation event
+        const timeline = [{
+            icon: "📦",
+            action: `${req.body.name.trim()} added to inventory`,
+            by: req.body._addedBy || "System",
+            timestamp: new Date().toISOString(),
+            note: `Type: ${req.params.type}`,
+        }];
+        const device = await Model.create({ ...req.body, name: req.body.name.trim(), timeline });
+        res.status(201).json(device.get({ plain: true }));
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// PUT /api/devices/:type/:id  ── update a device
+app.put("/api/devices/:type/:id", async (req, res) => {
+    const Model = DEVICE_MODEL_MAP[req.params.type];
+    if (!Model) return res.status(404).json({ error: `Unknown device type: ${req.params.type}` });
+    try {
+        const device = await Model.findByPk(req.params.id);
+        if (!device) return res.status(404).json({ error: "Device not found" });
+
+        // Append to timeline when status or assignee changes
+        const currentTimeline = Array.isArray(device.timeline) ? [...device.timeline] : [];
+        if (req.body.status && req.body.status !== device.status) {
+            currentTimeline.push({
+                icon: "✏️",
+                action: `Status changed: ${device.status} → ${req.body.status}`,
+                by: req.body._updatedBy || "System",
+                timestamp: new Date().toISOString(),
+            });
+            req.body.timeline = currentTimeline;
+        }
+        if (req.body.assignedUserId !== undefined && req.body.assignedUserId !== device.assignedUserId) {
+            currentTimeline.push({
+                icon: "👤",
+                action: `Device reassigned`,
+                by: req.body._updatedBy || "System",
+                timestamp: new Date().toISOString(),
+            });
+            req.body.timeline = currentTimeline;
+        }
+
+        await device.update(req.body);
+        res.json(device.get({ plain: true }));
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// DELETE /api/devices/:type/:id  ── delete a device and unlink its tickets
+app.delete("/api/devices/:type/:id", async (req, res) => {
+    const Model = DEVICE_MODEL_MAP[req.params.type];
+    if (!Model) return res.status(404).json({ error: `Unknown device type: ${req.params.type}` });
+    try {
+        const device = await Model.findByPk(req.params.id);
+        if (!device) return res.status(404).json({ error: "Device not found" });
+        // Unlink all tickets pointing to this device before deleting
+        await Ticket.update({ deviceId: null }, { where: { deviceId: String(req.params.id) } });
+        await device.destroy();
+        res.json({ success: true });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// GET /api/devices/:type/:id/tickets  ── tickets linked to a specific device
+app.get("/api/devices/:type/:id/tickets", async (req, res) => {
+    try {
+        const tickets = await Ticket.findAll({
+            where: { deviceId: req.params.id },
+            order: [["createdAt", "DESC"]],
+        });
+        res.json(tickets.map(fmt));
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// PATCH /api/tickets/:id/device  ── link or unlink a ticket to a device
+// Body: { deviceId: <number> }  → link
+// Body: { deviceId: null }      → unlink
+app.patch("/api/tickets/:id/device", async (req, res) => {
+    try {
+        const ticket = await Ticket.findByPk(req.params.id);
+        if (!ticket) return res.status(404).json({ error: "Ticket not found" });
+
+        const { deviceId } = req.body;
+        const currentTimeline = Array.isArray(ticket.timeline) ? [...ticket.timeline] : [];
+
+        if (deviceId) {
+            currentTimeline.push({
+                action: `Linked to inventory device (ID: ${deviceId})`,
+                icon: "🔗",
+                timestamp: new Date().toISOString(),
+                by: req.body._by || "System",
+                visibility: "internal",
+            });
+        } else {
+            currentTimeline.push({
+                action: "Unlinked from inventory device",
+                icon: "🔓",
+                timestamp: new Date().toISOString(),
+                by: req.body._by || "System",
+                visibility: "internal",
+            });
+        }
+
+        await ticket.update({ deviceId: deviceId || null, timeline: currentTimeline });
+        res.json(fmt(ticket));
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+
 
 app.get("/api/categories", async (req, res) => {
     try {

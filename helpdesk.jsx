@@ -19,6 +19,7 @@ const IMPORT_API = `${BASE_URL}/import`;
 const PROJECTS_API = `${BASE_URL}/projects`;
 const VALIDATE_SESSIONS_API = `${BASE_URL}/validate-sessions`;
 const NOTIFICATIONS_API = `${BASE_URL}/notifications`;
+const DEVICES_API = `${BASE_URL}/devices`;
 
 // ─── CONSTANTS ────────────────────────────────────────────────────────────────
 const PRIORITIES = ["Critical", "High", "Low", "Medium"];
@@ -2365,6 +2366,9 @@ export default function HelpDesk() {
       timeline: [{ action: "Created", by: currentUser.name, date: new Date().toISOString(), note: "Ticket opened." + (ticketImage ? " [with image]" : "") }]
     };
 
+    // ✅ FIX: Remove fields that don't exist in the Ticket model to prevent validation errors
+    delete newT.webcastId;
+
     // ✅ NEW: If webcast, create separate entry and send to /api/webcasts
     if (form.category === "Webcast") {
       try {
@@ -4484,6 +4488,19 @@ export default function HelpDesk() {
               </button>
             ))}
           </div>}
+        </div>
+
+        {/* ── Inventory Link ── */}
+        <div style={{ padding: "4px 8px 6px", borderTop: "1px solid #1e293b" }}>
+          <button
+            onClick={() => window.location.href = "/inventory"}
+            style={{ display: "flex", alignItems: "center", gap: 9, width: "100%", padding: "8px 11px", borderRadius: 7, border: "none", cursor: "pointer", background: "transparent", color: "#64748b", fontSize: 13, fontWeight: 400, textAlign: "left", fontFamily: "'DM Sans',sans-serif", transition: "all 0.15s" }}
+            onMouseEnter={e => { e.currentTarget.style.background = "#1e293b"; e.currentTarget.style.color = "#e2e8f0"; }}
+            onMouseLeave={e => { e.currentTarget.style.background = "transparent"; e.currentTarget.style.color = "#64748b"; }}
+          >
+            <span style={{ fontSize: 15 }}>📦</span>
+            <span>Inventory</span>
+          </button>
         </div>
 
         {/* New Ticket / Project buttons */}
@@ -6850,6 +6867,25 @@ export default function HelpDesk() {
                     <div style={{ fontSize: 13, fontWeight: 500 }}>{f.v}</div>
                   </div>
                 ))}
+              </div>
+            </div>
+          )}
+
+          {/* ── Linked Device Badge ── */}
+          {selTicket?.deviceId && (
+            <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "9px 13px", background: "#eff6ff", borderRadius: 9, border: "1px solid #bfdbfe", marginBottom: 14 }}>
+              <span style={{ fontSize: 16 }}>🔗</span>
+              <div style={{ flex: 1 }}>
+                <div style={{ fontSize: 10, fontWeight: 700, color: "#1d4ed8", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 2 }}>Linked Inventory Device</div>
+                <div style={{ fontSize: 13, fontWeight: 600, color: "#1e40af" }}>
+                  Device ID: {selTicket.deviceId}
+                  <span
+                    onClick={() => window.location.href = "/inventory"}
+                    style={{ marginLeft: 10, color: "#3b82f6", cursor: "pointer", textDecoration: "underline", fontSize: 12, fontWeight: 500 }}
+                  >
+                    View in Inventory →
+                  </span>
+                </div>
               </div>
             </div>
           )}
