@@ -63,30 +63,6 @@ const Vendor = sequelize.define("Vendor", {
     address: { type: DataTypes.TEXT, defaultValue: "" },
 }, { timestamps: true });
 
-// ─── INVENTORY MODELS ─────────────────────────────────────────────────────────
-const BASE_DEVICE_COLS = {
-    assetTag: { type: DataTypes.STRING, defaultValue: "" },
-    name: { type: DataTypes.STRING, allowNull: false },
-    status: { type: DataTypes.ENUM("Active", "In Repair", "Retired", "In Storage", "Missing"), defaultValue: "Active" },
-    org: { type: DataTypes.STRING, defaultValue: "" },
-    department: { type: DataTypes.STRING, defaultValue: "" },
-    location: { type: DataTypes.STRING, defaultValue: "" },
-    assignedUserId: { type: DataTypes.INTEGER, defaultValue: null },
-    purchaseDate: { type: DataTypes.DATEONLY, defaultValue: null },
-    warrantyEnd: { type: DataTypes.DATEONLY, defaultValue: null },
-    price: { type: DataTypes.DECIMAL(12, 2), defaultValue: null },
-    vendor: { type: DataTypes.STRING, defaultValue: "" },
-    notes: { type: DataTypes.TEXT, defaultValue: "" },
-    timeline: { type: DataTypes.JSON, defaultValue: [] },
-    specs: { type: DataTypes.JSON, defaultValue: {} },
-};
-const Laptop = sequelize.define("Laptop", { ...BASE_DEVICE_COLS }, { timestamps: true });
-const Desktop = sequelize.define("Desktop", { ...BASE_DEVICE_COLS }, { timestamps: true });
-const Printer = sequelize.define("Printer", { ...BASE_DEVICE_COLS }, { timestamps: true });
-const NetworkDevice = sequelize.define("NetworkDevice", { ...BASE_DEVICE_COLS }, { timestamps: true });
-const Server = sequelize.define("Server", { ...BASE_DEVICE_COLS }, { timestamps: true });
-const Phone = sequelize.define("Phone", { ...BASE_DEVICE_COLS }, { timestamps: true });
-
 const Category = sequelize.define("Category", {
     name: { type: DataTypes.STRING, allowNull: false },
     color: { type: DataTypes.STRING, defaultValue: "#3b82f6" },
@@ -143,7 +119,6 @@ const Ticket = sequelize.define("Ticket", {
     dueDate: { type: DataTypes.DATE, defaultValue: null },
     image: { type: DataTypes.TEXT, defaultValue: null },
     satsangId: { type: DataTypes.INTEGER, defaultValue: null },
-    // ✅ INVENTORY: Links this ticket to a specific device in the inventory
     deviceId: { type: DataTypes.INTEGER, defaultValue: null },
 }, { timestamps: true });
 
@@ -435,23 +410,17 @@ app.post("/api/check-logout-requirements", async (req, res) => {
 
 app.post("/api/validate-sessions", async (req, res) => {
     try {
-        // Frontend sends { activeUsers: [id, ...] } — support both formats
         const { emails, activeUsers } = req.body;
 
-        // ── Handle activeUsers (array of user IDs) sent by the frontend ──
+        // Frontend sends { activeUsers: [id, ...] } — return full updated user list
         if (Array.isArray(activeUsers)) {
-            if (activeUsers.length === 0) {
-                // No active users — return full user list with statuses unchanged
-                const allUsers = await User.findAll({ order: [['createdAt', 'ASC']] });
-                return res.json(allUsers.map(fmt));
-            }
             const allUsers = await User.findAll({ order: [['createdAt', 'ASC']] });
             return res.json(allUsers.map(fmt));
         }
 
-        // ── Legacy: Handle emails array ──
+        // Legacy: emails array
         if (!emails || !Array.isArray(emails)) {
-            // Graceful fallback — return all users instead of a hard 400
+            // Graceful fallback — never return 400 which crashes the frontend
             const allUsers = await User.findAll({ order: [['createdAt', 'ASC']] });
             return res.json(allUsers.map(fmt));
         }
@@ -463,14 +432,10 @@ app.post("/api/validate-sessions", async (req, res) => {
         const users = await User.findAll({
             where: { email: { [Op.in]: emails } }
         });
-
         const validUsers = new Set(users.map(u => u.email));
         const inactive = emails.filter(e => !validUsers.has(e));
 
-        res.json({
-            active: users.map(u => u.email),
-            inactive: inactive,
-        });
+        res.json({ active: users.map(u => u.email), inactive });
     } catch (err) {
         console.error("Session validation error:", err.message);
         res.status(500).json({ error: err.message });
@@ -525,13 +490,37 @@ app.delete("/api/vendors/:id", async (req, res) => {
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+// ─── INVENTORY MODELS ─────────────────────────────────────────────────────────
+const BASE_DEVICE_COLS = {
+    assetTag: { type: DataTypes.STRING, defaultValue: "" },
+    name: { type: DataTypes.STRING, allowNull: false },
+    status: { type: DataTypes.ENUM("Active", "In Repair", "Retired", "In Storage", "Missing"), defaultValue: "Active" },
+    org: { type: DataTypes.STRING, defaultValue: "" },
+    department: { type: DataTypes.STRING, defaultValue: "" },
+    location: { type: DataTypes.STRING, defaultValue: "" },
+    assignedUserId: { type: DataTypes.INTEGER, defaultValue: null },
+    purchaseDate: { type: DataTypes.DATEONLY, defaultValue: null },
+    warrantyEnd: { type: DataTypes.DATEONLY, defaultValue: null },
+    price: { type: DataTypes.DECIMAL(12, 2), defaultValue: null },
+    vendor: { type: DataTypes.STRING, defaultValue: "" },
+    notes: { type: DataTypes.TEXT, defaultValue: "" },
+    timeline: { type: DataTypes.JSON, defaultValue: [] },
+    specs: { type: DataTypes.JSON, defaultValue: {} },
+};
+const Laptop = sequelize.define("Laptop", { ...BASE_DEVICE_COLS }, { timestamps: true });
+const Desktop = sequelize.define("Desktop", { ...BASE_DEVICE_COLS }, { timestamps: true });
+const Printer = sequelize.define("Printer", { ...BASE_DEVICE_COLS }, { timestamps: true });
+const NetworkDevice = sequelize.define("NetworkDevice", { ...BASE_DEVICE_COLS }, { timestamps: true });
+const ServerDevice = sequelize.define("ServerDevice", { ...BASE_DEVICE_COLS }, { timestamps: true });
+const Phone = sequelize.define("Phone", { ...BASE_DEVICE_COLS }, { timestamps: true });
+
 // ─── INVENTORY ROUTES ─────────────────────────────────────────────────────────
 const DEVICE_MODEL_MAP = {
     laptops: Laptop,
     desktops: Desktop,
     printers: Printer,
     network: NetworkDevice,
-    servers: Server,
+    servers: ServerDevice,
     phones: Phone,
 };
 
@@ -584,7 +573,7 @@ app.put("/api/devices/:type/:id", async (req, res) => {
         if (!device) return res.status(404).json({ error: "Device not found" });
         const currentTimeline = Array.isArray(device.timeline) ? [...device.timeline] : [];
         if (req.body.status && req.body.status !== device.status) {
-            currentTimeline.push({ icon: "✏️", action: `Status changed: ${device.status} → ${req.body.status}`, by: req.body._updatedBy || "System", timestamp: new Date().toISOString() });
+            currentTimeline.push({ icon: "✏️", action: `Status: ${device.status} → ${req.body.status}`, by: req.body._updatedBy || "System", timestamp: new Date().toISOString() });
             req.body.timeline = currentTimeline;
         }
         await device.update(req.body);
@@ -618,7 +607,7 @@ app.patch("/api/tickets/:id/device", async (req, res) => {
         const { deviceId } = req.body;
         const currentTimeline = Array.isArray(ticket.timeline) ? [...ticket.timeline] : [];
         currentTimeline.push({
-            action: deviceId ? `Linked to inventory device (ID: ${deviceId})` : "Unlinked from inventory device",
+            action: deviceId ? `Linked to device ID: ${deviceId}` : "Unlinked from device",
             icon: deviceId ? "🔗" : "🔓",
             timestamp: new Date().toISOString(),
             by: req.body._by || "System",
@@ -971,7 +960,7 @@ app.get("/api/tickets", async (req, res) => {
 
 app.post("/api/tickets", async (req, res) => {
     try {
-        // ✅ Validate required fields FIRST
+        // Validate required fields
         if (!req.body.summary || !req.body.summary.trim()) {
             return res.status(400).json({ error: "Summary is required" });
         }
@@ -980,37 +969,40 @@ app.post("/api/tickets", async (req, res) => {
         }
 
         // Generate ticket ID (TKT-1001, TKT-1002, etc.)
-        // Find ALL tickets and filter for 4-digit sequential IDs only
         const allTickets = await Ticket.findAll({
             where: { id: { [Op.like]: "TKT-%" } },
             order: [['createdAt', 'DESC']]
         });
-
-        // ✅ Filter tickets to only 4-digit sequential IDs (TKT-XXXX)
         const sequentialTickets = allTickets.filter(t => {
             const parts = t.id.split("-");
             return parts.length === 2 && parts[1].length === 4 && /^\d{4}$/.test(parts[1]);
         });
-
         let nextIdNum = 1001;
         if (sequentialTickets.length > 0) {
             const lastNum = parseInt(sequentialTickets[0].id.split("-")[1], 10);
             if (!isNaN(lastNum)) nextIdNum = lastNum + 1;
         }
-
         const ticketId = `TKT-${String(nextIdNum).padStart(4, "0")}`;
 
-        // ✅ Clean data - remove created/updated if sent (Sequelize handles these)
-        const ticketData = {
-            ...req.body,
-            id: ticketId,
-            summary: req.body.summary.trim(),
-            org: req.body.org.trim()
-        };
-        delete ticketData.created;
-        delete ticketData.updated;
-        delete ticketData.createdAt;
-        delete ticketData.updatedAt;
+        // ✅ FIX: Only pick fields the Ticket model actually defines.
+        // This prevents Sequelize validation errors caused by extra frontend fields
+        // like webcastId, title, progress, etc. that don't exist on the Ticket table.
+        const TICKET_FIELDS = [
+            "summary", "description", "org", "department", "contact", "reportedBy",
+            "assignees", "cc", "priority", "category", "status", "customAttrs",
+            "isWebcast", "satsangType", "location", "timeline", "comments",
+            "vendor", "dueDate", "image", "satsangId", "deviceId"
+        ];
+
+        const ticketData = { id: ticketId };
+        for (const field of TICKET_FIELDS) {
+            if (req.body[field] !== undefined) {
+                ticketData[field] = req.body[field];
+            }
+        }
+        // Ensure required string fields are trimmed
+        ticketData.summary = req.body.summary.trim();
+        ticketData.org = req.body.org.trim();
 
         const ticket = await Ticket.create(ticketData);
         res.status(201).json(fmt(ticket));
