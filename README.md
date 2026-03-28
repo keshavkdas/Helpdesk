@@ -13,7 +13,7 @@ Before running the project, ensure you have the following installed:
 Create a `.env` file in the `Backend` directory (if not already present) and configure your database credentials:
 
 ```env
-DB_HOST=your_host
+DB_HOST=your_server_ip
 DB_USER=your_user
 DB_PASS=your_password
 DB_NAME=deskflow
