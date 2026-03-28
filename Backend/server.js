@@ -847,10 +847,16 @@ app.post("/api/tickets", async (req, res) => {
         });
         let nextIdNum = 1001;
         if (sequentialTickets.length > 0) {
-            const lastNum = parseInt(sequentialTickets[0].id.split("-")[1], 10);
-            if (!isNaN(lastNum)) nextIdNum = lastNum + 1;
+            const nums = sequentialTickets.map(t => parseInt(t.id.split("-")[1], 10)).filter(n => !isNaN(n)).sort((a, b) => b - a);
+            if (nums.length > 0) nextIdNum = nums[0] + 1;
         }
-        const ticketId = `TKT-${String(nextIdNum).padStart(4, "0")}`;
+        let ticketId = `TKT-${String(nextIdNum).padStart(4, "0")}`;
+        let idExists = await Ticket.findByPk(ticketId);
+        while (idExists) {
+            nextIdNum++;
+            ticketId = `TKT-${String(nextIdNum).padStart(4, "0")}`;
+            idExists = await Ticket.findByPk(ticketId);
+        }
 
         // ✅ STRICT WHITELIST — only pass fields the Ticket model actually has.
         const ticketData = {
