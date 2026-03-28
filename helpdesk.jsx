@@ -2381,6 +2381,7 @@ export default function HelpDesk() {
       status: "Open",
       customAttrs: (typeof form.customAttrs === 'object' && !Array.isArray(form.customAttrs)) ? form.customAttrs : {},
       dueDate: form.dueDate || null,
+      location: form.location || "",
       image: ticketImage || null,
       comments: [],
       timeline: [{ action: "Created", by: currentUser.name, date: new Date().toISOString(), note: "Ticket opened." + (ticketImage ? " [with image]" : "") }]
@@ -6913,7 +6914,7 @@ export default function HelpDesk() {
           </div>}
           <div style={{ marginBottom: 14, padding: "11px 13px", background: "#f8fafc", borderRadius: 9 }}>
             <div style={{ fontSize: 10, fontWeight: 600, color: "#94a3b8", textTransform: "uppercase", marginBottom: 7 }}>Assignees</div>
-            {(currentUser?.role === "Admin" || currentUser?.role === "Manager") ? (
+            {(currentUser?.role === "Admin" || currentUser?.role === "Manager")  && editMode ? (
               <div>
                 <div style={{ display: "flex", flexWrap: "wrap", gap: 7, marginBottom: 10 }}>
                   {(selTicket.assignees || []).map(a => <div key={a.id} style={{ display: "flex", alignItems: "center", gap: 7, background: "#dbeafe", padding: "5px 9px", borderRadius: 7, border: "1px solid #bfdbfe" }}><Avatar name={a.name} size={24} /><div><div style={{ fontSize: 12, fontWeight: 600 }}>{a.name}</div><div style={{ fontSize: 10, color: "#64748b" }}>{a.role}</div></div><span onClick={async () => { const updated = { ...selTicket, assignees: selTicket.assignees.filter(x => x.id !== a.id), updated: new Date().toISOString() }; try { await axios.put(`${TICKETS_API}/${selTicket.id}`, updated); setTickets(t => t.map(x => x.id === selTicket.id ? { ...updated, updated: new Date(updated.updated) } : x)); setSelTicket(updated); } catch (e) { setCustomAlert({ show: true, message: "Failed to remove assignee", type: "error" }); } }} style={{ cursor: "pointer", fontWeight: 700, marginLeft: 4, color: "#ef4444" }}>×</span></div>)}
