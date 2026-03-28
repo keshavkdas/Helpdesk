@@ -2357,8 +2357,6 @@ export default function HelpDesk() {
 
     const newT = {
       ...form,
-      // ✅ Don't send ID - server will generate TKT-1001, TKT-1002, etc.
-      // ✅ Don't send created/updated - Sequelize timestamps handle these
       dueDate: form.dueDate || null,
       status: "Open",
       image: ticketImage || null,
@@ -2366,7 +2364,7 @@ export default function HelpDesk() {
       timeline: [{ action: "Created", by: currentUser.name, date: new Date().toISOString(), note: "Ticket opened." + (ticketImage ? " [with image]" : "") }]
     };
 
-    // ✅ FIX: Remove fields that don't exist in the Ticket model to prevent validation errors
+    // ✅ FIX: Strip fields that don't exist in the Ticket model — prevents Sequelize validation errors
     delete newT.webcastId;
 
     // ✅ NEW: If webcast, create separate entry and send to /api/webcasts
@@ -6879,10 +6877,7 @@ export default function HelpDesk() {
                 <div style={{ fontSize: 10, fontWeight: 700, color: "#1d4ed8", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 2 }}>Linked Inventory Device</div>
                 <div style={{ fontSize: 13, fontWeight: 600, color: "#1e40af" }}>
                   Device ID: {selTicket.deviceId}
-                  <span
-                    onClick={() => window.location.href = "/inventory"}
-                    style={{ marginLeft: 10, color: "#3b82f6", cursor: "pointer", textDecoration: "underline", fontSize: 12, fontWeight: 500 }}
-                  >
+                  <span onClick={() => window.location.href = "/inventory"} style={{ marginLeft: 10, color: "#3b82f6", cursor: "pointer", textDecoration: "underline", fontSize: 12, fontWeight: 500 }}>
                     View in Inventory →
                   </span>
                 </div>
