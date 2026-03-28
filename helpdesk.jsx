@@ -2363,8 +2363,7 @@ export default function HelpDesk() {
       comments: [],
       timeline: [{ action: "Created", by: currentUser.name, date: new Date().toISOString(), note: "Ticket opened." + (ticketImage ? " [with image]" : "") }]
     };
-
-    // ✅ FIX: Remove fields not in the Ticket model — prevents Sequelize 500 errors
+    // Strip fields that don't exist on the Ticket model
     delete newT.webcastId;
 
     // ✅ NEW: If webcast, create separate entry and send to /api/webcasts
@@ -4492,7 +4491,7 @@ export default function HelpDesk() {
         <div style={{ padding: "4px 8px 6px", borderTop: "1px solid #1e293b" }}>
           <button
             onClick={() => window.location.href = "/inventory"}
-            style={{ display: "flex", alignItems: "center", gap: 9, width: "100%", padding: "8px 11px", borderRadius: 7, border: "none", cursor: "pointer", background: "transparent", color: "#64748b", fontSize: 13, fontWeight: 400, textAlign: "left", fontFamily: "'DM Sans',sans-serif", transition: "all 0.15s" }}
+            style={{ display: "flex", alignItems: "center", gap: 9, width: "100%", padding: "8px 11px", borderRadius: 7, border: "none", cursor: "pointer", background: "transparent", color: "#64748b", fontSize: 13, fontWeight: 400, textAlign: "left", fontFamily: "'DM Sans',sans-serif" }}
             onMouseEnter={e => { e.currentTarget.style.background = "#1e293b"; e.currentTarget.style.color = "#e2e8f0"; }}
             onMouseLeave={e => { e.currentTarget.style.background = "transparent"; e.currentTarget.style.color = "#64748b"; }}
           >
@@ -6869,7 +6868,6 @@ export default function HelpDesk() {
             </div>
           )}
 
-          {/* ── Linked Device Badge ── */}
           {selTicket?.deviceId && (
             <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "9px 13px", background: "#eff6ff", borderRadius: 9, border: "1px solid #bfdbfe", marginBottom: 14 }}>
               <span style={{ fontSize: 16 }}>🔗</span>

@@ -117,9 +117,8 @@ const Ticket = sequelize.define("Ticket", {
     comments: { type: DataTypes.JSON, defaultValue: [] },
     vendor: { type: DataTypes.JSON, defaultValue: null },
     dueDate: { type: DataTypes.DATE, defaultValue: null },
-    image: { type: DataTypes.TEXT, defaultValue: null },
+    image: { type: DataTypes.TEXT("long"), defaultValue: null },
     satsangId: { type: DataTypes.INTEGER, defaultValue: null },
-    deviceId: { type: DataTypes.INTEGER, defaultValue: null },
 }, { timestamps: true });
 
 const Webcast = sequelize.define("Webcast", {
@@ -143,7 +142,7 @@ const Webcast = sequelize.define("Webcast", {
     comments: { type: DataTypes.JSON, defaultValue: [] },
     vendor: { type: DataTypes.JSON, defaultValue: null },
     dueDate: { type: DataTypes.DATE, defaultValue: null },
-    image: { type: DataTypes.TEXT, defaultValue: null },
+    image: { type: DataTypes.TEXT("long"), defaultValue: null },
     satsangId: { type: DataTypes.INTEGER, defaultValue: null },
 }, { timestamps: true });
 
@@ -410,32 +409,30 @@ app.post("/api/check-logout-requirements", async (req, res) => {
 
 app.post("/api/validate-sessions", async (req, res) => {
     try {
-        const { emails, activeUsers } = req.body;
+        const { emails } = req.body; // emails is array of current logged in emails
 
-        // Frontend sends { activeUsers: [id, ...] } — return full updated user list
-        if (Array.isArray(activeUsers)) {
-            const allUsers = await User.findAll({ order: [['createdAt', 'ASC']] });
-            return res.json(allUsers.map(fmt));
-        }
-
-        // Legacy: emails array
         if (!emails || !Array.isArray(emails)) {
-            // Graceful fallback — never return 400 which crashes the frontend
-            const allUsers = await User.findAll({ order: [['createdAt', 'ASC']] });
-            return res.json(allUsers.map(fmt));
+            return res.status(400).json({ error: "Emails array is required" });
         }
 
         if (emails.length === 0) {
-            return res.json({ active: [], inactive: [] });
+            return res.json({
+                active: [],
+                inactive: []
+            });
         }
 
         const users = await User.findAll({
             where: { email: { [Op.in]: emails } }
         });
-        const validUsers = new Set(users.map(u => u.email));
-        const inactive = emails.filter(e => !validUsers.has(e));
 
-        res.json({ active: users.map(u => u.email), inactive });
+        const validUsers = new Set(users.map(u => u.email));
+        const inactive = emails.filter(e => !validUsers.has(e)); // emails no longer in DB
+
+        res.json({
+            active: users.map(u => u.email),
+            inactive: inactive,
+        });
     } catch (err) {
         console.error("Session validation error:", err.message);
         res.status(500).json({ error: err.message });
@@ -489,136 +486,6 @@ app.delete("/api/vendors/:id", async (req, res) => {
         res.json({ success: true });
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
-
-// ─── INVENTORY MODELS ─────────────────────────────────────────────────────────
-const BASE_DEVICE_COLS = {
-    assetTag: { type: DataTypes.STRING, defaultValue: "" },
-    name: { type: DataTypes.STRING, allowNull: false },
-    status: { type: DataTypes.ENUM("Active", "In Repair", "Retired", "In Storage", "Missing"), defaultValue: "Active" },
-    org: { type: DataTypes.STRING, defaultValue: "" },
-    department: { type: DataTypes.STRING, defaultValue: "" },
-    location: { type: DataTypes.STRING, defaultValue: "" },
-    assignedUserId: { type: DataTypes.INTEGER, defaultValue: null },
-    purchaseDate: { type: DataTypes.DATEONLY, defaultValue: null },
-    warrantyEnd: { type: DataTypes.DATEONLY, defaultValue: null },
-    price: { type: DataTypes.DECIMAL(12, 2), defaultValue: null },
-    vendor: { type: DataTypes.STRING, defaultValue: "" },
-    notes: { type: DataTypes.TEXT, defaultValue: "" },
-    timeline: { type: DataTypes.JSON, defaultValue: [] },
-    specs: { type: DataTypes.JSON, defaultValue: {} },
-};
-const Laptop = sequelize.define("Laptop", { ...BASE_DEVICE_COLS }, { timestamps: true });
-const Desktop = sequelize.define("Desktop", { ...BASE_DEVICE_COLS }, { timestamps: true });
-const Printer = sequelize.define("Printer", { ...BASE_DEVICE_COLS }, { timestamps: true });
-const NetworkDevice = sequelize.define("NetworkDevice", { ...BASE_DEVICE_COLS }, { timestamps: true });
-const ServerDevice = sequelize.define("ServerDevice", { ...BASE_DEVICE_COLS }, { timestamps: true });
-const Phone = sequelize.define("Phone", { ...BASE_DEVICE_COLS }, { timestamps: true });
-
-// ─── INVENTORY ROUTES ─────────────────────────────────────────────────────────
-const DEVICE_MODEL_MAP = {
-    laptops: Laptop,
-    desktops: Desktop,
-    printers: Printer,
-    network: NetworkDevice,
-    servers: ServerDevice,
-    phones: Phone,
-};
-
-app.get("/api/devices/summary", async (req, res) => {
-    try {
-        const counts = await Promise.all(
-            Object.entries(DEVICE_MODEL_MAP).map(async ([type, Model]) => {
-                const total = await Model.count();
-                const active = await Model.count({ where: { status: "Active" } });
-                const inRepair = await Model.count({ where: { status: "In Repair" } });
-                return { type, total, active, inRepair };
-            })
-        );
-        const linkedTickets = await Ticket.count({ where: { deviceId: { [Op.not]: null } } });
-        res.json({ byType: counts, linkedTickets });
-    } catch (err) { res.status(500).json({ error: err.message }); }
-});
-
-app.get("/api/devices/:type", async (req, res) => {
-    const Model = DEVICE_MODEL_MAP[req.params.type];
-    if (!Model) return res.status(404).json({ error: `Unknown device type: ${req.params.type}` });
-    try {
-        const devices = await Model.findAll({ order: [["createdAt", "DESC"]] });
-        res.json(devices.map(d => d.get({ plain: true })));
-    } catch (err) { res.status(500).json({ error: err.message }); }
-});
-
-app.post("/api/devices/:type", async (req, res) => {
-    const Model = DEVICE_MODEL_MAP[req.params.type];
-    if (!Model) return res.status(404).json({ error: `Unknown device type: ${req.params.type}` });
-    if (!req.body.name || !req.body.name.trim())
-        return res.status(400).json({ error: "Device name is required" });
-    try {
-        if (!req.body.assetTag || !req.body.assetTag.trim()) {
-            const count = await Model.count();
-            const prefix = req.params.type.slice(0, 3).toUpperCase();
-            req.body.assetTag = `${prefix}-${String(count + 1).padStart(4, "0")}`;
-        }
-        const timeline = [{ icon: "📦", action: `${req.body.name.trim()} added to inventory`, by: req.body._addedBy || "System", timestamp: new Date().toISOString() }];
-        const device = await Model.create({ ...req.body, name: req.body.name.trim(), timeline });
-        res.status(201).json(device.get({ plain: true }));
-    } catch (err) { res.status(500).json({ error: err.message }); }
-});
-
-app.put("/api/devices/:type/:id", async (req, res) => {
-    const Model = DEVICE_MODEL_MAP[req.params.type];
-    if (!Model) return res.status(404).json({ error: `Unknown device type: ${req.params.type}` });
-    try {
-        const device = await Model.findByPk(req.params.id);
-        if (!device) return res.status(404).json({ error: "Device not found" });
-        const currentTimeline = Array.isArray(device.timeline) ? [...device.timeline] : [];
-        if (req.body.status && req.body.status !== device.status) {
-            currentTimeline.push({ icon: "✏️", action: `Status: ${device.status} → ${req.body.status}`, by: req.body._updatedBy || "System", timestamp: new Date().toISOString() });
-            req.body.timeline = currentTimeline;
-        }
-        await device.update(req.body);
-        res.json(device.get({ plain: true }));
-    } catch (err) { res.status(500).json({ error: err.message }); }
-});
-
-app.delete("/api/devices/:type/:id", async (req, res) => {
-    const Model = DEVICE_MODEL_MAP[req.params.type];
-    if (!Model) return res.status(404).json({ error: `Unknown device type: ${req.params.type}` });
-    try {
-        const device = await Model.findByPk(req.params.id);
-        if (!device) return res.status(404).json({ error: "Device not found" });
-        await Ticket.update({ deviceId: null }, { where: { deviceId: String(req.params.id) } });
-        await device.destroy();
-        res.json({ success: true });
-    } catch (err) { res.status(500).json({ error: err.message }); }
-});
-
-app.get("/api/devices/:type/:id/tickets", async (req, res) => {
-    try {
-        const tickets = await Ticket.findAll({ where: { deviceId: req.params.id }, order: [["createdAt", "DESC"]] });
-        res.json(tickets.map(fmt));
-    } catch (err) { res.status(500).json({ error: err.message }); }
-});
-
-app.patch("/api/tickets/:id/device", async (req, res) => {
-    try {
-        const ticket = await Ticket.findByPk(req.params.id);
-        if (!ticket) return res.status(404).json({ error: "Ticket not found" });
-        const { deviceId } = req.body;
-        const currentTimeline = Array.isArray(ticket.timeline) ? [...ticket.timeline] : [];
-        currentTimeline.push({
-            action: deviceId ? `Linked to device ID: ${deviceId}` : "Unlinked from device",
-            icon: deviceId ? "🔗" : "🔓",
-            timestamp: new Date().toISOString(),
-            by: req.body._by || "System",
-            visibility: "internal",
-        });
-        await ticket.update({ deviceId: deviceId || null, timeline: currentTimeline });
-        res.json(fmt(ticket));
-    } catch (err) { res.status(500).json({ error: err.message }); }
-});
-
-
 
 app.get("/api/categories", async (req, res) => {
     try {
@@ -960,7 +827,6 @@ app.get("/api/tickets", async (req, res) => {
 
 app.post("/api/tickets", async (req, res) => {
     try {
-        // Validate required fields
         if (!req.body.summary || !req.body.summary.trim()) {
             return res.status(400).json({ error: "Summary is required" });
         }
@@ -968,7 +834,7 @@ app.post("/api/tickets", async (req, res) => {
             return res.status(400).json({ error: "Organisation is required" });
         }
 
-        // Generate ticket ID (TKT-1001, TKT-1002, etc.)
+        // Generate next TKT-XXXX id
         const allTickets = await Ticket.findAll({
             where: { id: { [Op.like]: "TKT-%" } },
             order: [['createdAt', 'DESC']]
@@ -984,25 +850,23 @@ app.post("/api/tickets", async (req, res) => {
         }
         const ticketId = `TKT-${String(nextIdNum).padStart(4, "0")}`;
 
-        // ✅ FIX: Only pick fields the Ticket model actually defines.
-        // This prevents Sequelize validation errors caused by extra frontend fields
-        // like webcastId, title, progress, etc. that don't exist on the Ticket table.
-        const TICKET_FIELDS = [
-            "summary", "description", "org", "department", "contact", "reportedBy",
-            "assignees", "cc", "priority", "category", "status", "customAttrs",
-            "isWebcast", "satsangType", "location", "timeline", "comments",
-            "vendor", "dueDate", "image", "satsangId", "deviceId"
+        // ✅ STRICT WHITELIST — only pass fields the Ticket model actually has.
+        // This prevents Sequelize Validation errors from unknown fields like
+        // webcastId, title, progress, etc. that the frontend may send.
+        const ticketData = {
+            id: ticketId,
+            summary: req.body.summary.trim(),
+            org: req.body.org.trim(),
+        };
+        const ALLOWED = [
+            "description", "department", "contact", "reportedBy",
+            "assignees", "cc", "priority", "category", "status",
+            "customAttrs", "isWebcast", "satsangType", "location",
+            "timeline", "comments", "vendor", "dueDate", "image", "satsangId"
         ];
-
-        const ticketData = { id: ticketId };
-        for (const field of TICKET_FIELDS) {
-            if (req.body[field] !== undefined) {
-                ticketData[field] = req.body[field];
-            }
+        for (const key of ALLOWED) {
+            if (req.body[key] !== undefined) ticketData[key] = req.body[key];
         }
-        // Ensure required string fields are trimmed
-        ticketData.summary = req.body.summary.trim();
-        ticketData.org = req.body.org.trim();
 
         const ticket = await Ticket.create(ticketData);
         res.status(201).json(fmt(ticket));
@@ -1043,29 +907,35 @@ app.post("/api/webcasts", async (req, res) => {
             return res.status(400).json({ error: "Summary is required" });
         }
 
-        // Clean data
-        const webcastData = { ...req.body };
-        delete webcastData.created;
-        delete webcastData.updated;
-        delete webcastData.createdAt;
-        delete webcastData.updatedAt;
+        // Generate WEB-XXXX id
+        const allWebcasts = await Webcast.findAll({
+            where: { id: { [Op.like]: "WEB-%" } },
+            order: [["createdAt", "DESC"]]
+        });
+        const sequential = allWebcasts.filter(w => {
+            const parts = w.id.split("-");
+            return parts.length === 2 && parts[1].length === 4 && /^\d{4}$/.test(parts[1]);
+        });
+        let nextIdNum = 1001;
+        if (sequential.length > 0) {
+            const lastNum = parseInt(sequential[0].id.split("-")[1], 10);
+            if (!isNaN(lastNum)) nextIdNum = lastNum + 1;
+        }
+        const webcastId = `WEB-${String(nextIdNum).padStart(4, "0")}`;
 
-        // ✅ FIX: Generate a WEB-XXXX ID if none is provided by the client
-        if (!webcastData.id || String(webcastData.id).trim() === "") {
-            const allWebcasts = await Webcast.findAll({
-                where: { id: { [Op.like]: "WEB-%" } },
-                order: [["createdAt", "DESC"]]
-            });
-            const sequential = allWebcasts.filter(w => {
-                const parts = w.id.split("-");
-                return parts.length === 2 && parts[1].length === 4 && /^\d{4}$/.test(parts[1]);
-            });
-            let nextIdNum = 1001;
-            if (sequential.length > 0) {
-                const lastNum = parseInt(sequential[0].id.split("-")[1], 10);
-                if (!isNaN(lastNum)) nextIdNum = lastNum + 1;
-            }
-            webcastData.id = `WEB-${String(nextIdNum).padStart(4, "0")}`;
+        // ✅ STRICT WHITELIST — only pass fields the Webcast model actually has
+        const webcastData = {
+            id: webcastId,
+            summary: req.body.summary.trim(),
+        };
+        const ALLOWED = [
+            "description", "org", "department", "contact", "reportedBy",
+            "assignees", "cc", "priority", "category", "status",
+            "customAttrs", "isWebcast", "satsangType", "location",
+            "timeline", "comments", "vendor", "dueDate", "image", "satsangId"
+        ];
+        for (const key of ALLOWED) {
+            if (req.body[key] !== undefined) webcastData[key] = req.body[key];
         }
 
         const webcast = await Webcast.create(webcastData);
