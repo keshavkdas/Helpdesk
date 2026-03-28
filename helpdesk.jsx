@@ -2366,27 +2366,27 @@ export default function HelpDesk() {
       }
     }
 
-    // ✅ FIXED: Prepare ticket data - only send webcast fields if category is Webcast
+    // ✅ FIXED: Build ticket data with only valid fields
     const newT = {
       summary: form.summary.trim(),
-      org: form.org.trim(),
       description: form.description || "",
+      org: form.org.trim(),
       department: form.department || "",
       contact: form.contact || "",
       reportedBy: form.reportedBy || "",
-      assignees: form.assignees || [],
-      cc: form.cc || [],
+      assignees: Array.isArray(form.assignees) ? form.assignees : [],
+      cc: Array.isArray(form.cc) ? form.cc : [],
       priority: form.priority || "Medium",
       category: form.category || "",
       status: "Open",
-      customAttrs: form.customAttrs || {},
+      customAttrs: (typeof form.customAttrs === 'object' && !Array.isArray(form.customAttrs)) ? form.customAttrs : {},
       dueDate: form.dueDate || null,
       image: ticketImage || null,
       comments: [],
       timeline: [{ action: "Created", by: currentUser.name, date: new Date().toISOString(), note: "Ticket opened." + (ticketImage ? " [with image]" : "") }]
     };
 
-    // ✅ FIXED: Only add webcast-specific fields if category is Webcast
+    // ✅ FIXED: Only add webcast fields if category is Webcast
     if (form.category === "Webcast") {
       newT.isWebcast = true;
       newT.satsangType = form.satsangType || "";

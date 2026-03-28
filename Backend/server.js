@@ -853,27 +853,65 @@ app.post("/api/tickets", async (req, res) => {
         const ticketId = `TKT-${String(nextIdNum).padStart(4, "0")}`;
 
         // ✅ STRICT WHITELIST — only pass fields the Ticket model actually has.
-        // This prevents Sequelize Validation errors from unknown fields like
-        // webcastId, title, progress, etc. that the frontend may send.
         const ticketData = {
             id: ticketId,
             summary: req.body.summary.trim(),
             org: req.body.org.trim(),
         };
-        const ALLOWED = [
-            "description", "department", "contact", "reportedBy",
-            "assignees", "cc", "priority", "category", "status",
-            "customAttrs", "isWebcast", "satsangType", "location",
-            "timeline", "comments", "vendor", "dueDate", "image", "satsangId"
-        ];
-        for (const key of ALLOWED) {
-            if (req.body[key] !== undefined) ticketData[key] = req.body[key];
+
+        // Validate and sanitize each field
+        if (req.body.description !== undefined) ticketData.description = req.body.description || "";
+        if (req.body.department !== undefined) ticketData.department = req.body.department || "";
+        if (req.body.contact !== undefined) ticketData.contact = req.body.contact || "";
+        if (req.body.reportedBy !== undefined) ticketData.reportedBy = req.body.reportedBy || "";
+        if (req.body.priority !== undefined) ticketData.priority = req.body.priority || "Medium";
+        if (req.body.category !== undefined) ticketData.category = req.body.category || "";
+        if (req.body.status !== undefined) ticketData.status = req.body.status || "Open";
+        if (req.body.satsangType !== undefined) ticketData.satsangType = req.body.satsangType || "";
+        if (req.body.location !== undefined) ticketData.location = req.body.location || "";
+        if (req.body.dueDate !== undefined) ticketData.dueDate = req.body.dueDate || null;
+        if (req.body.image !== undefined) ticketData.image = req.body.image || null;
+        if (req.body.satsangId !== undefined) ticketData.satsangId = req.body.satsangId || null;
+
+        // Handle boolean isWebcast
+        if (req.body.isWebcast !== undefined) {
+            ticketData.isWebcast = req.body.isWebcast === true || req.body.isWebcast === "true";
+        }
+
+        // Handle arrays - ensure they are arrays
+        if (req.body.assignees !== undefined) {
+            ticketData.assignees = Array.isArray(req.body.assignees) ? req.body.assignees : [];
+        }
+        if (req.body.cc !== undefined) {
+            ticketData.cc = Array.isArray(req.body.cc) ? req.body.cc : [];
+        }
+        if (req.body.timeline !== undefined) {
+            ticketData.timeline = Array.isArray(req.body.timeline) ? req.body.timeline : [];
+        }
+        if (req.body.comments !== undefined) {
+            ticketData.comments = Array.isArray(req.body.comments) ? req.body.comments : [];
+        }
+
+        // Handle JSON objects
+        if (req.body.customAttrs !== undefined) {
+            if (typeof req.body.customAttrs === 'object' && !Array.isArray(req.body.customAttrs)) {
+                ticketData.customAttrs = req.body.customAttrs || {};
+            } else {
+                ticketData.customAttrs = {};
+            }
+        }
+        if (req.body.vendor !== undefined) {
+            if (typeof req.body.vendor === 'object' && !Array.isArray(req.body.vendor)) {
+                ticketData.vendor = req.body.vendor || null;
+            } else {
+                ticketData.vendor = null;
+            }
         }
 
         const ticket = await Ticket.create(ticketData);
         res.status(201).json(fmt(ticket));
     } catch (err) {
-        console.error("Ticket creation error:", err.message);
+        console.error("Ticket creation error:", err.message, err.errors);
         res.status(500).json({ error: err.message || "Failed to create ticket" });
     }
 });
