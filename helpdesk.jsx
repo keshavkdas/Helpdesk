@@ -1135,7 +1135,7 @@ export default function HelpDesk() {
     tomorrow.setDate(tomorrow.getDate() + 1);
     return tomorrow.toISOString().split("T")[0];
   };
-  const emptyForm = () => ({ org: "", department: "", contact: "", reportedBy: "", summary: "", description: "", assignees: [], priority: "Medium", category: "", customAttrs: {}, dueDate: getDefaultDueDate(), satsangType: "", location: "", webcastId: null });
+  const emptyForm = () => ({ org: "", department: "", contact: "", reportedBy: "", summary: "", description: "", assignees: [], priority: "Medium", category: "", customAttrs: {}, dueDate: getDefaultDueDate(), satsangType: "", location: "" });
   const [form, setForm] = useState(emptyForm);
   const [ccInput, setCcInput] = useState("");
   const [assigneeSearch, setAssigneeSearch] = useState("");
@@ -2366,16 +2366,32 @@ export default function HelpDesk() {
       }
     }
 
+    // ✅ FIXED: Prepare ticket data - only send webcast fields if category is Webcast
     const newT = {
-      ...form,
-      dueDate: form.dueDate || null,
+      summary: form.summary.trim(),
+      org: form.org.trim(),
+      description: form.description || "",
+      department: form.department || "",
+      contact: form.contact || "",
+      reportedBy: form.reportedBy || "",
+      assignees: form.assignees || [],
+      cc: form.cc || [],
+      priority: form.priority || "Medium",
+      category: form.category || "",
       status: "Open",
+      customAttrs: form.customAttrs || {},
+      dueDate: form.dueDate || null,
       image: ticketImage || null,
       comments: [],
       timeline: [{ action: "Created", by: currentUser.name, date: new Date().toISOString(), note: "Ticket opened." + (ticketImage ? " [with image]" : "") }]
     };
-    // Strip fields that don't exist on the Ticket model
-    delete newT.webcastId;
+
+    // ✅ FIXED: Only add webcast-specific fields if category is Webcast
+    if (form.category === "Webcast") {
+      newT.isWebcast = true;
+      newT.satsangType = form.satsangType || "";
+      newT.location = form.location || "";
+    }
 
     // ✅ NEW: If webcast, create separate entry and send to /api/webcasts
     if (form.category === "Webcast") {
