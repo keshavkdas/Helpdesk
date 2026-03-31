@@ -95,8 +95,7 @@ const Ticket = sequelize.define("Ticket", {
     // We explicitly mark this as the Primary Key so Sequelize is happy
     id: {
         type: DataTypes.STRING,
-        primaryKey: true,
-        unique: true
+        primaryKey: true
     },
     summary: { type: DataTypes.STRING, allowNull: false },
     description: { type: DataTypes.TEXT },
