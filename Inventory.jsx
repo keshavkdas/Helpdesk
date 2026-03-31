@@ -884,7 +884,7 @@ export default function Inventory({ onClose }) {
 
     // ─── RENDER ───────────────────────────────────────────────────────────────
     return (
-        <div style={{ display: "flex", height: "100vh", fontFamily: "'DM Sans',sans-serif", background: "#f0f2f5" }}>
+        <div style={{ position: "fixed", inset: 0, display: "flex", height: "100vh", fontFamily: "'DM Sans',sans-serif", background: "#f0f2f5", zIndex: 999 }}>
 
             {/* ── SIDEBAR ── */}
             <div style={{ width: 224, background: "#0f172a", display: "flex", flexDirection: "column", flexShrink: 0, overflowY: "auto" }}>
