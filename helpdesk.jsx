@@ -1,5 +1,6 @@
 import React, { useState, useMemo, useEffect, useRef } from "react";
 import axios from "axios";
+import Inventory from "./Inventory";
 
 // --- SERVER CONFIGURATION ---
 const SERVER_IP = "10.0.2.111";
@@ -1055,6 +1056,9 @@ export default function HelpDesk() {
 
   // ✅ NEW: User Add Modal
   const [showAddUserModal, setShowAddUserModal] = useState(false);
+
+  // ✅ NEW: Inventory State
+  const [showInventory, setShowInventory] = useState(false);
 
   // ✅ NEW: Save current view and filters to localStorage
   useEffect(() => {
@@ -4518,7 +4522,7 @@ export default function HelpDesk() {
         {/* ── Inventory Link ── */}
         <div style={{ padding: "4px 8px 6px", borderTop: "1px solid #1e293b" }}>
           <button
-            onClick={() => window.location.href = "/inventory"}
+            onClick={() => setShowInventory(true)}
             style={{ display: "flex", alignItems: "center", gap: 9, width: "100%", padding: "8px 11px", borderRadius: 7, border: "none", cursor: "pointer", background: "transparent", color: "#64748b", fontSize: 13, fontWeight: 400, textAlign: "left", fontFamily: "'DM Sans',sans-serif" }}
             onMouseEnter={e => { e.currentTarget.style.background = "#1e293b"; e.currentTarget.style.color = "#e2e8f0"; }}
             onMouseLeave={e => { e.currentTarget.style.background = "transparent"; e.currentTarget.style.color = "#64748b"; }}
@@ -6914,10 +6918,10 @@ export default function HelpDesk() {
           </div>}
           <div style={{ marginBottom: 14, padding: "11px 13px", background: "#f8fafc", borderRadius: 9 }}>
             <div style={{ fontSize: 10, fontWeight: 600, color: "#94a3b8", textTransform: "uppercase", marginBottom: 7 }}>Assignees</div>
-            {(currentUser?.role === "Admin" || currentUser?.role === "Manager")  && editMode ? (
+            {(currentUser?.role === "Admin" || currentUser?.role === "Manager") && editMode ? (
               <div>
                 <div style={{ display: "flex", flexWrap: "wrap", gap: 7, marginBottom: 10 }}>
-                  {(selTicket.assignees || []).map(a => <div key={a.id} style={{ display: "flex", alignItems: "center", gap: 7, background: "#dbeafe", padding: "5px 9px", borderRadius: 7, border: "1px solid #bfdbfe" }}><Avatar name={a.name} size={24} /><div><div style={{ fontSize: 12, fontWeight: 600 }}>{a.name}</div><div style={{ fontSize: 10, color: "#64748b" }}>{a.role}</div></div><span onClick={async () => { const updated = { ...selTicket, assignees: selTicket.assignees.filter(x => x.id !== a.id), updated: new Date().toISOString() }; try { await axios.put(`${TICKETS_API}/${selTicket.id}`, updated); setTickets(t => t.map(x => x.id === selTicket.id ? { ...updated, updated: new Date(updated.updated) } : x)); setSelTicket(updated);setEditTicket(prev => prev ? { ...prev, assignees: updated.assignees } : prev); } catch (e) { setCustomAlert({ show: true, message: "Failed to remove assignee", type: "error" }); } }} style={{ cursor: "pointer", fontWeight: 700, marginLeft: 4, color: "#ef4444" }}>×</span></div>)}
+                  {(selTicket.assignees || []).map(a => <div key={a.id} style={{ display: "flex", alignItems: "center", gap: 7, background: "#dbeafe", padding: "5px 9px", borderRadius: 7, border: "1px solid #bfdbfe" }}><Avatar name={a.name} size={24} /><div><div style={{ fontSize: 12, fontWeight: 600 }}>{a.name}</div><div style={{ fontSize: 10, color: "#64748b" }}>{a.role}</div></div><span onClick={async () => { const updated = { ...selTicket, assignees: selTicket.assignees.filter(x => x.id !== a.id), updated: new Date().toISOString() }; try { await axios.put(`${TICKETS_API}/${selTicket.id}`, updated); setTickets(t => t.map(x => x.id === selTicket.id ? { ...updated, updated: new Date(updated.updated) } : x)); setSelTicket(updated); setEditTicket(prev => prev ? { ...prev, assignees: updated.assignees } : prev); } catch (e) { setCustomAlert({ show: true, message: "Failed to remove assignee", type: "error" }); } }} style={{ cursor: "pointer", fontWeight: 700, marginLeft: 4, color: "#ef4444" }}>×</span></div>)}
                   {!selTicket.assignees?.length && <span style={{ fontSize: 13, color: "#94a3b8" }}>Unassigned</span>}
                 </div>
                 <div style={{ position: "relative" }}>
@@ -7991,6 +7995,7 @@ export default function HelpDesk() {
           }
         }
       `}</style>
+      {showInventory && <Inventory onClose={() => setShowInventory(false)} />}
     </div>
   );
 }

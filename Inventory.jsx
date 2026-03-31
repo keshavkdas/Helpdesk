@@ -742,7 +742,7 @@ function LoginPage({ onLogin }) {
 }
 
 // ─── MAIN INVENTORY APP ───────────────────────────────────────────────────────
-export default function Inventory({ onBack }) {
+export default function Inventory({ onClose }) {
     const [currentUser, setCurrentUser] = useState(() => loadSession());
     const [view, setView] = useState("dashboard");
     const [activeType, setActiveType] = useState("laptops");
@@ -889,12 +889,24 @@ export default function Inventory({ onBack }) {
             {/* ── SIDEBAR ── */}
             <div style={{ width: 224, background: "#0f172a", display: "flex", flexDirection: "column", flexShrink: 0, overflowY: "auto" }}>
                 {/* Logo */}
-                <div style={{ padding: "18px 16px 14px", borderBottom: "1px solid #1e293b", display: "flex", alignItems: "center", gap: 10 }}>
-                    <div style={{ width: 34, height: 34, background: "linear-gradient(135deg,#3b82f6,#6366f1)", borderRadius: 9, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 16, flexShrink: 0 }}>📦</div>
-                    <div>
-                        <div style={{ fontSize: 15, fontWeight: 700, color: "#fff" }}>DeskFlow</div>
-                        <div style={{ fontSize: 10, color: "#475569" }}>Inventory</div>
+                <div style={{ padding: "18px 16px 14px", borderBottom: "1px solid #1e293b", display: "flex", alignItems: "center", gap: 10, justifyContent: "space-between" }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                        <div style={{ width: 34, height: 34, background: "linear-gradient(135deg,#3b82f6,#6366f1)", borderRadius: 9, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 16, flexShrink: 0 }}>📦</div>
+                        <div>
+                            <div style={{ fontSize: 15, fontWeight: 700, color: "#fff" }}>DeskFlow</div>
+                            <div style={{ fontSize: 10, color: "#475569" }}>Inventory</div>
+                        </div>
                     </div>
+                    {onClose && (
+                        <button
+                            onClick={onClose}
+                            style={{ background: "none", border: "none", fontSize: 20, cursor: "pointer", color: "#64748b", padding: 0, width: 24, height: 24, display: "flex", alignItems: "center", justifyContent: "center" }}
+                            onMouseEnter={e => e.currentTarget.style.color = "#e2e8f0"}
+                            onMouseLeave={e => e.currentTarget.style.color = "#64748b"}
+                        >
+                            ×
+                        </button>
+                    )}
                 </div>
 
                 {/* Nav */}
