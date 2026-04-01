@@ -1428,7 +1428,7 @@ async function migrateWebcastsOnStartup() {
 
 // ─── START ────────────────────────────────────────────────────────────────────
 const PORT = process.env.PORT || 5000;
-sequelize.sync({ alter: true }).then(async () => {
+sequelize.sync().then(async () => {
     console.log("✅ MySQL Synced & Connected");
 
     // Data Migration: Normalize user statuses
