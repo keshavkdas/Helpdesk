@@ -1017,6 +1017,13 @@ export default function HelpDesk() {
       return "all";
     }
   });
+  const [searchQuery, setSearchQuery] = useState(() => {
+    try {
+      return localStorage.getItem("deskflow_searchQuery") || "";
+    } catch {
+      return "";
+    }
+  });
   const [pvFilter, setPvFilter] = useState(() => {
     try {
       return localStorage.getItem("deskflow_pvFilter") || "all";
@@ -1076,6 +1083,14 @@ export default function HelpDesk() {
       console.error("Failed to save tvFilter:", e);
     }
   }, [tvFilter]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem("deskflow_searchQuery", searchQuery);
+    } catch (e) {
+      console.error("Failed to save searchQuery:", e);
+    }
+  }, [searchQuery]);
 
   useEffect(() => {
     try {
