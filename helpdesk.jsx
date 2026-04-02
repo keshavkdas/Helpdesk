@@ -1849,6 +1849,7 @@ export default function HelpDesk() {
     } else {
       inRange = inRange.filter(t => t.reportedBy === currentUser?.name || t.assignees?.some(a => a.id === currentUser?.id));
     }
+    return inRange;
   }, [tickets, range, rangeMs, now, currentUser, customDateFrom, customDateTo, view]);
 
   // ✅ NEW: Dashboard data filtered by organization AND time period
