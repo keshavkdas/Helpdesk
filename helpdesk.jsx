@@ -2502,7 +2502,7 @@ export default function HelpDesk() {
 
   const updateStatus = async (id, status) => {
     // ✅ NEW: If closing ticket, ask for remark first
-    if (status === "Closed") {
+    if (status === "Closed" || status === "Open") {
       setClosingTicketId(id);
       setTicketRemark("");
       setShowRemarkModal(true);
@@ -2567,8 +2567,9 @@ export default function HelpDesk() {
     const t = tickets.find(x => x.id === closingTicketId); if (!t) return;
     try {
       const nowISO = new Date().toISOString();
-      const newTimelineEvent = { action: "Status changed to Closed", by: currentUser.name, date: nowISO, note: `Remark: ${ticketRemark}` };
-      const updatedT = { ...t, status: "Closed", updated: nowISO, timeline: [...(t.timeline || []), newTimelineEvent] };
+      const newStatus = t.status === "Closed" ? "Open" : "Closed";
+      const newTimelineEvent = { action: `Status changed to ${newStatus}`, by: currentUser.name, date: nowISO, note: `Reason: ${ticketRemark}` };
+      const updatedT = { ...t, status: newStatus, updated: nowISO, timeline: [...(t.timeline || []), newTimelineEvent] };
       const apiUrl = isTrueWebcast(t) ? `${BASE_URL}/webcasts/${closingTicketId}` : `${TICKETS_API}/${closingTicketId}`;
       await axios.put(apiUrl, updatedT);
       setTickets(p => p.map(x => x.id === closingTicketId ? { ...updatedT, updated: new Date(nowISO) } : x));
