@@ -2652,11 +2652,11 @@ export default function HelpDesk() {
           setTickets(p => p.map(x => x.id === id ? { ...updatedT, updated: new Date(nowISO) } : x));
           if (selTicket?.id === id) setSelTicket(null);
           setCustomAlert({ show: true, message: "✅ Ticket moved to bin", type: "success" });
-          setBinDeletedAt(prev => ({ ...prev, [id]: nowISO }));
+          setDeleteConfirmation({ show: false });
         } catch (e) {
           setCustomAlert({ show: true, message: "Failed to move ticket to bin", type: "error" });
+          setDeleteConfirmation({ show: false });
         }
-        setDeleteConfirmation({ show: false });
       },
       onCancel: () => setDeleteConfirmation({ show: false })
     });
@@ -2670,6 +2670,7 @@ export default function HelpDesk() {
       confirmLabel: "Delete Permanently",
       confirmDanger: true,
       onConfirm: async () => {
+        setDeleteConfirmation({ show: false });
         try {
           const t = tickets.find(x => x.id === id);
           const apiUrl = isTrueWebcast(t) ? `${BASE_URL}/webcasts/${id}` : `${TICKETS_API}/${id}`;
@@ -2679,7 +2680,6 @@ export default function HelpDesk() {
         } catch (e) {
           setCustomAlert({ show: true, message: "Failed to delete ticket", type: "error" });
         }
-        setDeleteConfirmation({ show: false });
       },
       onCancel: () => setDeleteConfirmation({ show: false })
     });
