@@ -5286,11 +5286,13 @@ export default function HelpDesk() {
               <input placeholder="Search…" value={search} onChange={e => setSearch(e.target.value)} style={{ ...iS, width: 200, fontSize: 13, padding: "7px 10px" }} />
               <span style={{ fontSize: 12, color: "#64748b" }}>{allSortedTickets.length} tickets</span>
               <div style={{ marginLeft: "auto", display: "flex", gap: 8, alignItems: "center" }}>
-                <button onClick={() => { setForm(emptyForm()); setShowNewTicket(true); }} style={{ ...bP, padding: "7px 13px", fontSize: 12 }}>+ New Ticket</button>
+                {tvFilter !== "closed" && (
+                  <button onClick={() => { setForm(emptyForm()); setShowNewTicket(true); }} style={{ ...bP, padding: "7px 13px", fontSize: 12 }}>+ New Ticket</button>
+                )}
                 {selectedIds.size > 0 && <span style={{ fontSize: 12, color: "#3b82f6", fontWeight: 600, background: "#eff6ff", padding: "4px 10px", borderRadius: 99 }}>{selectedIds.size} selected</span>}
 
-                {/* ── Bulk Close - ADMIN ONLY ── */}
-                {selectedIds.size > 0 && currentUser?.role === "Admin" && (
+                {/* ── Bulk Close - ADMIN ONLY, hidden in closed view ── */}
+                {selectedIds.size > 0 && currentUser?.role === "Admin" && tvFilter !== "closed" && (
                   <button onClick={() => {
                     setConfirmModal({
                       show: true,
@@ -5330,6 +5332,49 @@ export default function HelpDesk() {
                       onCancel: () => setConfirmModal({ show: false })
                     });
                   }} style={{ ...bP, padding: "7px 13px", fontSize: 12, background: "#22c55e", color: "#fff" }}>✓ Close {selectedIds.size} Ticket(s)</button>
+                )}
+
+                {/* ── Bulk Reopen - shown in closed view when tickets are selected ── */}
+                {selectedIds.size > 0 && tvFilter === "closed" && (
+                  <button onClick={() => {
+                    setConfirmModal({
+                      show: true,
+                      title: `Reopen ${selectedIds.size} Ticket(s)?`,
+                      message: `Enter a remark — it will be applied to all ${selectedIds.size} selected ticket(s).`,
+                      fields: [
+                        { name: "remark", label: "📝 Reopen Reason", type: "textarea", placeholder: "Explain why these tickets are being reopened…", value: "" }
+                      ],
+                      confirmLabel: `🔄 Reopen ${selectedIds.size} Ticket(s)`,
+                      confirmDanger: false,
+                      onConfirm: async (data) => {
+                        const remark = (data.remark || "").trim();
+                        if (!remark) {
+                          setCustomAlert({ show: true, message: "⚠️ Please enter a reopen reason before proceeding", type: "error" });
+                          return;
+                        }
+                        const nowISO = new Date().toISOString();
+                        const count = selectedIds.size;
+                        try {
+                          for (const id of selectedIds) {
+                            const t = tickets.find(x => x.id === id);
+                            if (t) {
+                              const newTimelineEvent = { action: "Reopened", by: currentUser.name, date: nowISO, note: `Reason: ${remark}` };
+                              const update = { ...t, status: "Open", updated: nowISO, timeline: [...(t.timeline || []), newTimelineEvent] };
+                              const apiUrl = isTrueWebcast(t) ? `${BASE_URL}/webcasts/${id}` : `${TICKETS_API}/${id}`;
+                              await axios.put(apiUrl, update);
+                            }
+                          }
+                          setTickets(p => p.map(x => selectedIds.has(x.id) ? { ...x, status: "Open", updated: new Date(nowISO) } : x));
+                          setSelectedIds(new Set());
+                          setConfirmModal({ show: false });
+                          setCustomAlert({ show: true, message: `✅ ${count} ticket(s) reopened successfully`, type: "success" });
+                        } catch (e) {
+                          setCustomAlert({ show: true, message: "Failed to reopen tickets. Please try again.", type: "error" });
+                        }
+                      },
+                      onCancel: () => setConfirmModal({ show: false })
+                    });
+                  }} style={{ ...bP, padding: "7px 13px", fontSize: 12, background: "linear-gradient(135deg,#f59e0b,#f97316)", color: "#fff" }}>🔄 Reopen {selectedIds.size} Ticket(s)</button>
                 )}
 
               </div>
@@ -5416,7 +5461,16 @@ export default function HelpDesk() {
                     <td style={tdStyle} onClick={() => setSelTicket(t)}><span style={{ fontSize: 12, color: "#64748b" }}>{t.category || "—"}</span></td>
                     <td style={tdStyle} onClick={() => setSelTicket(t)}><Badge label={t.status} style={{ ...STATUS_COLOR[t.status] }} /></td>
                     <td style={tdStyle} onClick={() => setSelTicket(t)}><span style={{ fontSize: 11, color: "#94a3b8" }}>{t.created ? new Date(String(t.created)).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' }) : "—"}</span></td>
-                    <td style={tdStyle} onClick={e => e.stopPropagation()}><select value={t.status} onChange={e => updateStatus(t.id, e.target.value)} style={{ ...sS, width: 108, fontSize: 12, padding: "4px 7px" }}>{STATUSES.map(s => <option key={s}>{s}</option>)}</select></td>
+                    <td style={tdStyle} onClick={e => e.stopPropagation()}>
+                      {t.status === "Closed" ? (
+                        <button
+                          onClick={() => updateStatus(t.id, "Open")}
+                          style={{ padding: "4px 10px", borderRadius: 6, border: "1.5px solid #f59e0b", background: "#fffbeb", color: "#b45309", cursor: "pointer", fontSize: 12, fontWeight: 600, fontFamily: "'DM Sans',sans-serif", whiteSpace: "nowrap" }}
+                        >🔄 Reopen</button>
+                      ) : (
+                        <select value={t.status} onChange={e => updateStatus(t.id, e.target.value)} style={{ ...sS, width: 108, fontSize: 12, padding: "4px 7px" }}>{STATUSES.map(s => <option key={s}>{s}</option>)}</select>
+                      )}
+                    </td>
                   </tr>
                 ))}</tbody>
               </table>
