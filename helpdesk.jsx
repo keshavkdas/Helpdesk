@@ -24,7 +24,7 @@ const DEVICES_API = `${BASE_URL}/devices`;
 
 // ─── CONSTANTS ────────────────────────────────────────────────────────────────
 const PRIORITIES = ["Critical", "High", "Standard", "Medium"];
-const STATUSES = ["Closed", "In Progress", "Open"];
+const STATUSES = ["Closed", "In Progress", "Open", "Bin"];
 const ROLES = ["Admin", "Agent", "Manager", "Viewer"];
 const SATSANG_TYPES = ["Children Satsang", "G Satsang", "Special Satsang", "Weekly Satsang", "Youth Satsang"];
 const PROJECT_STATUSES = ["Closed", "In Progress", "Open"];
@@ -57,6 +57,7 @@ const TICKET_VIEWS = [
   { id: "open", label: "Open Tickets", icon: "📬", desc: "All open tickets", filter: t => t.status === "Open" },
   { id: "inprogress", label: "In Progress", icon: "⚙️", desc: "Tickets being worked on", filter: t => t.status === "In Progress" },
   { id: "closed", label: "Closed Tickets", icon: "✅", desc: "All closed tickets", filter: t => t.status === "Closed" },
+  { id: "bin", label: "Bin", icon: "🧹", desc: "Deleted tickets (30-day retention)", filter: t => t.status === "Bin" },
   { id: "unassigned", label: "Unassigned", icon: "🔸", desc: "Tickets with no assignees", filter: t => (!t.assignees || t.assignees.length === 0) && t.status !== "Closed" },
   { id: "mine", label: "My Tickets", icon: "🙋", desc: "Open/in progress assigned to me", filter: (t, me) => (t.status === "Open" || t.status === "In Progress") && t.assignees?.some(a => a.id === me?.id) },
   { id: "all", label: "All Tickets", icon: "◈", desc: "Every ticket in the system", filter: () => true },
@@ -1051,6 +1052,12 @@ export default function HelpDesk() {
   const [showOrgFilterDD, setShowOrgFilterDD] = useState(false);
   const [orgClassifyType, setOrgClassifyType] = useState("all");
   const [newDept, setNewDept] = useState({ name: "", orgName: "" });
+
+  // ✅ NEW: Bin (deleted tickets) state
+  const [showBinModal, setShowBinModal] = useState(false);
+  const [deleteConfirmation, setDeleteConfirmation] = useState(null);
+  const [permanentDeleteId, setPermanentDeleteId] = useState(null);
+  const [binDeletedAt, setBinDeletedAt] = useState({});
 
   // ✅ NEW: Locations (from database)
   const [locations, setLocations] = useState([]);
@@ -2637,6 +2644,58 @@ export default function HelpDesk() {
   const toggleAll = () => selectedIds.size === filtered.length && filtered.length > 0 ? setSelectedIds(new Set()) : setSelectedIds(new Set(filtered.map(t => t.id)));
   const selTickets = filtered.filter(t => selectedIds.has(t.id));
 
+  const moveTicketToBin = async (id) => {
+    const t = tickets.find(x => x.id === id);
+    if (!t) return;
+
+    setDeleteConfirmation({
+      show: true,
+      title: "Move to Bin?",
+      message: `Move ticket "${t.summary}" to bin? It will be permanently deleted after 30 days.`,
+      confirmLabel: "Move to Bin",
+      confirmDanger: true,
+      onConfirm: async () => {
+        try {
+          const nowISO = new Date().toISOString();
+          const updatedT = { ...t, status: "Bin", updated: nowISO };
+          const apiUrl = isTrueWebcast(t) ? `${BASE_URL}/webcasts/${id}` : `${TICKETS_API}/${id}`;
+          await axios.put(apiUrl, updatedT);
+          setTickets(p => p.map(x => x.id === id ? { ...updatedT, updated: new Date(nowISO) } : x));
+          if (selTicket?.id === id) setSelTicket(null);
+          setCustomAlert({ show: true, message: "✅ Ticket moved to bin", type: "success" });
+          setBinDeletedAt(prev => ({ ...prev, [id]: nowISO }));
+        } catch (e) {
+          setCustomAlert({ show: true, message: "Failed to move ticket to bin", type: "error" });
+        }
+        setDeleteConfirmation({ show: false });
+      },
+      onCancel: () => setDeleteConfirmation({ show: false })
+    });
+  };
+
+  const permanentlyDeleteTicket = async (id) => {
+    setDeleteConfirmation({
+      show: true,
+      title: "Permanently Delete?",
+      message: "⚠️ This action CANNOT be undone. The ticket will be permanently deleted from the system.",
+      confirmLabel: "Delete Permanently",
+      confirmDanger: true,
+      onConfirm: async () => {
+        try {
+          const t = tickets.find(x => x.id === id);
+          const apiUrl = isTrueWebcast(t) ? `${BASE_URL}/webcasts/${id}` : `${TICKETS_API}/${id}`;
+          await axios.delete(apiUrl);
+          setTickets(p => p.filter(x => x.id !== id));
+          setCustomAlert({ show: true, message: "✅ Ticket permanently deleted", type: "success" });
+        } catch (e) {
+          setCustomAlert({ show: true, message: "Failed to delete ticket", type: "error" });
+        }
+        setDeleteConfirmation({ show: false });
+      },
+      onCancel: () => setDeleteConfirmation({ show: false })
+    });
+  };
+
   // ─── FORWARD TICKET (v3 - ROLE-BASED) ───────────────────────────────────────────────────
 
   // ✅ Main forward handler - checks role
@@ -4099,6 +4158,7 @@ export default function HelpDesk() {
     { id: "locations", label: "Locations", icon: "📍" },
     { id: "satsangtypes", label: "Satsang Types", icon: "📡" },
     { id: "vendors", label: "Vendors", icon: "🏭" },
+    { id: "bin", label: "Bin", icon: "🧹" },
     { id: "usermgmt", label: "User Management", icon: "👥" },
     { id: "customattrs", label: "Custom Attributes", icon: "✏️" },
     { id: "dbmgmt", label: "Database Mgmt", icon: "💾" },
@@ -4111,11 +4171,13 @@ export default function HelpDesk() {
     { id: "locations", label: "Locations", icon: "📍" },
     { id: "satsangtypes", label: "Satsang Types", icon: "📡" },
     { id: "vendors", label: "Vendors", icon: "🏭" },
+    { id: "bin", label: "Bin", icon: "🧹" },
     { id: "usermgmt", label: "User Management", icon: "👥" },
     { id: "customattrs", label: "Custom Attributes", icon: "✏️" },
   ] : [
     { id: "ticketviews", label: "Ticket Views", icon: "👁" },
     { id: "projectviews", label: "Project Views", icon: "📂" },
+    { id: "bin", label: "Bin", icon: "🧹" },
   ];
   const getPageTitle = () => {
     if (view === "dashboard") return "Dashboard";
@@ -6282,6 +6344,41 @@ export default function HelpDesk() {
                 </table>
                 {vendors.length === 0 && <div style={{ textAlign: "center", color: "#94a3b8", padding: 28 }}>No vendors yet. Add one to get started.</div>}
               </div>}
+
+              {settingsTab === "bin" && (
+                <div style={{ background: "#fff", borderRadius: 12, padding: 22, boxShadow: "0 1px 4px rgba(0,0,0,0.06)" }}>
+                  <h3 style={{ margin: "0 0 4px", fontSize: 15, fontWeight: 700 }}>🗑️ Bin ({tickets.filter(t => t.status === "Bin").length})</h3>
+                  <p style={{ margin: "0 0 18px", fontSize: 12, color: "#64748b" }}>Manage deleted tickets. Auto-deleted after 30 days.</p>
+                  {tickets.filter(t => t.status === "Bin").length === 0 ? (
+                    <div style={{ textAlign: "center", color: "#94a3b8", padding: 40 }}>Bin is empty</div>
+                  ) : (
+                    <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+                      {tickets.filter(t => t.status === "Bin").map(t => {
+                        const deletedDate = new Date(t.updatedAt);
+                        const daysInBin = Math.floor((new Date() - deletedDate) / (1000 * 60 * 60 * 24));
+                        const daysLeft = Math.max(0, 30 - daysInBin);
+                        return (
+                          <div key={t.id} style={{ padding: 12, background: "#f8fafc", borderRadius: 8, border: "1px solid #e2e8f0", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                            <div style={{ flex: 1 }}>
+                              <div style={{ fontWeight: 600, color: "#0f172a" }}>{t.id}</div>
+                              <div style={{ fontSize: 12, color: "#64748b" }}>{t.summary}</div>
+                              <div style={{ fontSize: 11, color: daysLeft === 0 ? "#ef4444" : "#94a3b8", marginTop: 4 }}>
+                                {daysLeft === 0 ? "⚠️ Deleting today" : `🕐 Auto-delete in ${daysLeft} days`}
+                              </div>
+                            </div>
+                            <button
+                              onClick={() => permanentlyDeleteTicket(t.id)}
+                              style={{ padding: "6px 12px", background: "#ef4444", border: "none", borderRadius: 4, color: "#fff", cursor: "pointer", fontSize: 11, fontWeight: 600, marginLeft: 12 }}
+                            >
+                              Delete Now
+                            </button>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              )}
 
               {settingsTab === "usermgmt" && <div style={{ background: "#fff", borderRadius: 12, padding: 22, boxShadow: "0 1px 4px rgba(0,0,0,0.06)" }}>
                 <h3 style={{ margin: "0 0 14px", fontSize: 15, fontWeight: 700 }}>User Management ({users.length} users)</h3>
