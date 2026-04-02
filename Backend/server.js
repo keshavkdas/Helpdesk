@@ -57,11 +57,16 @@ const Org = sequelize.define("Org", {
 
 // ✅ NEW: Vendor Model
 const Vendor = sequelize.define("Vendor", {
-    name: { type: DataTypes.STRING, allowNull: false, unique: true },
+    name: { type: DataTypes.STRING, allowNull: false },
     email: { type: DataTypes.STRING, defaultValue: "" },
     phone: { type: DataTypes.STRING, defaultValue: "" },
     address: { type: DataTypes.TEXT, defaultValue: "" },
-}, { timestamps: true });
+}, {
+    timestamps: true,
+    indexes: [
+        { unique: true, fields: ["name"] }
+    ]
+});
 
 const Category = sequelize.define("Category", {
     name: { type: DataTypes.STRING, allowNull: false },
@@ -88,8 +93,13 @@ const Satsang = sequelize.define("Satsang", {
 
 // ✅ NEW: SatsangType Model for webcast satsang types
 const SatsangType = sequelize.define("SatsangType", {
-    name: { type: DataTypes.STRING, allowNull: false, unique: true },
-}, { timestamps: true });
+    name: { type: DataTypes.STRING, allowNull: false },
+}, {
+    timestamps: true,
+    indexes: [
+        { unique: true, fields: ["name"] }
+    ]
+});
 
 const Ticket = sequelize.define("Ticket", {
     // We explicitly mark this as the Primary Key so Sequelize is happy
@@ -208,9 +218,12 @@ const Location = sequelize.define("Location", {
     name: {
         type: DataTypes.STRING,
         allowNull: false,
-        unique: true,
     },
-}, { timestamps: true });
+}, { timestamps: true,
+    indexes: [
+        { unique: true, fields: ["name"] }
+    ]
+ });
 
 // ─── Notification Model ───────────────────────────────────────────────────────
 const Notification = sequelize.define("Notification", {
