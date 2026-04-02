@@ -1850,11 +1850,14 @@ export default function HelpDesk() {
       inRange = inRange.filter(t => t.reportedBy === currentUser?.name || t.assignees?.some(a => a.id === currentUser?.id));
     }
     // ✅ Exclude Bin from all views except Bin view
-    if (view === "tickets" && cvd?.id !== "bin") {
-      inRange = inRange.filter(t => t.status !== "Bin");
+    if (view === "tickets") {
+      const isBinView = cvd && cvd.id === "bin";
+      if (!isBinView) {
+        inRange = inRange.filter(t => t.status !== "Bin");
+      }
     }
     return inRange;
-  }, [tickets, range, rangeMs, now, currentUser, customDateFrom, customDateTo, view, cvd]);
+  }, [tickets, range, rangeMs, now, currentUser, customDateFrom, customDateTo, view]);
 
   // ✅ NEW: Dashboard data filtered by organization AND time period
   const dashboardData = useMemo(() => {
