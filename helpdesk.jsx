@@ -2644,6 +2644,7 @@ export default function HelpDesk() {
       confirmLabel: "Move to Bin",
       confirmDanger: true,
       onConfirm: async () => {
+        setDeleteConfirmation({ show: false });
         try {
           const nowISO = new Date().toISOString();
           const updatedT = { ...t, status: "Bin", updated: nowISO };
@@ -2652,10 +2653,8 @@ export default function HelpDesk() {
           setTickets(p => p.map(x => x.id === id ? { ...updatedT, updated: new Date(nowISO) } : x));
           if (selTicket?.id === id) setSelTicket(null);
           setCustomAlert({ show: true, message: "✅ Ticket moved to bin", type: "success" });
-          setDeleteConfirmation({ show: false });
         } catch (e) {
           setCustomAlert({ show: true, message: "Failed to move ticket to bin", type: "error" });
-          setDeleteConfirmation({ show: false });
         }
       },
       onCancel: () => setDeleteConfirmation({ show: false })
