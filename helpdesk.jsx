@@ -2502,27 +2502,7 @@ export default function HelpDesk() {
   };
 
   const deleteTicket = async (id) => {
-    setConfirmModal({
-      show: true,
-      title: "Delete Ticket?",
-      confirmLabel: "Delete", confirmDanger: true,
-      message: "Are you sure you want to delete this ticket? This action cannot be undone and all associated data will be lost.",
-      onConfirm: async () => {
-        try {
-          await axios.delete(`${TICKETS_API}/${id}`);
-          setTickets(prev => prev.filter(t => t.id !== id));
-          setSelTicket(null);
-          setCustomAlert({ show: true, message: "Ticket deleted successfully", type: "success" });
-          setConfirmModal({ show: false, title: "", message: "", onConfirm: null, onCancel: null });
-        } catch (e) {
-          setCustomAlert({ show: true, message: "Failed to delete ticket: " + (e.response?.data?.error || e.message), type: "error" });
-          setConfirmModal({ show: false, title: "", message: "", onConfirm: null, onCancel: null });
-        }
-      },
-      onCancel: () => {
-        setConfirmModal({ show: false, title: "", message: "", onConfirm: null, onCancel: null });
-      }
-    });
+    moveTicketToBin(id);
   };
 
   const toggleAssignee = u => { const e = form.assignees.find(a => a.id === u.id); setForm({ ...form, assignees: e ? form.assignees.filter(a => a.id !== u.id) : [...form.assignees, u] }); };
@@ -2556,6 +2536,9 @@ export default function HelpDesk() {
         case "Open":
           statusMessage = "📬 Ticket reopened";
           break;
+        case "Bin":
+          statusMessage = "🧹 Ticket moved to bin";
+          break;
         default:
           statusMessage = "✅ Ticket status updated";
       }
@@ -2564,7 +2547,7 @@ export default function HelpDesk() {
       // ✅ Reset pending status after successful update
       setPendingTicketStatus(null);
 
-      if (status === "Closed") {
+      if (status === "Closed" || status === "Bin") {
         addDailyNotif({ type: "ticket_closed", icon: "✅", text: `${currentUser.name} closed ticket ${id}`, ticketId: id, by: currentUser.name });
         // Notify all other assignees that ticket was closed
         const otherAssignees = (t.assignees || []).filter(a => a.id !== currentUser.id);
@@ -4463,6 +4446,29 @@ export default function HelpDesk() {
         onCancel={confirmModal.onCancel}
       />
 
+      {deleteConfirmation && (
+        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 2000 }}>
+          <div style={{ background: "#fff", borderRadius: 12, padding: 24, maxWidth: 500, boxShadow: "0 20px 60px rgba(0,0,0,0.3)" }}>
+            <h2 style={{ margin: "0 0 12px", fontSize: 16, fontWeight: 700, color: "#0f172a" }}>{deleteConfirmation.title}</h2>
+            <p style={{ margin: "0 0 20px", fontSize: 13, color: "#475569", lineHeight: 1.5 }}>{deleteConfirmation.message}</p>
+            <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
+              <button
+                onClick={deleteConfirmation.onCancel}
+                style={{ padding: "10px 16px", background: "#e2e8f0", border: "none", borderRadius: 6, cursor: "pointer", fontWeight: 600, color: "#334155" }}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={deleteConfirmation.onConfirm}
+                style={{ padding: "10px 16px", background: deleteConfirmation.confirmDanger ? "#ef4444" : "#22c55e", border: "none", borderRadius: 6, cursor: "pointer", fontWeight: 600, color: "#fff" }}
+              >
+                {deleteConfirmation.confirmLabel || "Confirm"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* ✅ NEW: Advanced Export Modal */}
       {showAdvancedExportModal && <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 10000 }}>
         <div style={{ background: "#fff", borderRadius: 14, padding: 24, maxWidth: 600, width: "90%", maxHeight: "90vh", overflow: "auto", boxShadow: "0 20px 60px rgba(0,0,0,0.3)" }}>
@@ -4863,7 +4869,7 @@ export default function HelpDesk() {
               <div style={{ marginBottom: 20, padding: "14px 16px", background: "#fee2e2", borderRadius: 10, border: "1px solid #fca5a5" }}>
                 <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
                   <div>
-                    <div style={{ fontSize: 13, fontWeight: 700, color: "#991b1b", marginBottom: 3 }}>🗑️ Delete User</div>
+                    <div style={{ fontSize: 13, fontWeight: 700, color: "#991b1b", marginBottom: 3 }}>🧹 Delete User</div>
                     <div style={{ fontSize: 12, color: "#64748b" }}>Permanently remove this user from the system. This action cannot be undone.</div>
                   </div>
                   <button
@@ -6353,7 +6359,7 @@ export default function HelpDesk() {
 
               {settingsTab === "bin" && (
                 <div style={{ background: "#fff", borderRadius: 12, padding: 22, boxShadow: "0 1px 4px rgba(0,0,0,0.06)" }}>
-                  <h3 style={{ margin: "0 0 4px", fontSize: 15, fontWeight: 700 }}>🗑️ Bin ({tickets.filter(t => t.status === "Bin").length})</h3>
+                  <h3 style={{ margin: "0 0 4px", fontSize: 15, fontWeight: 700 }}>🧹 Bin ({tickets.filter(t => t.status === "Bin").length})</h3>
                   <p style={{ margin: "0 0 18px", fontSize: 12, color: "#64748b" }}>Manage deleted tickets. Auto-deleted after 30 days.</p>
                   {tickets.filter(t => t.status === "Bin").length === 0 ? (
                     <div style={{ textAlign: "center", color: "#94a3b8", padding: 40 }}>Bin is empty</div>
