@@ -1830,7 +1830,7 @@ export default function HelpDesk() {
     } else if (range === "custom") {
       const from = customDateFrom ? new Date(customDateFrom) : null;
       const to = customDateTo ? new Date(customDateTo) : null;
-      if (to) to.setHours(23, 59, 59, 999); // include full end day
+      if (to) to.setHours(23, 59, 59, 999);
       inRange = tickets.filter(t => {
         const tc = t.created instanceof Date ? t.created : new Date(t.created);
         if (from && tc < from) return false;
@@ -1844,9 +1844,17 @@ export default function HelpDesk() {
     } else {
       inRange = tickets.filter(t => now - t.created.getTime() <= rangeMs);
     }
-    if (currentUser?.role === "Admin" || currentUser?.role === "Manager") return inRange;
-    return inRange.filter(t => t.reportedBy === currentUser?.name || t.assignees?.some(a => a.id === currentUser?.id));
-  }, [tickets, range, rangeMs, now, currentUser, customDateFrom, customDateTo]);
+    if (currentUser?.role === "Admin" || currentUser?.role === "Manager") {
+      inRange = inRange;
+    } else {
+      inRange = inRange.filter(t => t.reportedBy === currentUser?.name || t.assignees?.some(a => a.id === currentUser?.id));
+    }
+    // ✅ Exclude Bin from all views except Bin view
+    if (view === "tickets" && cvd?.id !== "bin") {
+      inRange = inRange.filter(t => t.status !== "Bin");
+    }
+    return inRange;
+  }, [tickets, range, rangeMs, now, currentUser, customDateFrom, customDateTo, view, cvd]);
 
   // ✅ NEW: Dashboard data filtered by organization AND time period
   const dashboardData = useMemo(() => {
