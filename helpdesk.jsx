@@ -23,7 +23,7 @@ const NOTIFICATIONS_API = `${BASE_URL}/notifications`;
 const DEVICES_API = `${BASE_URL}/devices`;
 
 // ─── CONSTANTS ────────────────────────────────────────────────────────────────
-const PRIORITIES = ["Critical", "High", "Low", "Medium"];
+const PRIORITIES = ["Critical", "High", "Standard", "Medium"];
 const STATUSES = ["Closed", "In Progress", "Open"];
 const ROLES = ["Admin", "Agent", "Manager", "Viewer"];
 const SATSANG_TYPES = ["Children Satsang", "G Satsang", "Special Satsang", "Weekly Satsang", "Youth Satsang"];
@@ -31,7 +31,7 @@ const PROJECT_STATUSES = ["Closed", "In Progress", "Open"];
 const PROJECT_PRIORITIES = ["Critical", "High", "Low", "Medium"];
 
 
-const PRIORITY_COLOR = { Low: "#22c55e", Medium: "#f59e0b", High: "#f97316", Critical: "#ef4444" };
+const PRIORITY_COLOR = { Standard: "#22c55e", Medium: "#f59e0b", High: "#f97316", Critical: "#ef4444" };
 const STATUS_COLOR = {
   Open: { bg: "#dbeafe", text: "#1d4ed8" },
   "In Progress": { bg: "#fef9c3", text: "#854d0e" },
@@ -470,7 +470,7 @@ const ConfirmationModal = ({ show, title, message, onConfirm, onCancel, fields, 
             e.target.style.boxShadow = confirmDanger ? "0 4px 12px rgba(239,68,68,0.3)" : "0 4px 12px rgba(59, 130, 246, 0.3)";
             e.target.style.transform = "translateY(0)";
           }}>
-            {confirmLabel || "Confirm"}
+            {fieldValues.logoutReason === "Going for ticket" ? "Mark On Duty & Logout" : confirmLabel || "Confirm"}
           </button>
         </div>
       </div>
@@ -1139,7 +1139,7 @@ export default function HelpDesk() {
     tomorrow.setDate(tomorrow.getDate() + 1);
     return tomorrow.toISOString().split("T")[0];
   };
-  const emptyForm = () => ({ org: "", department: "", contact: "", reportedBy: "", summary: "", description: "", assignees: [], priority: "Medium", category: "", customAttrs: {}, dueDate: getDefaultDueDate(), satsangType: "", location: "" });
+  const emptyForm = () => ({ org: "", department: "", contact: "", reportedBy: "", summary: "", description: "", assignees: [], priority: "", category: "", customAttrs: {}, dueDate: getDefaultDueDate(), satsangType: "", location: "" });
   const [form, setForm] = useState(emptyForm);
   const [ccInput, setCcInput] = useState("");
   const [assigneeSearch, setAssigneeSearch] = useState("");
@@ -1164,7 +1164,7 @@ export default function HelpDesk() {
   const [showProjWebcastLocationDD, setShowProjWebcastLocationDD] = useState(false);
 
   // ── Project form ──
-  const emptyProjectForm = { org: "", department: "", reportedBy: "", title: "", description: "", assignees: [], priority: "Medium", category: "", status: "Open", location: "", dueDate: "", satsangType: "", progress: 0, customAttrs: {}, webcastId: null };
+  const emptyProjectForm = { org: "", department: "", reportedBy: "", title: "", description: "", assignees: [], priority: "", category: "", status: "Open", location: "", dueDate: "", satsangType: "", progress: 0, customAttrs: {}, webcastId: null };
   const [projForm, setProjForm] = useState(emptyProjectForm);
   const [projCcInput, setProjCcInput] = useState("");
 
@@ -2361,7 +2361,7 @@ export default function HelpDesk() {
   };
 
   const handleSubmit = async () => {
-    if (!form.summary || !form.org) return setCustomAlert({ show: true, message: "Organisation and Summary are required", type: "error" });
+    if (!form.summary || !form.org || !form.priority || !form.category || !form.description?.trim()) return setCustomAlert({ show: true, message: "Organisation, Summary, Priority, Category and Description are required", type: "error" });
 
     // ✅ NEW: Validate webcast fields if category is Webcast
     if (form.category === "Webcast") {
@@ -6521,8 +6521,8 @@ export default function HelpDesk() {
           </FF>
           <FF label="POC(Point of Contact)"><input style={iS} placeholder="Ticket Requestor" value={form.contact} onChange={e => setForm({ ...form, contact: e.target.value })} /></FF>
           <FF label="Reported By"><input style={iS} placeholder="Who is raising this ticket?" value={form.reportedBy} onChange={e => setForm({ ...form, reportedBy: e.target.value })} /></FF>
-          <FF label="Priority"><select style={sS} value={form.priority} onChange={e => setForm({ ...form, priority: e.target.value })}>{PRIORITIES.map(p => <option key={p}>{p}</option>)}</select></FF>
-          <FF label="Category">
+          <FF label="Priority" required><select style={sS} value={form.priority} onChange={e => setForm({ ...form, priority: e.target.value })}><option value="">Select Priority…</option>{PRIORITIES.map(p => <option key={p}>{p}</option>)}</select></FF>
+          <FF label="Category" required>
             <div style={{ position: "relative" }}>
               <input type="text" placeholder="Search category..." value={categorySearch ? categorySearch : (form.category ? categories.find(c => c.name === form.category)?.name || "" : "")} onChange={e => setCategorySearch(e.target.value)} onFocus={() => { setCategorySearch(""); setShowCategoryDD(true); }} style={{ ...iS, width: "100%", fontSize: 12 }} />
               {showCategoryDD && <>
@@ -6618,7 +6618,7 @@ export default function HelpDesk() {
         )}
         {form.category === "Webcast" && <WebcastFields f={form} setF={setForm} isProject={false} />}
         <FF label="Summary" required><input style={iS} placeholder="Brief description of the issue" value={form.summary} onChange={e => setForm({ ...form, summary: e.target.value })} /></FF>
-        <FF label="Description"><textarea style={{ ...iS, height: 88, resize: "vertical" }} placeholder="Detailed description…" value={form.description} onChange={e => setForm({ ...form, description: e.target.value })} /></FF>
+        <FF label="Description" required><textarea style={{ ...iS, height: 88, resize: "vertical" }} placeholder="Detailed description…" value={form.description} onChange={e => setForm({ ...form, description: e.target.value })} /></FF>
         {/* Attachment: Image */}
         <div style={{ marginBottom: 18 }}>
           <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
@@ -6768,7 +6768,7 @@ export default function HelpDesk() {
         </FF>
         {projForm.category === "Webcast" && <WebcastFields f={projForm} setF={setProjForm} isProject={true} />}
         <FF label="Project Title" required><input style={iS} placeholder="Brief project name" value={projForm.title} onChange={e => setProjForm({ ...projForm, title: e.target.value })} /></FF>
-        <FF label="Description"><textarea style={{ ...iS, height: 88, resize: "vertical" }} placeholder="Detailed description…" value={projForm.description} onChange={e => setProjForm({ ...projForm, description: e.target.value })} /></FF>
+        <FF label="Description" required><textarea style={{ ...iS, height: 88, resize: "vertical" }} placeholder="Detailed description…" value={projForm.description} onChange={e => setProjForm({ ...projForm, description: e.target.value })} /></FF>
         <div style={{ display: "flex", justifyContent: "flex-end", gap: 9, marginTop: 6 }}>
           <button onClick={() => setShowNewProject(false)} style={bG}>Cancel</button>
           <button onClick={handleProjectSubmit} style={{ ...bP, background: "linear-gradient(135deg,#8b5cf6,#6366f1)" }}>Create Project</button>
