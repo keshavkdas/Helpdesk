@@ -4445,7 +4445,7 @@ export default function HelpDesk() {
         onCancel={confirmModal.onCancel}
       />
 
-      {deleteConfirmation && (
+      {deleteConfirmation?.show && (
         <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 2000 }}>
           <div style={{ background: "#fff", borderRadius: 12, padding: 24, maxWidth: 500, boxShadow: "0 20px 60px rgba(0,0,0,0.3)" }}>
             <h2 style={{ margin: "0 0 12px", fontSize: 16, fontWeight: 700, color: "#0f172a" }}>{deleteConfirmation.title}</h2>
