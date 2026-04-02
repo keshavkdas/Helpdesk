@@ -7607,14 +7607,14 @@ export default function HelpDesk() {
       </Modal>
 
       {/* ✅ NEW: Close Ticket with Remark Modal */}
-      <Modal open={showRemarkModal} onClose={() => { setShowRemarkModal(false); setTicketRemark(""); }} title="Close Ticket - Add Remark" width={500}>
+      <Modal open={showRemarkModal} onClose={() => { setShowRemarkModal(false); setTicketRemark(""); }} title={closingTicketId && tickets.find(x => x.id === closingTicketId)?.status === "Closed" ? "Reopen Ticket - Add Reason" : "Close Ticket - Add Remark"} width={500}>
         <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
           <div>
-            <label style={{ fontSize: 12, fontWeight: 600, color: "#374151", marginBottom: 8, display: "block" }}>📝 What have you done? (Mandatory)</label>
+            <label style={{ fontSize: 12, fontWeight: 600, color: "#374151", marginBottom: 8, display: "block" }}>{closingTicketId && tickets.find(x => x.id === closingTicketId)?.status === "Closed" ? "🔄 Why are you reopening? (Mandatory)" : "📝 What have you done? (Mandatory)"}</label>
             <textarea
               value={ticketRemark}
               onChange={e => setTicketRemark(e.target.value)}
-              placeholder="Describe what you did to resolve this ticket..."
+              placeholder={closingTicketId && tickets.find(x => x.id === closingTicketId)?.status === "Closed" ? "Explain why this ticket needs to be reopened..." : "Describe what you did to resolve this ticket..."}
               style={{
                 width: "100%",
                 minHeight: 120,
@@ -7629,7 +7629,7 @@ export default function HelpDesk() {
               }}
             />
             {!ticketRemark.trim() && (
-              <div style={{ marginTop: 8, fontSize: 11, color: "#ef4444" }}>⚠️ Remark is mandatory before closing</div>
+              <div style={{ marginTop: 8, fontSize: 11, color: "#ef4444" }}>{closingTicketId && tickets.find(x => x.id === closingTicketId)?.status === "Closed" ? "⚠️ Reason is mandatory before reopening" : "⚠️ Remark is mandatory before closing"}</div>
             )}
           </div>
 
