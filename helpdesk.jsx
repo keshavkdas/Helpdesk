@@ -1945,6 +1945,8 @@ export default function HelpDesk() {
     if (isTrueWebcast(t)) return false;
 
     if (!currentUser || !cvd.filter(t, currentUser)) return false;
+    // ✅ Exclude Bin status from all ticket views except Bin view
+    if (cvd.id !== "bin" && t.status === "Bin") return false;
     // Non-admins/managers only see tickets assigned to them or reported by them
     if (currentUser.role !== "Admin" && currentUser.role !== "Manager" && t.reportedBy !== currentUser.name && !t.assignees?.some(a => a.id === currentUser.id)) return false;
     if (statusF !== "All" && t.status !== statusF) return false;
