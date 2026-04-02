@@ -2574,16 +2574,15 @@ export default function HelpDesk() {
       await axios.put(apiUrl, updatedT);
       setTickets(p => p.map(x => x.id === closingTicketId ? { ...updatedT, updated: new Date(nowISO) } : x));
       if (selTicket?.id === closingTicketId) setSelTicket({ ...updatedT, updated: new Date(nowISO) });
-      addDailyNotif({ type: "ticket_closed", icon: "✅", text: `${currentUser.name} closed ticket ${closingTicketId}`, ticketId: closingTicketId, by: currentUser.name });
-
+      addDailyNotif({ type: newStatus === "Closed" ? "ticket_closed" : "ticket_reopened", icon: newStatus === "Closed" ? "✅" : "🔄", text: `${currentUser.name} ${newStatus === "Closed" ? "closed" : "reopened"} ticket ${closingTicketId}`, ticketId: closingTicketId, by: currentUser.name });
       // Notify all other assignees that the ticket was closed
       const otherAssignees = (t.assignees || []).filter(a => a.id !== currentUser.id);
       for (const assignee of otherAssignees) {
         await axios.post(NOTIFICATIONS_API, {
           userId: assignee.id,
-          type: "ticket_closed",
-          title: `Ticket ${closingTicketId} Closed`,
-          message: `${currentUser.name} closed ticket "${t.summary}" which was also assigned to you.`,
+          type: newStatus === "Closed" ? "ticket_closed" : "ticket_reopened",
+          title: `Ticket ${closingTicketId} ${newStatus === "Closed" ? "Closed" : "Reopened"}`,
+          message: `${currentUser.name} ${newStatus === "Closed" ? "closed" : "reopened"} ticket "${t.summary}" which was also assigned to you.`,
           ticketId: closingTicketId,
           read: false,
           createdAt: nowISO,
@@ -2594,7 +2593,7 @@ export default function HelpDesk() {
       setShowRemarkModal(false);
       setClosingTicketId(null);
       setTicketRemark("");
-      setCustomAlert({ show: true, message: "✅ Ticket successfully closed", type: "success" });
+      setCustomAlert({ show: true, message: newStatus === "Closed" ? "✅ Ticket successfully closed" : "✅ Ticket successfully reopened", type: "success" });
       // Close the ticket details modal after 1 second to show the success message
       setTimeout(() => setSelTicket(null), 1000);
     } catch (e) {
