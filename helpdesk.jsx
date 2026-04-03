@@ -3740,6 +3740,19 @@ export default function HelpDesk() {
           value: "",
           required: true
         });
+        
+        // Add ticket dropdown shown only when reason is "Going for ticket"
+        fields.push({
+            name: "ticketId",
+            label: "🎫 Select Ticket",
+            type: "searchable-select",
+            options: (Array.isArray(tickets) ? tickets : [])
+              .filter(t => (t.status === "Open" || t.status === "In Progress") && t.assignees?.some(a => String(a.id) === String(currentUser.id)))
+              .map(t => ({ value: t.id, label: `${t.id} — ${t.summary}` })),
+            value: "",
+            required: false
+          });
+        }
 
         // ✅ Add location field (will be conditionally shown only when reason is "Going for ticket")
         fields.push({
@@ -3750,19 +3763,6 @@ export default function HelpDesk() {
           value: currentUser?.currentLocation || "",
           required: false
         });
-
-        // Add ticket dropdown shown only when reason is "Going for ticket"
-        fields.push({
-          name: "ticketId",
-          label: "🎫 Select Ticket",
-          type: "searchable-select",
-          options: (Array.isArray(tickets) ? tickets : [])
-            .filter(t => (t.status === "Open" || t.status === "In Progress") && t.assignees?.some(a => String(a.id) === String(currentUser.id)))
-            .map(t => ({ value: t.id, label: `${t.id} — ${t.summary}` })),
-          value: "",
-          required: false
-        });
-      }
 
       setConfirmModal({
         show: true,
@@ -6056,9 +6056,9 @@ export default function HelpDesk() {
               <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 12, marginBottom: 20 }}>
                 {[
                   { key: "all", icon: "👥", color: "#3b82f6", label: "Total Users", count: Array.isArray(users) ? users.length : 0 },
-                  { key: "On Duty", icon: "🟢", color: "#22c55e", label: "On Duty", count: Array.isArray(users) ? users.filter(u => u.status === "On Duty").length : 0 },
+                  { key: "On Duty", icon: "🟢", color: "#22c55e", label: "On Duty", count: Array.isArray(users) ? users.filter(u => u.status === "On Duty" || u.status === "On Ticket" || u.status === "Idle").length : 0 },
                   { key: "On Ticket", icon: "🎫", color: "#6366f1", label: "On Ticket", count: Array.isArray(users) ? users.filter(u => u.status === "On Ticket").length : 0 },
-                  { key: "Idle", icon: "🟣", color: "#a855f7", label: "Idle", count: Array.isArray(users) ? users.filter(u => u.status === "Idle" || u.status === "On Duty").length : 0 },
+                  { key: "Idle", icon: "🟣", color: "#a855f7", label: "Idle", count: Array.isArray(users) ? users.filter(u => u.status === "Idle" || (u.status === "On Duty" && u.loginTime && (new Date() - new Date(u.loginTime)) / 60000 >= 15)).length : 0 },
                   { key: "On Lunch", icon: "🍽️", color: "#f97316", label: "On Lunch", count: Array.isArray(users) ? users.filter(u => u.status === "On Lunch").length : 0 },
                   { key: "off", icon: "⚪", color: "#f59e0b", label: "Off Duty", count: Array.isArray(users) ? users.filter(u => u.status !== "On Duty" && u.status !== "On Ticket" && u.status !== "Idle" && u.status !== "On Lunch").length : 0 },
                 ].map(s => {
@@ -6083,8 +6083,10 @@ export default function HelpDesk() {
                 {agentStats.filter(a => {
                   if (agentStatusFilter === "all") return true;
                   const userStatus = users.find(u => u.id === a.id)?.status || "Off Duty";
+                  if (agentStatusFilter === "On Duty") return userStatus === "On Duty" || userStatus === "On Ticket" || userStatus === "Idle";
+                  if (agentStatusFilter === "Idle") { const u = users.find(x => x.id === a.id); return userStatus === "Idle" || (userStatus === "On Duty" && u?.loginTime && (new Date() - new Date(u.loginTime)) / 60000 >= 15); }
+                  if (agentStatusFilter === "On Ticket") return userStatus === "On Ticket";
                   if (agentStatusFilter === "off") return userStatus !== "On Duty" && userStatus !== "On Ticket" && userStatus !== "Idle" && userStatus !== "On Lunch";
-                  if (agentStatusFilter === "Idle") return userStatus === "Idle" || userStatus === "On Duty";
                   return userStatus === agentStatusFilter;
                 }).map(a => {
                   const userInfo = users.find(u => u.id === a.id);
