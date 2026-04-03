@@ -261,7 +261,7 @@ const CustomAlert = ({ show, message, type, onDismiss }) => {
           alignItems: "center",
           gap: 10,
           boxShadow: "0 4px 12px rgba(0,0,0,0.15)",
-          zIndex: 10002,
+          zIndex: 12000,
           maxWidth: "400px",
           wordBreak: "break-word"
         }}>
@@ -500,8 +500,9 @@ const ConfirmationModal = ({ show, title, message, onConfirm, onCancel, fields, 
 const SearchableSelect = ({ field, fieldValues, setFieldValues }) => {
   const [search, setSearch] = React.useState("");
   const [focused, setFocused] = React.useState(false);
-  const filtered = (field.options || []).filter(o => o.label.toLowerCase().includes(search.toLowerCase()));
-  const selected = (field.options || []).find(o => o.value === fieldValues[field.name]);
+  const options = Array.isArray(field.options) ? field.options : [];
+  const filtered = options.filter(o => o.label?.toLowerCase().includes(search.toLowerCase()));
+  const selected = options.find(o => o.value === fieldValues[field.name]);
   return (
     <div style={{ position: "relative" }}>
       <input
@@ -3755,8 +3756,8 @@ export default function HelpDesk() {
           name: "ticketId",
           label: "🎫 Select Ticket",
           type: "searchable-select",
-          options: tickets
-            .filter(t => t.status === "Open" || t.status === "In Progress")
+          options: (Array.isArray(tickets) ? tickets : [])
+            .filter(t => (t.status === "Open" || t.status === "In Progress") && t.assignees?.some(a => String(a.id) === String(currentUser.id)))
             .map(t => ({ value: t.id, label: `${t.id} — ${t.summary}` })),
           value: "",
           required: false
