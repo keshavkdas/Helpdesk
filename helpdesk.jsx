@@ -301,6 +301,9 @@ const ConfirmationModal = ({ show, title, message, onConfirm, onCancel, fields, 
     if (f.name === "location") {
       return fieldValues.logoutReason === "Going for ticket";
     }
+    if (f.name === "ticketId") {
+      return fieldValues.logoutReason === "Going for ticket";
+    }
     return true;
   }) : [];
 
@@ -354,7 +357,9 @@ const ConfirmationModal = ({ show, title, message, onConfirm, onCancel, fields, 
                 <label style={{ fontSize: 12, fontWeight: 600, color: "#374151", display: "block", marginBottom: 6 }}>
                   {field.label}
                 </label>
-                {field.type === "select" ? (
+                {field.type === "searchable-select" ? (
+                  <SearchableSelect field={field} fieldValues={fieldValues} setFieldValues={setFieldValues} />
+                ) : field.type === "select" ? (
                   <select
                     value={fieldValues[field.name] || ""}
                     onChange={e => setFieldValues({ ...fieldValues, [field.name]: e.target.value })}
@@ -492,6 +497,39 @@ const ConfirmationModal = ({ show, title, message, onConfirm, onCancel, fields, 
   );
 };
 
+const SearchableSelect = ({ field, fieldValues, setFieldValues }) => {
+  const [search, setSearch] = React.useState("");
+  const [focused, setFocused] = React.useState(false);
+  const filtered = (field.options || []).filter(o => o.label.toLowerCase().includes(search.toLowerCase()));
+  const selected = (field.options || []).find(o => o.value === fieldValues[field.name]);
+  return (
+    <div style={{ position: "relative" }}>
+      <input
+        type="text"
+        placeholder={selected ? `✓ ${selected.label}` : `Search ${field.label}...`}
+        value={search}
+        onChange={e => { setSearch(e.target.value); if (!e.target.value) setFieldValues({ ...fieldValues, [field.name]: "" }); }}
+        onFocus={() => setFocused(true)}
+        onBlur={() => setTimeout(() => setFocused(false), 150)}
+        style={{ width: "100%", padding: "10px 12px", borderRadius: 8, border: `1.5px solid ${focused ? "#6366f1" : "#e2e8f0"}`, fontSize: 13, fontFamily: "'DM Sans', sans-serif", background: "#fff", color: "#1e293b", boxSizing: "border-box", outline: "none" }}
+      />
+      {focused && (
+        <div style={{ position: "absolute", top: "110%", left: 0, right: 0, border: "1.5px solid #e2e8f0", borderRadius: 8, maxHeight: 200, overflowY: "auto", zIndex: 200, boxShadow: "0 8px 24px rgba(0,0,0,0.12)", background: "#fff" }}>
+          {filtered.length === 0 ? (
+            <div style={{ padding: "10px 12px", fontSize: 12, color: "#94a3b8" }}>No tickets found</div>
+          ) : filtered.map(opt => (
+            <div key={opt.value} onMouseDown={() => { setFieldValues({ ...fieldValues, [field.name]: opt.value }); setSearch(""); setFocused(false); }}
+              style={{ padding: "9px 12px", fontSize: 12, cursor: "pointer", borderBottom: "1px solid #f1f5f9", color: "#1e293b", background: fieldValues[field.name] === opt.value ? "#ede9fe" : "#fff", fontWeight: fieldValues[field.name] === opt.value ? 600 : 400 }}
+              onMouseEnter={e => e.currentTarget.style.background = "#f1f5f9"}
+              onMouseLeave={e => e.currentTarget.style.background = fieldValues[field.name] === opt.value ? "#ede9fe" : "#fff"}>
+              {opt.label}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+};
 // ─── FILTERABLE HEADER ───────────────────────────────────────────────────────
 // Click header → searchable dropdown of unique values for that column.
 // Active filter shown with blue highlight + ✕ to clear.
@@ -3625,6 +3663,7 @@ export default function HelpDesk() {
         currentTicketId: null,
         currentLocation: null,
         lunchStatus: false,
+        loginTime: new Date().toISOString(),
       };
       try {
         await axios.put(`${USERS_API}/${u.id}`, onDutyUser);
@@ -3710,6 +3749,18 @@ export default function HelpDesk() {
           value: currentUser?.currentLocation || "",
           required: false
         });
+
+        // Add ticket dropdown shown only when reason is "Going for ticket"
+        fields.push({
+          name: "ticketId",
+          label: "🎫 Select Ticket",
+          type: "searchable-select",
+          options: tickets
+            .filter(t => t.status === "Open" || t.status === "In Progress")
+            .map(t => ({ value: t.id, label: `${t.id} — ${t.summary}` })),
+          value: "",
+          required: false
+        });
       }
 
       setConfirmModal({
@@ -3732,12 +3783,18 @@ export default function HelpDesk() {
               return;
             }
 
+            if (data.logoutReason === "Going for ticket" && (!data.ticketId || data.ticketId.trim() === "")) {
+              setCustomAlert({ show: true, message: "Please select the ticket you are going for", type: "error" });
+              return;
+            }
+
             // Build update object
+            const isGoingForTicket = data.logoutReason === "Going for ticket";
             const up = {
               ...currentUser,
-              status: "Off Duty",
+              status: isGoingForTicket ? "On Ticket" : "Off Duty",
               currentLocation: data.location ? data.location : currentUser.currentLocation,
-              currentTicketId: null,
+              currentTicketId: isGoingForTicket ? (data.ticketId || data.location || "field") : null,
               lunchStatus: false
             };
 
@@ -3750,12 +3807,11 @@ export default function HelpDesk() {
             const res = await axios.put(`${USERS_API}/${currentUser.id}`, up);
 
             if (res.status === 200 || res.status === 201) {
-              // ✅ Successfully updated to Off Duty - now logout
               clearSession();
               setCurrentUser(null);
               setProfileOpen(false);
               setConfirmModal({ show: false });
-              setCustomAlert({ show: true, message: "Logged out successfully", type: "success" });
+              setCustomAlert({ show: true, message: isGoingForTicket ? "✅ Logged out — status set to On Ticket" : "Logged out successfully", type: "success" });
             }
           } catch (err) {
             if (err.response?.status === 400) {
@@ -3971,6 +4027,26 @@ export default function HelpDesk() {
     // ✅ DISABLED: Idle is now only set manually when user has no ticket assigned
     // No auto-detection - user must explicitly set their status
   };
+
+  useEffect(() => {
+    if (!currentUser) return;
+    const interval = setInterval(async () => {
+      if (currentUser.status !== "On Duty") return;
+      const loginTime = currentUser.loginTime ? new Date(currentUser.loginTime) : null;
+      if (!loginTime) return;
+      const minutesElapsed = (new Date() - loginTime) / 60000;
+      if (minutesElapsed >= 15) {
+        const up = { ...currentUser, status: "Idle" };
+        try {
+          await axios.put(`${USERS_API}/${currentUser.id}`, up);
+          saveSession(up);
+          setCurrentUser(up);
+          setUsers(prev => prev.map(u => u.id === currentUser.id ? up : u));
+        } catch (e) { console.error("Failed to set Idle", e); }
+      }
+    }, 60000);
+    return () => clearInterval(interval);
+  }, [currentUser]);
 
   // ✅ REMOVED: Idle detection useEffect - no longer auto-detecting
   // Idle status is now only set when user manually updates status
@@ -5981,7 +6057,7 @@ export default function HelpDesk() {
                   { key: "all", icon: "👥", color: "#3b82f6", label: "Total Users", count: Array.isArray(users) ? users.length : 0 },
                   { key: "On Duty", icon: "🟢", color: "#22c55e", label: "On Duty", count: Array.isArray(users) ? users.filter(u => u.status === "On Duty").length : 0 },
                   { key: "On Ticket", icon: "🎫", color: "#6366f1", label: "On Ticket", count: Array.isArray(users) ? users.filter(u => u.status === "On Ticket").length : 0 },
-                  { key: "Idle", icon: "🟣", color: "#a855f7", label: "Idle", count: Array.isArray(users) ? users.filter(u => u.status === "Idle").length : 0 },
+                  { key: "Idle", icon: "🟣", color: "#a855f7", label: "Idle", count: Array.isArray(users) ? users.filter(u => u.status === "Idle" || u.status === "On Duty").length : 0 },
                   { key: "On Lunch", icon: "🍽️", color: "#f97316", label: "On Lunch", count: Array.isArray(users) ? users.filter(u => u.status === "On Lunch").length : 0 },
                   { key: "off", icon: "⚪", color: "#f59e0b", label: "Off Duty", count: Array.isArray(users) ? users.filter(u => u.status !== "On Duty" && u.status !== "On Ticket" && u.status !== "Idle" && u.status !== "On Lunch").length : 0 },
                 ].map(s => {
@@ -6007,6 +6083,7 @@ export default function HelpDesk() {
                   if (agentStatusFilter === "all") return true;
                   const userStatus = users.find(u => u.id === a.id)?.status || "Off Duty";
                   if (agentStatusFilter === "off") return userStatus !== "On Duty" && userStatus !== "On Ticket" && userStatus !== "Idle" && userStatus !== "On Lunch";
+                  if (agentStatusFilter === "Idle") return userStatus === "Idle" || userStatus === "On Duty";
                   return userStatus === agentStatusFilter;
                 }).map(a => {
                   const userInfo = users.find(u => u.id === a.id);
@@ -6053,6 +6130,20 @@ export default function HelpDesk() {
                             <div style={{ height: 7, background: "#f1f5f9", borderRadius: 99, overflow: "hidden" }}>
                               <div style={{ width: `${rate}%`, height: "100%", background: barColor, borderRadius: 99, transition: "width 0.4s ease" }} />
                             </div>
+                          </div>
+                        );
+                      })()}
+
+                      {/* Show current ticket if On Ticket */}
+                      {(() => {
+                        const u = users.find(x => x.id === a.id);
+                        if (u?.status !== "On Ticket" || !u?.currentTicketId) return null;
+                        const t = tickets.find(x => x.id === u.currentTicketId);
+                        return (
+                          <div style={{ marginBottom: 10, padding: "7px 10px", background: "#ede9fe", borderRadius: 8 }}>
+                            <div style={{ fontSize: 10, fontWeight: 600, color: "#6d28d9", marginBottom: 2 }}>🎫 Out for Ticket</div>
+                            <div style={{ fontSize: 12, color: "#4c1d95", fontWeight: 600 }}>{u.currentTicketId}{t ? ` — ${t.summary}` : ""}</div>
+                            {u.currentLocation && <div style={{ fontSize: 11, color: "#7c3aed", marginTop: 2 }}>📍 {u.currentLocation}</div>}
                           </div>
                         );
                       })()}

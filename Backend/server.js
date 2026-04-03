@@ -359,13 +359,7 @@ app.put("/api/users/:id", async (req, res) => {
 
             // ✅ Validate On Ticket transition
             if (newStatus === "On Ticket") {
-                // Must have currentTicketId when setting On Ticket
-                if (!req.body.currentTicketId) {
-                    return res.status(400).json({
-                        error: "Ticket ID is required for On Ticket status",
-                        details: "Please assign a ticket before marking On Ticket"
-                    });
-                }
+                // currentTicketId is optional — agent may be going for a physical ticket
             }
         }
 
