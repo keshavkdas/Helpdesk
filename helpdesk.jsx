@@ -1270,6 +1270,7 @@ export default function HelpDesk() {
   const [dailyNotifs, setDailyNotifs] = useState([]);
   const [showBellPanel, setShowBellPanel] = useState(false);
   const [bellUnread, setBellUnread] = useState(0);
+  const [alertNotifs, setAlertNotifs] = useState([]);
 
   // Mail: inbox items from DB (per user), persisted
   const [inboxItems, setInboxItems] = useState([]);
@@ -1454,7 +1455,7 @@ export default function HelpDesk() {
         setSatsangTypes([]);
       }
 
-      const allRaw = [...(data.tickets || []), ...(data.webcasts || [])];
+      const allRaw = [...(data.webcasts || []), ...(data.tickets || [])];
       const seenIds = new Set();
       const parsedTickets = allRaw
         .filter(t => { if (seenIds.has(t.id)) return false; seenIds.add(t.id); return true; })
@@ -1526,7 +1527,8 @@ export default function HelpDesk() {
       try { const r = await axios.get(LOCATIONS_API); setLocations(r.data || []); } catch (_) { }
       try { const r = await axios.get(VENDORS_API); setVendors(r.data || []); } catch (_) { }
 
-      const allRaw = [...(data.tickets || []), ...(data.webcasts || [])];
+      const allRaw = [...(data.webcasts || []), ...(data.tickets || [])];
+
       const seenIds = new Set();
       const parsedTickets = allRaw
         .filter(t => { if (seenIds.has(t.id)) return false; seenIds.add(t.id); return true; })
@@ -1706,6 +1708,26 @@ export default function HelpDesk() {
         .sort((a, b) => new Date(b.time) - new Date(a.time));
 
       setDailyNotifs(bellItems);
+
+      const tenDaysAgo = new Date(); tenDaysAgo.setDate(tenDaysAgo.getDate() - 10);
+      const alertNotifs = allActivityItems
+        .filter(a => new Date(a.createdAt) >= tenDaysAgo)
+        .map(a => ({
+          id: `db-${a.id}`,
+          dbId: a.id,
+          type: a.broadcastType || "activity",
+          icon: a.broadcastIcon || "📢",
+          text: a.title,
+          ticketId: a.ticketId,
+          by: a.from,
+          time: a.createdAt,
+          fromDB: true,
+          fromBroadcast: a.userId === 0
+        }))
+        .sort((a, b) => new Date(b.time) - new Date(a.time));
+      setAlertNotifs(alertNotifs);
+
+// Unread = items not yet seen (not in ref). Ref is populated when bell is opened.
 
       // Unread = items not yet seen (not in ref). Ref is populated when bell is opened.
       const unseenCount = bellItems.filter(b => !seenActivityIds.current.has(b.dbId)).length;
@@ -2020,7 +2042,7 @@ export default function HelpDesk() {
   }, [prbr, currentUser]);
 
   const projStats = useMemo(() => ({ total: dashboardProjects.length, open: dashboardProjects.filter(x => x.status === "Open").length, inProgress: dashboardProjects.filter(x => x.status === "In Progress").length, closed: dashboardProjects.filter(x => x.status === "Closed").length, critical: dashboardProjects.filter(x => x.priority === "Critical" && x.status !== "Closed").length }), [dashboardProjects]);
-  const agentStats = useMemo(() => (Array.isArray(users) ? users : []).map(u => ({ ...u, assigned: fbr.filter(t => t.assignees?.some(a => a.id === u.id)).length, closed: fbr.filter(t => t.assignees?.some(a => a.id === u.id) && t.status === "Closed").length, projAssigned: prbr.filter(p => p.assignees?.some(a => a.id === u.id)).length })), [fbr, prbr, users]);
+  const agentStats = useMemo(() => (Array.isArray(users) ? users : []).map(u => ({ ...u, assigned: tickets.filter(t => t.assignees?.some(a => a.id === u.id)).length, closed: tickets.filter(t => t.assignees?.some(a => a.id === u.id) && t.status === "Closed").length, projAssigned: prbr.filter(p => p.assignees?.some(a => a.id === u.id)).length })), [tickets, prbr, users]);
   const dailyData = useMemo(() => { const days = parseInt(range) <= 7 ? parseInt(range) : 7; return Array.from({ length: days }, (_, i) => { const d = new Date(now - (days - 1 - i) * dayMs); return { label: d.toLocaleDateString("en", { weekday: "short" }), value: fbr.filter(t => t.created.getDate() === d.getDate() && t.created.getMonth() === d.getMonth()).length }; }); }, [fbr, range, now, dayMs]);
   const priorityDist = useMemo(() => PRIORITIES.map(p => ({ label: p, value: dashboardData.filter(t => t.priority === p).length, color: PRIORITY_COLOR[p] })), [dashboardData]);
   const categoryDist = useMemo(() => categories.slice(0, 6).map(c => ({ label: c.name, value: dashboardData.filter(t => t.category === c.name).length, color: c.color })), [dashboardData, categories]);
@@ -2585,6 +2607,15 @@ export default function HelpDesk() {
       await axios.put(apiUrl, updatedT);
       setTickets(p => p.map(x => x.id === closingTicketId ? { ...updatedT, updated: new Date(nowISO) } : x));
       if (selTicket?.id === closingTicketId) setSelTicket({ ...updatedT, updated: new Date(nowISO) });
+
+      // Force re-fetch webcasts to ensure DB is in sync before next refresh
+      try {
+        const refreshed = await axios.get(`${BASE_URL}/webcasts/${closingTicketId}`);
+        if (refreshed.data) {
+          const fresh = { ...refreshed.data, created: new Date(refreshed.data.createdAt || refreshed.data.created), updated: new Date(refreshed.data.updatedAt || refreshed.data.updated) };
+          setTickets(p => p.map(x => x.id === closingTicketId ? fresh : x));
+        }
+      } catch (_) { }
       addDailyNotif({ type: newStatus === "Closed" ? "ticket_closed" : "ticket_reopened", icon: newStatus === "Closed" ? "✅" : "🔄", text: `${currentUser.name} ${newStatus === "Closed" ? "closed" : "reopened"} ticket ${closingTicketId}`, ticketId: closingTicketId, by: currentUser.name });
       // Notify all other assignees that the ticket was closed
       const otherAssignees = (t.assignees || []).filter(a => a.id !== currentUser.id);
@@ -3975,12 +4006,17 @@ export default function HelpDesk() {
       switch (notificationType) {
         // ── TICKET EVENTS ──
         case "ticket_created":
-          // For new ticket created - go to All Tickets view
-          setView("tickets");
-          setTvFilter("all");
-          setStatusF("All");
-          setPriorityF("All");
-          break;
+          if (notification.ticketId) {
+            let ticket = dashboardData.find(t => t.id === notification.ticketId);
+            if (!ticket) ticket = tickets.find(t => t.id === notification.ticketId);
+            if (ticket) {
+              setSelTicket(ticket);
+              setView("tickets");
+            } else {
+              setCustomAlert({ show: true, message: "Ticket not found", type: "error" });
+            }
+          }
+        break;
 
         case "ticket_closed":
         case "ticket_status":
@@ -5494,7 +5530,81 @@ export default function HelpDesk() {
 
             </div>
           </div>}
+          {/* ── Active Alerts: Notifications + Inbox panels ── */}
+          {view === "tickets" && tvFilter === "alerts" && (
+            <div style={{ display: "flex", flexDirection: "column", gap: 16, marginBottom: 20 }}>
 
+              {/* Notifications - 10 days */}
+              <div style={{ background: "#fff", borderRadius: 12, boxShadow: "0 1px 4px rgba(0,0,0,0.06)", overflow: "hidden" }}>
+                <div style={{ padding: "12px 16px", borderBottom: "1px solid #f1f5f9", display: "flex", alignItems: "center", gap: 8 }}>
+                  <span style={{ fontSize: 16 }}>🔔</span>
+                  <span style={{ fontWeight: 700, fontSize: 14, color: "#0f172a" }}>Notifications</span>
+                  <span style={{ marginLeft: "auto", fontSize: 12, color: "#94a3b8" }}>Last 10 days</span>
+                </div>
+                <div style={{ maxHeight: 260, overflowY: "auto", padding: "8px 0" }}>
+                  {alertNotifs.length === 0 ? (
+                    <div style={{ padding: "24px 16px", textAlign: "center", color: "#94a3b8", fontSize: 13 }}>No notifications</div>
+                  ) : alertNotifs.map((n, i) => (
+                    <div key={n.id || i} style={{ padding: "10px 16px", borderBottom: "1px solid #f8fafc", display: "flex", alignItems: "flex-start", gap: 10 }}>
+                      <span style={{ fontSize: 18 }}>{n.icon}</span>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ fontSize: 13, color: "#1e293b", fontWeight: 500 }}>{n.text}</div>
+                        <div style={{ fontSize: 11, color: "#94a3b8", marginTop: 2 }}>
+                          {n.by && <span>{n.by} · </span>}
+                          {new Date(n.time).toLocaleString()}
+                        </div>
+                      </div>
+                      {n.ticketId && (
+                        <div style={{ fontSize: 10, color: "#3b82f6", fontFamily: "monospace", fontWeight: 600, marginTop: 2, cursor: "pointer" }}
+                          onClick={() => handleNotificationClick(n)}>
+                          🎫 {n.ticketId}
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Inbox */}
+              <div style={{ background: "#fff", borderRadius: 12, boxShadow: "0 1px 4px rgba(0,0,0,0.06)", overflow: "hidden" }}>
+                <div style={{ padding: "12px 16px", borderBottom: "1px solid #f1f5f9", display: "flex", alignItems: "center", gap: 8 }}>
+                  <span style={{ fontSize: 16 }}>✉️</span>
+                  <span style={{ fontWeight: 700, fontSize: 14, color: "#0f172a" }}>Inbox</span>
+                  {inboxUnread > 0 && (
+                    <span style={{ background: "#3b82f6", color: "#fff", borderRadius: 99, fontSize: 10, fontWeight: 700, padding: "1px 7px" }}>{inboxUnread}</span>
+                  )}
+                  <span style={{ marginLeft: "auto", fontSize: 12, color: "#94a3b8" }}>{inboxItems.length} messages</span>
+                </div>
+                <div style={{ maxHeight: 260, overflowY: "auto", padding: "8px 0" }}>
+                  {inboxItems.length === 0 ? (
+                    <div style={{ padding: "24px 16px", textAlign: "center", color: "#94a3b8", fontSize: 13 }}>No messages</div>
+                  ) : inboxItems.map((item, i) => (
+                    <div key={item.id || i} style={{ padding: "12px 16px", borderBottom: "1px solid #f8fafc", background: item.read ? "#fff" : "#f0f9ff", borderLeft: item.read ? "none" : "3px solid #3b82f6" }}>
+                      <div style={{ display: "flex", alignItems: "flex-start", gap: 9 }}>
+                        <span style={{ fontSize: 18, flexShrink: 0, marginTop: 1 }}>
+                          {item.type === "forward_request" ? "📬" : item.type === "forward_response" ? (item.status === "Approved" ? "✅" : "❌") : item.type === "ticket_assigned" ? "🎫" : "📩"}
+                        </span>
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div style={{ fontSize: 12, fontWeight: 700, color: "#0f172a", marginBottom: 3 }}>{item.title}</div>
+                          <div style={{ fontSize: 11, color: "#64748b", lineHeight: 1.5, marginBottom: 6 }}>{item.message}</div>
+                          {item.ticketId && <div style={{ fontSize: 10, color: "#3b82f6", fontFamily: "monospace", marginBottom: 6 }}>{item.ticketId}</div>}
+                          {item.type === "forward_request" && !item.resolved && (currentUser?.role === "Admin" || currentUser?.role === "Manager") && (
+                            <div style={{ display: "flex", gap: 6, marginTop: 6 }}>
+                              <button onClick={() => acceptInboxForwardRequest(item)} style={{ flex: 1, padding: "5px 10px", fontSize: 11, fontWeight: 600, background: "#10b981", color: "#fff", border: "none", borderRadius: 6, cursor: "pointer" }}>✓ Approve</button>
+                              <button onClick={() => rejectInboxForwardRequest(item)} style={{ flex: 1, padding: "5px 10px", fontSize: 11, fontWeight: 600, background: "#ef4444", color: "#fff", border: "none", borderRadius: 6, cursor: "pointer" }}>✕ Reject</button>
+                            </div>
+                          )}
+                          {item.resolved && <span style={{ fontSize: 10, fontWeight: 600, padding: "2px 7px", borderRadius: 99, background: item.resolved === "Approved" ? "#dcfce7" : "#fee2e2", color: item.resolved === "Approved" ? "#15803d" : "#991b1b" }}>{item.resolved}</span>}
+                          <div style={{ fontSize: 10, color: "#94a3b8", marginTop: 4 }}>{item.createdAt ? new Date(item.createdAt).toLocaleString() : ""}</div>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+            </div>
+          )}
           {/* ── PROJECTS ── */}
           {view === "projects" && <div style={{ background: "#fff", borderRadius: 12, boxShadow: "0 1px 4px rgba(0,0,0,0.06)", overflow: "hidden" }}>
 
@@ -5621,6 +5731,7 @@ export default function HelpDesk() {
                     <FilterableHeader label="Satsang Type" field="satsangType" data={tickets.filter(t => isTrueWebcast(t) && (t.assignees?.some(a => a.id === currentUser?.id) || currentUser?.role === "Admin" || currentUser?.role === "Manager"))} filters={webcastSort} onFilter={setWebcastSort} style={thStyle} />
                     <FilterableHeader label="Priority" field="priority" data={tickets.filter(t => isTrueWebcast(t) && (t.assignees?.some(a => a.id === currentUser?.id) || currentUser?.role === "Admin" || currentUser?.role === "Manager"))} filters={webcastSort} onFilter={setWebcastSort} style={thStyle} />
                     <FilterableHeader label="Status" field="status" data={tickets.filter(t => isTrueWebcast(t) && (t.assignees?.some(a => a.id === currentUser?.id) || currentUser?.role === "Admin" || currentUser?.role === "Manager"))} filters={webcastSort} onFilter={setWebcastSort} style={thStyle} />
+                    <th style={thStyle}>Action</th>
                   </tr></thead>
                   <tbody>{applySort(tickets.filter(t => {
                     if (!isTrueWebcast(t)) return false;
@@ -5640,9 +5751,14 @@ export default function HelpDesk() {
                       <td style={tdStyle}><span style={{ fontSize: 12, color: "#64748b" }}>{t.satsangType || "—"}</span></td>
                       <td style={tdStyle}><div style={{ display: "flex", alignItems: "center", gap: 4 }}><span style={{ width: 7, height: 7, borderRadius: "50%", background: PRIORITY_COLOR[t.priority], display: "inline-block" }} />{t.priority}</div></td>
                       <td style={tdStyle}><Badge label={t.status} style={{ ...STATUS_COLOR[t.status] }} /></td>
+                      <td style={tdStyle} onClick={e => e.stopPropagation()}>
+                        <select value={t.status} onChange={e => updateStatus(t.id, e.target.value)} style={{ ...sS, width: 115, fontSize: 12, padding: "4px 7px" }}>
+                          {STATUSES.filter(s => s !== "Bin").map(s => <option key={s}>{s}</option>)}
+                        </select>
+                      </td>
                     </tr>
                   ))}
-                    {tickets.filter(t => isTrueWebcast(t) && (t.assignees?.some(a => a.id === currentUser?.id) || currentUser?.role === "Admin" || currentUser?.role === "Manager")).length === 0 && <tr><td colSpan={6} style={{ padding: 24, textAlign: "center", color: "#94a3b8", fontSize: 13 }}>No webcast tickets assigned to you yet.</td></tr>}
+                    {tickets.filter(t => isTrueWebcast(t) && (t.assignees?.some(a => a.id === currentUser?.id) || currentUser?.role === "Admin" || currentUser?.role === "Manager")).length === 0 && <tr><td colSpan={7} style={{ padding: 24, textAlign: "center", color: "#94a3b8", fontSize: 13 }}>No webcast tickets assigned to you yet.</td></tr>}
                   </tbody>
                 </table>
               </div>
@@ -5919,7 +6035,7 @@ export default function HelpDesk() {
                         </div>
                       </div>
                       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 7, marginBottom: 12 }}>
-                        {[{ l: "Assigned", v: a.assigned, c: "#3b82f6" }, { l: "Closed", v: a.closed, c: "#22c55e" }, { l: "Open", v: a.assigned - a.closed, c: "#f59e0b" }].map(s => (
+                        {[{ l: "Assigned", v: a.assigned, c: "#3b82f6" }, { l: "Closed", v: a.closed, c: "#22c55e" }, { l: "Open", v: tickets.filter(t => t.assignees?.some(x => x.id === a.id) && (t.status === "Open" || t.status === "In Progress")).length, c: "#f59e0b" }].map(s => (
                           <div key={s.l} style={{ textAlign: "center", padding: "8px 4px", background: "#f8fafc", borderRadius: 8 }}><div style={{ fontSize: 17, fontWeight: 700, color: s.c }}>{s.v}</div><div style={{ fontSize: 10, color: "#94a3b8" }}>{s.l}</div></div>
                         ))}
                       </div>
@@ -6038,7 +6154,7 @@ export default function HelpDesk() {
                   { l: "All", v: selAgent.assigned, c: "#94a3b8", filter: null, bg: "#f1f5f9" },
                   { l: "Assigned", v: selAgent.assigned, c: "#3b82f6", filter: "assigned", bg: "#dbeafe" },
                   { l: "Closed", v: selAgent.closed, c: "#22c55e", filter: "closed", bg: "#dcfce7" },
-                  { l: "Open", v: selAgent.assigned - selAgent.closed, c: "#f59e0b", filter: "open", bg: "#fef3c7" }
+                  { l: "Open", v: tickets.filter(t => t.assignees?.some(a => a.id === selAgent.id) && (t.status === "Open" || t.status === "In Progress")).length, c: "#f59e0b", filter: "open", bg: "#fef3c7" }
                 ].map(s => (
                   <div
                     key={s.l}
@@ -7270,7 +7386,7 @@ export default function HelpDesk() {
           <div style={{ marginBottom: 14 }}>
             <div style={{ fontSize: 11, fontWeight: 600, color: "#374151", marginBottom: 7 }}>UPDATE STATUS</div>
             <div style={{ display: "flex", gap: 7, flexWrap: "wrap", marginBottom: 10 }}>
-              {STATUSES.map(s => <button key={s} onClick={() => s === "Closed" ? updateStatus(selTicket.id, s) : setPendingTicketStatus(s)} style={{ padding: "5px 13px", borderRadius: 7, border: "none", cursor: "pointer", fontSize: 12, fontWeight: 600, fontFamily: "'DM Sans',sans-serif", background: (pendingTicketStatus === s || selTicket.status === s) ? STATUS_COLOR[s].text : "#f1f5f9", color: (pendingTicketStatus === s || selTicket.status === s) ? "#fff" : "#64748b", opacity: pendingTicketStatus === s && selTicket.status !== s ? 0.7 : 1 }}>{s}</button>)}
+              {STATUSES.map(s => <button key={s} onClick={() => s === "Closed" ? updateStatus(selTicket.id, s) : setPendingTicketStatus(s)} style={{ padding: "5px 13px", borderRadius: 7, border: "none", cursor: "pointer", fontSize: 12, fontWeight: 600, fontFamily: "'DM Sans',sans-serif", background: (pendingTicketStatus === s || selTicket.status === s) ? (STATUS_COLOR[s]?.text || "#64748b") : "#f1f5f9", color: (pendingTicketStatus === s || selTicket.status === s) ? "#fff" : "#64748b", opacity: pendingTicketStatus === s && selTicket.status !== s ? 0.7 : 1 }}>{s}</button>)}
               {/* ✅ NEW: Reopen Button for Closed Tickets */}
               {selTicket.status === "Closed" && (
                 <button
