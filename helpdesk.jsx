@@ -668,6 +668,7 @@ const BarChart = ({ data, color = "#3b82f6" }) => {
   </div>;
 };
 
+
 // ─── SHARED PIE PALETTE — 12 visually distinct colours ───────────────────────
 const PIE_COLORS = [
   "#3b82f6", "#f97316", "#22c55e", "#ef4444", "#a855f7",
@@ -676,6 +677,32 @@ const PIE_COLORS = [
 ];
 const pieCo = (i, override) => override || PIE_COLORS[i % PIE_COLORS.length];
 
+
+// ─── HORIZONTAL BAR CHART ────────────────────────────────────────────────────
+const HorizontalBarChart = ({ data }) => {
+  const [hov, setHov] = useState(null);
+  const max = Math.max(...data.map(d => d.value), 1);
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 7, padding: "4px 2px" }}>
+      {data.map((d, i) => {
+        const isHov = hov === i;
+        const pct = Math.max((d.value / max) * 100, d.value > 0 ? 2 : 0);
+        const color = d.color || PIE_COLORS[i % 12];
+        return (
+          <div key={i} onMouseEnter={() => setHov(i)} onMouseLeave={() => setHov(null)} style={{ cursor: "pointer" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 3 }}>
+              <span style={{ fontSize: 11, fontWeight: isHov ? 700 : 500, color: isHov ? "#1e293b" : "#374151", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", maxWidth: "70%" }}>{d.label}</span>
+              <span style={{ fontSize: 11, fontWeight: 700, color: color }}>{d.value}</span>
+            </div>
+            <div style={{ height: 8, background: "#f1f5f9", borderRadius: 99, overflow: "hidden" }}>
+              <div style={{ width: `${pct}%`, height: "100%", background: color, borderRadius: 99, transition: "width 0.4s ease", boxShadow: isHov ? `0 0 6px ${color}88` : "none" }} />
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+};
 // ─── UNIFIED PIE / DONUT COMPONENT ───────────────────────────────────────────
 // Rules:
 //  • r = 60, viewBox 140×140, cx = cy = 70
@@ -807,7 +834,7 @@ const ProgressBar = ({ value, color = "#3b82f6" }) => (
 
 // ─── SMART CHART ───────────────────────────────────────────────────────────────
 const CHART_TYPES = [
-  { id: "bar", icon: "▐▌", label: "Bar" }, { id: "line", icon: "╱", label: "Line" }, { id: "pie", icon: "◔", label: "Pie" },
+  { id: "bar", icon: "▐▌", label: "Vert. Bar" }, { id: "hbar", icon: "▬", label: "Horiz. Bar" }, { id: "line", icon: "╱", label: "Line" }, { id: "pie", icon: "◔", label: "Pie" },
   { id: "area", icon: "◺", label: "Area" },
   { id: "histogram", icon: "▮", label: "Histogram" }, { id: "scatter", icon: "⠿", label: "Scatter" },
   { id: "treemap", icon: "▦", label: "Treemap" }, { id: "bubble", icon: "⬤", label: "Bubble" },
@@ -901,6 +928,27 @@ const SmartChart = ({ title, data, defaultType = "bar", defaultColor = "#3b82f6"
             </g>);
         })}
       </svg>);
+    }
+    if (type === "hbar") {
+      const barH = Math.max(8, IH / data.length - 4);
+      return (
+        <svg width="100%" viewBox={`0 0 ${W} ${H}`} style={{ overflow: "visible" }}>
+          {data.map((d, i) => {
+            const isH = hov === i;
+            const bw = Math.max((d.value / max) * IW, d.value > 0 ? 2 : 0);
+            const y = PT + i * (IH / data.length) + 2;
+            return (
+              <g key={i} style={{ cursor: "pointer" }} onMouseEnter={() => setHov(i)} onMouseLeave={() => setHov(null)}>
+                <rect x={PL} y={y} width={IW} height={barH} rx={3} fill="#f1f5f9" />
+                <rect x={PL} y={y} width={bw} height={barH} rx={3} fill={col(i, defaultColor)} opacity={isH ? 1 : 0.85}
+                  style={{ filter: isH ? `drop-shadow(0 0 5px ${col(i, defaultColor)}88)` : "none", transition: "width 0.3s ease" }} />
+                <text x={PL - 3} y={y + barH / 2 + 3} textAnchor="end" fontSize={7} fill={isH ? "#374151" : "#94a3b8"} fontWeight={isH ? 700 : 400}>{d.label?.slice(0, 8)}</text>
+                {isH && <text x={PL + bw + 3} y={y + barH / 2 + 3} fontSize={7} fill={col(i, defaultColor)} fontWeight={700}>{d.value}</text>}
+              </g>
+            );
+          })}
+        </svg>
+      );
     }
     return null;
   };
@@ -2081,9 +2129,9 @@ export default function HelpDesk() {
   }, [prbr, currentUser]);
 
   const projStats = useMemo(() => ({ total: dashboardProjects.length, open: dashboardProjects.filter(x => x.status === "Open").length, inProgress: dashboardProjects.filter(x => x.status === "In Progress").length, closed: dashboardProjects.filter(x => x.status === "Closed").length, critical: dashboardProjects.filter(x => x.priority === "Critical" && x.status !== "Closed").length }), [dashboardProjects]);
-  const agentStats = useMemo(() => (Array.isArray(users) ? users : []).map(u => ({ ...u, assigned: tickets.filter(t => t.assignees?.some(a => a.id === u.id)).length, closed: tickets.filter(t => t.assignees?.some(a => a.id === u.id) && t.status === "Closed").length, projAssigned: prbr.filter(p => p.assignees?.some(a => a.id === u.id)).length })), [tickets, prbr, users]);
+  const agentStats = useMemo(() => (Array.isArray(users) ? users : []).map(u => ({ ...u, assigned: tickets.filter(t => t.assignees?.some(a => a.id === u.id) && t.status !== "Bin").length, closed: tickets.filter(t => t.assignees?.some(a => a.id === u.id) && t.status === "Closed").length, projAssigned: prbr.filter(p => p.assignees?.some(a => a.id === u.id)).length })), [tickets, prbr, users]);
   const dailyData = useMemo(() => { const days = parseInt(range) <= 7 ? parseInt(range) : 7; return Array.from({ length: days }, (_, i) => { const d = new Date(now - (days - 1 - i) * dayMs); return { label: d.toLocaleDateString("en", { weekday: "short" }), value: fbr.filter(t => t.created.getDate() === d.getDate() && t.created.getMonth() === d.getMonth()).length }; }); }, [fbr, range, now, dayMs]);
-  const priorityDist = useMemo(() => PRIORITIES.map(p => ({ label: p, value: dashboardData.filter(t => t.priority === p).length, color: PRIORITY_COLOR[p] })), [dashboardData]);
+  const priorityDist = useMemo(() => PRIORITIES.map(p => ({ label: p, value: dashboardData.filter(t => t.priority === p && t.status !== "Bin").length, color: PRIORITY_COLOR[p] })), [dashboardData]);
   const categoryDist = useMemo(() => categories.slice(0, 6).map(c => ({ label: c.name, value: dashboardData.filter(t => t.category === c.name).length, color: c.color })), [dashboardData, categories]);
 
   // ✅ NEW: Dashboard-specific chart data (with org filter)
@@ -2118,10 +2166,10 @@ export default function HelpDesk() {
 
   const dashboardStatusDist = useMemo(() => {
     const statusCounts = {};
-    STATUSES.forEach(s => statusCounts[s] = 0);
+    STATUSES.filter(s => s !== "Bin").forEach(s => statusCounts[s] = 0);
     statusCounts["Unassigned"] = 0;
 
-    dashboardData.forEach(t => {
+    dashboardData.filter(t => t.status !== "Bin").forEach(t => {
       if (!t.assignees || t.assignees.length === 0) {
         statusCounts["Unassigned"]++;
       } else {
@@ -5334,20 +5382,34 @@ export default function HelpDesk() {
                   {/* Admin/Manager: 3-column grid with BIGGER pie charts */}
                   <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12, marginBottom: 12 }}>
                     <SmartChart title="Tickets Over Time (Weekly)" data={dashboardDailyData} defaultColor="#3b82f6" />
-                    <div style={{ background: "#fff", borderRadius: 12, padding: 18, boxShadow: "0 1px 4px rgba(0,0,0,0.06)", minHeight: 220 }}>
-                      <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 12, color: "#374151" }}>Ticket Priority</div>
-                      <SmartChart data={priorityDist} defaultType="pie" />
-                    </div>
+                    <SmartChart title="Ticket Priority" data={priorityDist} defaultType="pie" />
                     <SmartChart title="By Category" data={categoryDist} defaultColor="#8b5cf6" />
                   </div>
 
                   {/* Admin/Manager: 2nd row (2 graphs) */}
                   <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 12 }}>
-                    <div style={{ background: "#fff", borderRadius: 12, padding: 14, boxShadow: "0 1px 4px rgba(0,0,0,0.06)", minHeight: 220 }}>
-                      <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 10, color: "#374151" }}>Ticket Status (w/ Unassigned)</div>
-                      <SmartChart data={dashboardStatusDist} defaultType="pie" />
-                    </div>
+                    <SmartChart title="Ticket Status (w/ Unassigned)" data={dashboardStatusDist} defaultType="pie" />
                     <SmartChart title="People Closing Tickets" data={dashboardClosingUsers} defaultColor="#10b981" />
+                  </div>
+
+                  {/* Admin/Manager: Horizontal Bar Charts row */}
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 12, marginBottom: 12 }}>
+                    <div style={{ background: "#fff", borderRadius: 12, padding: 18, boxShadow: "0 1px 4px rgba(0,0,0,0.06)" }}>
+                      <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 12, color: "#374151" }}>Priority Breakdown</div>
+                      <HorizontalBarChart data={priorityDist.map((d, i) => ({ ...d, color: Object.values(PRIORITY_COLOR)[i] || PIE_COLORS[i] }))} />
+                    </div>
+                    <div style={{ background: "#fff", borderRadius: 12, padding: 18, boxShadow: "0 1px 4px rgba(0,0,0,0.06)" }}>
+                      <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 12, color: "#374151" }}>Status Breakdown</div>
+                      <HorizontalBarChart data={dashboardStatusDist.map(d => ({ ...d, color: STATUS_COLOR[d.label]?.text || "#94a3b8" }))} />
+                    </div>
+                    <div style={{ background: "#fff", borderRadius: 12, padding: 18, boxShadow: "0 1px 4px rgba(0,0,0,0.06)" }}>
+                      <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 12, color: "#374151" }}>Category Breakdown</div>
+                      <HorizontalBarChart data={categoryDist} />
+                    </div>
+                    <div style={{ background: "#fff", borderRadius: 12, padding: 18, boxShadow: "0 1px 4px rgba(0,0,0,0.06)" }}>
+                      <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 12, color: "#374151" }}>Closures by Person</div>
+                      <HorizontalBarChart data={dashboardClosingUsers} />
+                    </div>
                   </div>
 
                   {/* Recent Tickets for Admin/Manager */}
@@ -5372,19 +5434,24 @@ export default function HelpDesk() {
                       <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 10, color: "#374151" }}>Tickets Over Time (Weekly)</div>
                       <SmartChart data={dashboardDailyData} defaultColor="#3b82f6" size="small" />
                     </div>
-                    <div style={{ background: "#fff", borderRadius: 12, padding: 12, boxShadow: "0 1px 4px rgba(0,0,0,0.06)", minHeight: 220 }}>
-                      <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 10, color: "#374151" }}>Ticket Priority</div>
-                      <SmartChart data={priorityDist} defaultType="bubble" size="small" />
-                    </div>
+                    <SmartChart title="Ticket Priority" data={priorityDist} defaultType="bubble" size="small" />
                   </div>
                   <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 12 }}>
                     <div style={{ background: "#fff", borderRadius: 12, padding: 12, boxShadow: "0 1px 4px rgba(0,0,0,0.06)", minHeight: 200 }}>
                       <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 10, color: "#374151" }}>By Category</div>
                       <SmartChart data={categoryDist} defaultColor="#8b5cf6" size="small" />
                     </div>
-                    <div style={{ background: "#fff", borderRadius: 12, padding: 12, boxShadow: "0 1px 4px rgba(0,0,0,0.06)", minHeight: 220 }}>
-                      <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 10, color: "#374151" }}>Ticket Status (w/ Unassigned)</div>
-                      <SmartChart data={dashboardStatusDist} defaultType="pie" size="small" />
+                    <SmartChart title="Ticket Status (w/ Unassigned)" data={dashboardStatusDist} defaultType="pie" size="small" />
+                  </div>
+                  {/* Viewer/Agent: Horizontal Bar Charts row */}
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 12 }}>
+                    <div style={{ background: "#fff", borderRadius: 12, padding: 14, boxShadow: "0 1px 4px rgba(0,0,0,0.06)" }}>
+                      <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 10, color: "#374151" }}>Priority Breakdown</div>
+                      <HorizontalBarChart data={priorityDist.map((d, i) => ({ ...d, color: Object.values(PRIORITY_COLOR)[i] || PIE_COLORS[i] }))} />
+                    </div>
+                    <div style={{ background: "#fff", borderRadius: 12, padding: 14, boxShadow: "0 1px 4px rgba(0,0,0,0.06)" }}>
+                      <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 10, color: "#374151" }}>Status Breakdown</div>
+                      <HorizontalBarChart data={dashboardStatusDist.map(d => ({ ...d, color: STATUS_COLOR[d.label]?.text || "#94a3b8" }))} />
                     </div>
                   </div>
                   {/* NO Recent Tickets for Viewer/Agent */}
@@ -6115,7 +6182,7 @@ export default function HelpDesk() {
                         </div>
                       </div>
                       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 7, marginBottom: 12 }}>
-                        {[{ l: "Assigned", v: a.assigned, c: "#3b82f6" }, { l: "Closed", v: a.closed, c: "#22c55e" }, { l: "Open", v: tickets.filter(t => t.assignees?.some(x => x.id === a.id) && (t.status === "Open" || t.status === "In Progress")).length, c: "#f59e0b" }].map(s => (
+                        {[{ l: "Assigned", v: a.assigned, c: "#3b82f6" }, { l: "Closed", v: a.closed, c: "#22c55e" }, { l: "Open", v: tickets.filter(t => t.assignees?.some(x => x.id === a.id) && (t.status === "Open" || t.status === "In Progress") && t.status !== "Bin").length, c: "#f59e0b" }].map(s => (
                           <div key={s.l} style={{ textAlign: "center", padding: "8px 4px", background: "#f8fafc", borderRadius: 8 }}><div style={{ fontSize: 17, fontWeight: 700, color: s.c }}>{s.v}</div><div style={{ fontSize: 10, color: "#94a3b8" }}>{s.l}</div></div>
                         ))}
                       </div>
@@ -6274,10 +6341,11 @@ export default function HelpDesk() {
 
             <div style={{ background: "#fff", borderRadius: 12, padding: 16, boxShadow: "0 1px 4px rgba(0,0,0,0.06)" }}>
               <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 14, color: "#374151" }}>Assigned Tickets</div>
-              {tickets.filter(t => t.assignees?.some(a => a.id === selAgent.id)).length > 0 ? (
+              {tickets.filter(t => t.assignees?.some(a => a.id === selAgent.id) && t.status !== "Bin").length > 0 ? (
                 <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
                   {tickets.filter(t => {
                     if (!t.assignees?.some(a => a.id === selAgent.id)) return false;
+                    if (t.status === "Bin") return false;
                     if (agentTicketFilter === null) return true;
                     if (agentTicketFilter === "assigned") return t.status === "Open" || t.status === "In Progress";
                     if (agentTicketFilter === "closed") return t.status === "Closed";
