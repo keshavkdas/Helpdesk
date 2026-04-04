@@ -1248,7 +1248,7 @@ export default function HelpDesk() {
     tomorrow.setDate(tomorrow.getDate() + 1);
     return tomorrow.toISOString().split("T")[0];
   };
-  const emptyForm = () => ({ org: "", department: "", contact: "", reportedBy: "", summary: "", description: "", assignees: [], priority: "", category: "", customAttrs: {}, dueDate: getDefaultDueDate(), satsangType: "", location: "" });
+  const emptyForm = () => ({ org: "", department: "", contact: "", reportedBy: "", summary: "", description: "", assignees: [], priority: "Standard", category: "", customAttrs: {}, dueDate: getDefaultDueDate(), satsangType: "", location: "" });
   const [form, setForm] = useState(emptyForm);
   const [ccInput, setCcInput] = useState("");
   const [assigneeSearch, setAssigneeSearch] = useState("");
@@ -4582,7 +4582,7 @@ export default function HelpDesk() {
 
   return (
     <div style={{ display: "flex", height: "100vh", fontFamily: "'DM Sans',sans-serif", background: "#f8fafc", color: "#1e293b", overflow: "hidden" }}>
-      <style>{`@import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=DM+Mono:wght@400;500&display=swap');*{box-sizing:border-box}::-webkit-scrollbar{width:5px;height:5px}::-webkit-scrollbar-thumb{background:#cbd5e1;border-radius:3px}input:focus,select:focus,textarea:focus{border-color:#3b82f6!important;outline:none;background:#fff!important}.rh:hover td{background:#f8fafc!important}@keyframes pulse{0%,100%{opacity:1}50%{opacity:0.5}}`}</style>
+      <style>{`@import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=DM+Mono:wght@400;500&display=swap');html{font-size:14px;-webkit-text-size-adjust:100%;text-size-adjust:100%}*{box-sizing:border-box;-webkit-font-smoothing:antialiased;moz-osx-font-smoothing:grayscale}::-webkit-scrollbar{width:5px;height:5px}::-webkit-scrollbar-thumb{background:#cbd5e1;border-radius:3px}input:focus,select:focus,textarea:focus{border-color:#3b82f6!important;outline:none;background:#fff!important}.rh:hover td{background:#f8fafc!important}@keyframes pulse{0%,100%{opacity:1}50%{opacity:0.5}}`}</style>
 
       {/* ✅ NEW: Custom Alert */}
       <CustomAlert
@@ -4741,31 +4741,36 @@ export default function HelpDesk() {
 
         <div style={{ padding: "8px 8px 0", flex: 1, overflow: "auto" }}>
           {sideNav.map(n => (
-            <button key={n.id} onClick={() => {
-              setView(n.id);
-              // ✅ NEW: When clicking "All Tickets", set filter to "all" (all statuses)
-              if (n.id === "tickets") setTvFilter("all");
-            }} style={{ display: "flex", alignItems: "center", gap: 9, width: "100%", padding: "8px 11px", borderRadius: 7, border: "none", cursor: "pointer", background: view === n.id ? "#1e293b" : "transparent", color: view === n.id ? "#60a5fa" : "#64748b", fontSize: 13, fontWeight: view === n.id ? 600 : 400, marginBottom: 2, textAlign: "left", fontFamily: "'DM Sans',sans-serif" }}>
-              <span>{n.icon}</span>{n.label}
-            </button>
+            <React.Fragment key={n.id}>
+              <button onClick={() => {
+                setView(n.id);
+                if (n.id === "tickets") setTvFilter("all");
+              }} style={{ display: "flex", alignItems: "center", gap: 9, width: "100%", padding: "8px 11px", borderRadius: 7, border: "none", cursor: "pointer", background: view === n.id ? "#1e293b" : "transparent", color: view === n.id ? "#60a5fa" : "#64748b", fontSize: 13, fontWeight: view === n.id ? 600 : 400, marginBottom: 2, textAlign: "left", fontFamily: "'DM Sans',sans-serif" }}>
+                <span>{n.icon}</span>{n.label}
+              </button>
+              {n.id === "tickets" && view === "tickets" && (
+                <div style={{ marginBottom: 4, paddingLeft: 8, borderLeft: "2px solid #1e293b", marginLeft: 11 }}>
+                  {TICKET_VIEWS.filter(v => {
+                    if (v.id === "unassigned") return currentUser?.role === "Admin" || currentUser?.role === "Manager";
+                    return true;
+                  }).map(v => (
+                    <button key={v.id} onClick={() => setTvFilter(v.id)} style={{ display: "flex", alignItems: "center", gap: 7, width: "100%", padding: "6px 11px", borderRadius: 6, border: "none", cursor: "pointer", background: tvFilter === v.id ? "#0f172a" : "transparent", color: tvFilter === v.id ? "#93c5fd" : "#475569", fontSize: 11.5, textAlign: "left", fontFamily: "'DM Sans',sans-serif", marginBottom: 1 }}>
+                      <span style={{ fontSize: 12 }}>{v.icon}</span>{v.label}
+                    </button>
+                  ))}
+                </div>
+              )}
+              {n.id === "projects" && view === "projects" && (
+                <div style={{ marginBottom: 4, paddingLeft: 8, borderLeft: "2px solid #1e293b", marginLeft: 11 }}>
+                  {PROJECT_VIEWS.map(v => (
+                    <button key={v.id} onClick={() => setPvFilter(v.id)} style={{ display: "flex", alignItems: "center", gap: 7, width: "100%", padding: "6px 11px", borderRadius: 6, border: "none", cursor: "pointer", background: pvFilter === v.id ? "#0f172a" : "transparent", color: pvFilter === v.id ? "#93c5fd" : "#475569", fontSize: 11.5, textAlign: "left", fontFamily: "'DM Sans',sans-serif", marginBottom: 1 }}>
+                      <span style={{ fontSize: 12 }}>{v.icon}</span>{v.label}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </React.Fragment>
           ))}
-          {view === "tickets" && <div style={{ marginTop: 6, paddingTop: 6, borderTop: "1px solid #1e293b" }}>
-            {TICKET_VIEWS.filter(v => {
-              if (v.id === "unassigned") return currentUser?.role === "Admin" || currentUser?.role === "Manager";
-              return true;
-            }).map(v => (
-              <button key={v.id} onClick={() => setTvFilter(v.id)} style={{ display: "flex", alignItems: "center", gap: 7, width: "100%", padding: "6px 11px", borderRadius: 6, border: "none", cursor: "pointer", background: tvFilter === v.id ? "#0f172a" : "transparent", color: tvFilter === v.id ? "#93c5fd" : "#475569", fontSize: 11.5, textAlign: "left", fontFamily: "'DM Sans',sans-serif", marginBottom: 1 }}>
-                <span style={{ fontSize: 12 }}>{v.icon}</span>{v.label}
-              </button>
-            ))}
-          </div>}
-          {view === "projects" && <div style={{ marginTop: 6, paddingTop: 6, borderTop: "1px solid #1e293b" }}>
-            {PROJECT_VIEWS.map(v => (
-              <button key={v.id} onClick={() => setPvFilter(v.id)} style={{ display: "flex", alignItems: "center", gap: 7, width: "100%", padding: "6px 11px", borderRadius: 6, border: "none", cursor: "pointer", background: pvFilter === v.id ? "#0f172a" : "transparent", color: pvFilter === v.id ? "#93c5fd" : "#475569", fontSize: 11.5, textAlign: "left", fontFamily: "'DM Sans',sans-serif", marginBottom: 1 }}>
-                <span style={{ fontSize: 12 }}>{v.icon}</span>{v.label}
-              </button>
-            ))}
-          </div>}
         </div>
 
         {/* ── Inventory Link ── */}
@@ -4809,7 +4814,7 @@ export default function HelpDesk() {
                 <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "4px 8px", borderRadius: 4 }}>
                   <span style={{ width: 8, height: 8, borderRadius: "50%", background: (statusOpts.find(s => s.l === currentUser.status)?.c || "#94a3b8") }} />
                   <span style={{ fontSize: 11, fontWeight: 600, color: (statusOpts.find(s => s.l === currentUser.status)?.c || "#cbd5e1") }}>
-                    {currentUser.status === "On Lunch" ? "🍽️ On Lunch" : currentUser.status === "On Duty" ? "On Duty" : "Off Duty"}
+                    {currentUser.status || "Off Duty"}
                   </span>
                 </div>
               </div>
