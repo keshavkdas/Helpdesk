@@ -1157,6 +1157,9 @@ export default function HelpDesk() {
   // ✅ NEW: User Add Modal
   const [showAddUserModal, setShowAddUserModal] = useState(false);
 
+  const [ticketsExpanded, setTicketsExpanded] = useState(false);
+
+
   // ✅ NEW: Save current view and filters to localStorage
   useEffect(() => {
     try {
@@ -4776,13 +4779,18 @@ export default function HelpDesk() {
             <React.Fragment key={n.id}>
               <button onClick={() => {
                 setView(n.id);
-                if (n.id === "tickets") setTvFilter("all");
+                if (n.id === "tickets") {
+                  setTvFilter("all");
+                  setTicketsExpanded(prev => !prev);
+                }
               }} style={{ display: "flex", alignItems: "center", gap: 9, width: "100%", padding: "8px 11px", borderRadius: 7, border: "none", cursor: "pointer", background: view === n.id ? "#1e293b" : "transparent", color: view === n.id ? "#60a5fa" : "#64748b", fontSize: 13, fontWeight: view === n.id ? 600 : 400, marginBottom: 2, textAlign: "left", fontFamily: "'DM Sans',sans-serif" }}>
                 <span>{n.icon}</span>{n.label}
+                {n.id === "tickets" && <span style={{ marginLeft: "auto", fontSize: 10, opacity: 0.6 }}>{ticketsExpanded ? "▲" : "▼"}</span>}
               </button>
-              {n.id === "tickets" && view === "tickets" && (
+              {n.id === "tickets" && view === "tickets" && ticketsExpanded && (
                 <div style={{ marginBottom: 4, paddingLeft: 8, borderLeft: "2px solid #1e293b", marginLeft: 11 }}>
                   {TICKET_VIEWS.filter(v => {
+                    if (v.id === "all") return false;
                     if (v.id === "unassigned") return currentUser?.role === "Admin" || currentUser?.role === "Manager";
                     return true;
                   }).map(v => (
