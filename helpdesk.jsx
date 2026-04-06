@@ -1079,7 +1079,7 @@ export default function HelpDesk() {
   const [reportTimeRange, setReportTimeRange] = useState("all"); // Time range filter for reports
 
   // ✅ NEW: User management edit modal state
-  const [userEditModal, setUserEditModal] = useState({ show: false, user: null, newRole: null });
+  const [userEditModal, setUserEditModal] = useState({ show: false, user: null, newRole: null, editName: "", editEmail: "", editPhone: "", editPassword: "" });
 
   const [loginEmail, setLoginEmail] = useState("");
   const [loginPassword, setLoginPassword] = useState("");
@@ -1682,7 +1682,8 @@ export default function HelpDesk() {
         if (!user.active) {
           clearSession();
           setCurrentUser(null);
-          setCustomAlert({ show: true, message: "❌ Your account has been deactivated by an administrator", type: "error" });
+          setAuthForm({ email: "", password: "", firstName: "", middleName: "", lastName: "", countryCode: "+1", phone: "", confirm: "" });
+          setCustomAlert({ show: true, message: "🚪 You have been logged out by an administrator.", type: "error" });
           return;
         }
 
@@ -1690,6 +1691,14 @@ export default function HelpDesk() {
           clearSession();
           setCurrentUser(null);
           setCustomAlert({ show: true, message: "⚠️ Your role has been changed. Please log in again.", type: "warning" });
+          return;
+        }
+
+        if (user.forceLogout) {
+          clearSession();
+          setCurrentUser(null);
+          setAuthForm({ email: "", password: "", firstName: "", middleName: "", lastName: "", countryCode: "+1", phone: "", confirm: "" });
+          setCustomAlert({ show: true, message: "🚪 You have been logged out by an administrator.", type: "error" });
           return;
         }
       } catch (e) {
@@ -4077,25 +4086,52 @@ export default function HelpDesk() {
     // No auto-detection - user must explicitly set their status
   };
 
+  const currentUserRef = useRef(currentUser);
+  useEffect(() => { currentUserRef.current = currentUser; }, [currentUser]);
+
   useEffect(() => {
-    if (!currentUser) return;
     const interval = setInterval(async () => {
-      if (currentUser.status !== "On Duty") return;
-      const loginTime = currentUser.loginTime ? new Date(currentUser.loginTime) : null;
+      const u = currentUserRef.current;
+      if (!u || u.status !== "On Duty" || u.role === "Admin" || u.role === "Manager") return;
+      const loginTime = u.loginTime ? new Date(u.loginTime) : null;
       if (!loginTime) return;
       const minutesElapsed = (new Date() - loginTime) / 60000;
       if (minutesElapsed >= 15) {
-        const up = { ...currentUser, status: "Idle" };
+        const up = { ...u, status: "Idle", idleAt: new Date().toISOString() };
         try {
-          await axios.put(`${USERS_API}/${currentUser.id}`, up);
+          await axios.put(`${USERS_API}/${u.id}`, up);
           saveSession(up);
           setCurrentUser(up);
-          setUsers(prev => prev.map(u => u.id === currentUser.id ? up : u));
+          setUsers(prev => prev.map(x => x.id === u.id ? up : x));
         } catch (e) { console.error("Failed to set Idle", e); }
       }
-    }, 60000);
+    }, 30000);
     return () => clearInterval(interval);
-  }, [currentUser]);
+  }, []);
+
+  // Auto-logout Idle agents after 15 min (admin/manager poll)
+  useEffect(() => {
+    if (!currentUser) return;
+    if (currentUser.role !== "Admin" && currentUser.role !== "Manager") return;
+    const interval = setInterval(async () => {
+    const idleUsers = users.filter(u => u.status === "Idle");
+    for (const u of idleUsers) {
+      try {
+        // deactivate — agent's poll sees active=false and logs them out
+        await axios.put(`${USERS_API}/${u.id}`, { ...u, active: false, status: "Off Duty", logoutReason: "Auto-logout: idle timeout", lunchStatus: false, currentTicketId: null });
+        setUsers(prev => prev.map(x => x.id === u.id ? { ...x, active: false, status: "Off Duty" } : x));
+        // reactivate after 6s so account stays usable
+        setTimeout(async () => {
+          try {
+            await axios.put(`${USERS_API}/${u.id}`, { ...u, active: true, status: "Off Duty", logoutReason: "Auto-logout: idle timeout", lunchStatus: false, currentTicketId: null });
+            setUsers(prev => prev.map(x => x.id === u.id ? { ...x, active: true, status: "Off Duty" } : x));
+          } catch (_) {}
+        }, 6000);
+      } catch (e) { console.error("Failed to auto-logout idle agent", e); }
+    }
+  }, 60000);
+    return () => clearInterval(interval);
+  }, [currentUser, users]);
 
   // ✅ REMOVED: Idle detection useEffect - no longer auto-detecting
   // Idle status is now only set when user manually updates status
@@ -4956,11 +4992,13 @@ export default function HelpDesk() {
       </Modal>
 
       {/* ✅ NEW: User Management Edit Modal (Role Change, Deactivate, Delete) */}
-      <Modal open={userEditModal.show} onClose={() => { setUserEditModal({ show: false, user: null, newRole: null }); }} title={userEditModal.user ? `Manage User: ${userEditModal.user.name}` : "Manage User"} width={520}>
+      {/* User Management Edit Modal */}
+      <Modal open={userEditModal.show} onClose={() => { setUserEditModal({ show: false, user: null, newRole: null, editName: "", editEmail: "", editPhone: "", editPassword: "" }); }} title={userEditModal.user ? `Manage User: ${userEditModal.user.name}` : "Manage User"} width={520}>
         {userEditModal.user && (
           <div>
+            {/* Header card */}
             <div style={{ marginBottom: 20, padding: "14px 16px", background: "#f8fafc", borderRadius: 10, border: "1px solid #e2e8f0" }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 12 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
                 <Avatar name={userEditModal.user.name} size={48} />
                 <div>
                   <div style={{ fontSize: 15, fontWeight: 700, color: "#1e293b" }}>{userEditModal.user.name}</div>
@@ -4968,19 +5006,59 @@ export default function HelpDesk() {
                   <div style={{ display: "flex", gap: 6, marginTop: 6 }}>
                     <Badge label={userEditModal.user.role} style={{ background: "#ede9fe", color: "#6d28d9" }} />
                     <Badge label={userEditModal.user.active ? "Active" : "Inactive"} style={{ background: userEditModal.user.active ? "#dcfce7" : "#fee2e2", color: userEditModal.user.active ? "#15803d" : "#991b1b" }} />
+                    {(() => {
+                      const st = statusOpts.find(s => s.l === userEditModal.user.status);
+                      return st ? <Badge label={st.l} style={{ background: st.bg, color: st.c }} /> : null;
+                    })()}
                   </div>
                 </div>
               </div>
             </div>
 
-            {/* Role Change Section */}
+            {/* ── Edit Details ── */}
+            <div style={{ marginBottom: 20, padding: "14px 16px", background: "#f0f9ff", borderRadius: 10, border: "1px solid #bae6fd" }}>
+              <div style={{ fontSize: 13, fontWeight: 700, color: "#0369a1", marginBottom: 12 }}>✏️ Edit Details</div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                <div>
+                  <label style={{ fontSize: 11, fontWeight: 600, color: "#374151", display: "block", marginBottom: 4 }}>Full Name *</label>
+                  <input style={{ ...iS, fontSize: 12, padding: "8px 10px" }} value={userEditModal.editName} onChange={e => setUserEditModal({ ...userEditModal, editName: e.target.value })} placeholder="Full name" />
+                </div>
+                <div>
+                  <label style={{ fontSize: 11, fontWeight: 600, color: "#374151", display: "block", marginBottom: 4 }}>Email Address *</label>
+                  <input style={{ ...iS, fontSize: 12, padding: "8px 10px" }} type="email" value={userEditModal.editEmail} onChange={e => setUserEditModal({ ...userEditModal, editEmail: e.target.value })} placeholder="Email address" />
+                </div>
+                <div>
+                  <label style={{ fontSize: 11, fontWeight: 600, color: "#374151", display: "block", marginBottom: 4 }}>Phone</label>
+                  <input style={{ ...iS, fontSize: 12, padding: "8px 10px" }} value={userEditModal.editPhone} onChange={e => setUserEditModal({ ...userEditModal, editPhone: e.target.value })} placeholder="Phone number" />
+                </div>
+                <div>
+                  <label style={{ fontSize: 11, fontWeight: 600, color: "#374151", display: "block", marginBottom: 4 }}>New Password <span style={{ color: "#94a3b8", fontWeight: 400 }}>(leave blank to keep unchanged)</span></label>
+                  <input style={{ ...iS, fontSize: 12, padding: "8px 10px" }} type="password" value={userEditModal.editPassword} onChange={e => setUserEditModal({ ...userEditModal, editPassword: e.target.value })} placeholder="New password" />
+                </div>
+                <button
+                  onClick={async () => {
+                    if (!userEditModal.editName?.trim() || !userEditModal.editEmail?.trim()) {
+                      setCustomAlert({ show: true, message: "Name and email are required", type: "error" }); return;
+                    }
+                    try {
+                      const updates = { name: userEditModal.editName.trim(), email: userEditModal.editEmail.trim(), phone: userEditModal.editPhone?.trim() || userEditModal.user.phone };
+                      if (userEditModal.editPassword) updates.password = userEditModal.editPassword;
+                      const updated = { ...userEditModal.user, ...updates };
+                      await axios.put(`${USERS_API}/${userEditModal.user.id}`, updated);
+                      setUsers(users.map(u => u.id === userEditModal.user.id ? updated : u));
+                      setCustomAlert({ show: true, message: `✅ ${updates.name}'s details updated`, type: "success" });
+                      setUserEditModal({ show: false, user: null, newRole: null, editName: "", editEmail: "", editPhone: "", editPassword: "" });
+                    } catch (err) { setCustomAlert({ show: true, message: "Failed to update details", type: "error" }); }
+                  }}
+                  style={{ ...bP, padding: "7px 14px", fontSize: 12, alignSelf: "flex-end" }}
+                >Save Details</button>
+              </div>
+            </div>
+
+            {/* ── Role Change ── */}
             <div style={{ marginBottom: 20 }}>
               <label style={{ display: "block", fontSize: 13, fontWeight: 700, color: "#1e293b", marginBottom: 8 }}>🔑 Change Role</label>
-              <select
-                value={userEditModal.newRole}
-                onChange={(e) => setUserEditModal({ ...userEditModal, newRole: e.target.value })}
-                style={{ ...sS, fontSize: 12, padding: "8px 10px", width: "100%" }}
-              >
+              <select value={userEditModal.newRole} onChange={(e) => setUserEditModal({ ...userEditModal, newRole: e.target.value })} style={{ ...sS, fontSize: 12, padding: "8px 10px", width: "100%" }}>
                 {ROLES.map(r => <option key={r}>{r}</option>)}
               </select>
               {userEditModal.newRole !== userEditModal.user.role && (
@@ -4990,16 +5068,68 @@ export default function HelpDesk() {
               )}
             </div>
 
-            {/* Deactivate Section */}
+            {/* ── Force Logout — only for On Duty agents (not Idle, not Off Duty, not self) ── */}
+            {/* ── Force Logout — for any active/logged-in agent ── */}
+            {userEditModal.user.id !== currentUser?.id && (currentUser?.role === "Admin" || currentUser?.role === "Manager") && (userEditModal.user.status === "On Duty" || userEditModal.user.status === "On Ticket" || userEditModal.user.status === "Idle") && (
+              <div style={{ marginBottom: 20, padding: "14px 16px", background: "#fff7ed", borderRadius: 10, border: "1px solid #fed7aa" }}>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                  <div>
+                    <div style={{ fontSize: 13, fontWeight: 700, color: "#9a3412", marginBottom: 3 }}>🚪 Force Logout Agent</div>
+                    <div style={{ fontSize: 12, color: "#64748b" }}>Agent is currently <strong>{userEditModal.user.status}</strong>. They will be logged out immediately.</div>
+                  </div>
+                  <button
+                    onClick={() => {
+                      const agentUser = userEditModal.user;
+                      const agentTickets = (Array.isArray(tickets) ? tickets : [])
+                        .filter(t => (t.status === "Open" || t.status === "In Progress") && t.assignees?.some(a => String(a.id) === String(agentUser.id)))
+                        .map(t => ({ value: t.id, label: `${t.id} — ${t.summary}` }));
+                      setUserEditModal({ show: false, user: null, newRole: null, editName: "", editEmail: "", editPhone: "", editPassword: "" });
+                      setConfirmModal({
+                        show: true,
+                        title: `Force Logout: ${agentUser.name}`,
+                        confirmLabel: "Mark Off Duty & Logout",
+                        message: `Agent is On Duty. Set ${agentUser.name} as Off Duty and log them out.`,
+                        fields: [
+                          { name: "logoutReason", label: "📝 Reason for logout", type: "select", options: [{ value: "End of shift", label: "End of shift" }, { value: "Going for ticket", label: "Going for ticket" }, { value: "Going for lunch", label: "Going for lunch" }], value: "", required: true },
+                          { name: "ticketId", label: "🎫 Select Ticket", type: "searchable-select", options: agentTickets, value: "", required: false },
+                          { name: "location", label: "📍 Location", type: "select", options: locations.map(loc => ({ value: loc.name, label: loc.name })), value: agentUser.currentLocation || "", required: false }
+                        ],
+                        onConfirm: async (data) => {
+                          try {
+                            if (!data.logoutReason || data.logoutReason.trim() === "") {
+                              setCustomAlert({ show: true, message: "Please provide a reason for logout", type: "error" }); return;
+                            }
+                            const isGoingForTicket = data.logoutReason === "Going for ticket";
+                            const finalStatus = isGoingForTicket ? "On Ticket" : "Off Duty";
+                            const finalTicketId = isGoingForTicket ? (data.ticketId || "field") : null;
+                            const finalLocation = data.location || agentUser.currentLocation;
+                            await axios.put(`${USERS_API}/${agentUser.id}`, { ...agentUser, active: false, status: finalStatus, logoutReason: data.logoutReason, lunchStatus: false, currentTicketId: finalTicketId, currentLocation: finalLocation });
+                            setUsers(users.map(u => u.id === agentUser.id ? { ...u, active: false, status: finalStatus } : u));
+                            setTimeout(async () => {
+                              try {
+                                await axios.put(`${USERS_API}/${agentUser.id}`, { ...agentUser, active: true, status: finalStatus, logoutReason: data.logoutReason, lunchStatus: false, currentTicketId: finalTicketId, currentLocation: finalLocation });
+                                setUsers(prev => prev.map(u => u.id === agentUser.id ? { ...u, active: true, status: finalStatus } : u));
+                              } catch (_) {}
+                            }, 6000);
+                            setConfirmModal({ show: false });
+                            setCustomAlert({ show: true, message: `✅ ${agentUser.name} has been logged out`, type: "success" });
+                          } catch (err) { setCustomAlert({ show: true, message: "Failed to force logout agent", type: "error" }); }
+                        },
+                        onCancel: () => setConfirmModal({ show: false })
+                      });
+                    }}
+                    style={{ padding: "6px 12px", background: "#fff7ed", border: "1px solid #fed7aa", borderRadius: 6, color: "#c2410c", fontWeight: 600, cursor: "pointer", fontSize: 12, whiteSpace: "nowrap" }}
+                  >Force Logout</button>
+                </div>
+              </div>
+            )}
+
+            {/* ── Deactivate ── */}
             <div style={{ marginBottom: 20, padding: "14px 16px", background: userEditModal.user.active ? "#fef3c7" : "#dcfce7", borderRadius: 10, border: `1px solid ${userEditModal.user.active ? "#f59e0b" : "#22c55e"}` }}>
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
                 <div>
                   <div style={{ fontSize: 13, fontWeight: 700, color: "#1e293b", marginBottom: 3 }}>{userEditModal.user.active ? "🔴 Deactivate User" : "🟢 Activate User"}</div>
-                  <div style={{ fontSize: 12, color: "#64748b" }}>
-                    {userEditModal.user.active
-                      ? "This user will be logged out and unable to access the system"
-                      : "This user will be able to log in and access the system"}
-                  </div>
+                  <div style={{ fontSize: 12, color: "#64748b" }}>{userEditModal.user.active ? "This user will be logged out and unable to access the system" : "This user will be able to log in and access the system"}</div>
                 </div>
                 <button
                   onClick={async () => {
@@ -5008,28 +5138,21 @@ export default function HelpDesk() {
                       await axios.put(`${USERS_API}/${userEditModal.user.id}`, updated);
                       setUsers(users.map(x => x.id === userEditModal.user.id ? updated : x));
                       if (userEditModal.user.id === currentUser.id && !userEditModal.user.active) {
-                        clearSession();
-                        setCurrentUser(null);
+                        clearSession(); setCurrentUser(null);
                         setCustomAlert({ show: true, message: "❌ You've been deactivated. Logged out.", type: "error" });
                         setTimeout(() => window.location.reload(), 2000);
-                      } else if (!userEditModal.user.active) {
-                        setCustomAlert({ show: true, message: `✅ ${userEditModal.user.name} deactivated.`, type: "success" });
                       } else {
-                        setCustomAlert({ show: true, message: `✅ ${userEditModal.user.name} activated.`, type: "success" });
+                        setCustomAlert({ show: true, message: `✅ ${userEditModal.user.name} ${!userEditModal.user.active ? "deactivated" : "activated"}.`, type: "success" });
                       }
-                      setUserEditModal({ show: false, user: null, newRole: null });
-                    } catch (err) {
-                      setCustomAlert({ show: true, message: "Failed to update user status", type: "error" });
-                    }
+                      setUserEditModal({ show: false, user: null, newRole: null, editName: "", editEmail: "", editPhone: "", editPassword: "" });
+                    } catch (err) { setCustomAlert({ show: true, message: "Failed to update user status", type: "error" }); }
                   }}
                   style={{ padding: "6px 12px", background: userEditModal.user.active ? "#fef3c7" : "#dcfce7", border: `1px solid ${userEditModal.user.active ? "#f59e0b" : "#22c55e"}`, borderRadius: 6, color: userEditModal.user.active ? "#854d0e" : "#15803d", fontWeight: 600, cursor: "pointer", fontSize: 12, whiteSpace: "nowrap" }}
-                >
-                  {userEditModal.user.active ? "Deactivate" : "Activate"}
-                </button>
+                >{userEditModal.user.active ? "Deactivate" : "Activate"}</button>
               </div>
             </div>
 
-            {/* Delete Section - Only if not current user */}
+            {/* ── Delete ── */}
             {userEditModal.user.id !== currentUser?.id && (
               <div style={{ marginBottom: 20, padding: "14px 16px", background: "#fee2e2", borderRadius: 10, border: "1px solid #fca5a5" }}>
                 <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
@@ -5040,8 +5163,7 @@ export default function HelpDesk() {
                   <button
                     onClick={() => {
                       setConfirmModal({
-                        show: true,
-                        title: "Delete User",
+                        show: true, title: "Delete User",
                         message: `Are you sure you want to permanently delete ${userEditModal.user.name}? This action cannot be undone.`,
                         onConfirm: async () => {
                           try {
@@ -5049,40 +5171,30 @@ export default function HelpDesk() {
                             setUsers(prev => prev.filter(u => u.id !== userEditModal.user.id));
                             setCustomAlert({ show: true, message: `✅ ${userEditModal.user.name} deleted.`, type: "success" });
                             setConfirmModal({ show: false, title: "", message: "", onConfirm: null, onCancel: null });
-                            setUserEditModal({ show: false, user: null, newRole: null });
+                            setUserEditModal({ show: false, user: null, newRole: null, editName: "", editEmail: "", editPhone: "", editPassword: "" });
                           } catch (err) {
                             setCustomAlert({ show: true, message: "Failed to delete user", type: "error" });
                             setConfirmModal({ show: false, title: "", message: "", onConfirm: null, onCancel: null });
                           }
                         },
-                        onCancel: () => {
-                          setConfirmModal({ show: false, title: "", message: "", onConfirm: null, onCancel: null });
-                        }
+                        onCancel: () => { setConfirmModal({ show: false, title: "", message: "", onConfirm: null, onCancel: null }); }
                       });
                     }}
                     style={{ padding: "6px 12px", background: "#fee2e2", border: "1px solid #fca5a5", borderRadius: 6, color: "#ef4444", fontWeight: 600, cursor: "pointer", fontSize: 12, whiteSpace: "nowrap" }}
-                  >
-                    Delete
-                  </button>
+                  >Delete</button>
                 </div>
               </div>
             )}
 
             {/* Modal Actions */}
             <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", paddingTop: 16, borderTop: "1px solid #e2e8f0" }}>
-              <button
-                onClick={() => { setUserEditModal({ show: false, user: null, newRole: null }); }}
-                style={{ ...bG, padding: "8px 16px", fontSize: 12 }}
-              >
-                Cancel
-              </button>
+              <button onClick={() => { setUserEditModal({ show: false, user: null, newRole: null, editName: "", editEmail: "", editPhone: "", editPassword: "" }); }} style={{ ...bG, padding: "8px 16px", fontSize: 12 }}>Cancel</button>
               {userEditModal.newRole !== userEditModal.user.role && (
                 <button
                   onClick={async () => {
                     try {
                       setConfirmModal({
-                        show: true,
-                        title: "Confirm Role Change",
+                        show: true, title: "Confirm Role Change",
                         message: `Change ${userEditModal.user.name}'s role to ${userEditModal.newRole}? They will be logged out and must log in again.`,
                         onConfirm: async () => {
                           try {
@@ -5090,37 +5202,30 @@ export default function HelpDesk() {
                             await axios.put(`${USERS_API}/${userEditModal.user.id}`, updated);
                             setUsers(users.map(u => u.id === userEditModal.user.id ? updated : u));
                             if (userEditModal.user.id === currentUser.id) {
-                              clearSession();
-                              setCurrentUser(null);
+                              clearSession(); setCurrentUser(null);
                               setCustomAlert({ show: true, message: `⚠️ Your role changed to ${userEditModal.newRole}. Log in again.`, type: "warning" });
                               setTimeout(() => window.location.reload(), 2000);
                             } else {
                               setCustomAlert({ show: true, message: `✅ ${userEditModal.user.name} role → ${userEditModal.newRole}. User logged out.`, type: "success" });
                             }
                             setConfirmModal({ show: false, title: "", message: "", onConfirm: null, onCancel: null });
-                            setUserEditModal({ show: false, user: null, newRole: null });
+                            setUserEditModal({ show: false, user: null, newRole: null, editName: "", editEmail: "", editPhone: "", editPassword: "" });
                           } catch (err) {
                             setCustomAlert({ show: true, message: "Failed to update role", type: "error" });
                             setConfirmModal({ show: false, title: "", message: "", onConfirm: null, onCancel: null });
                           }
                         },
-                        onCancel: () => {
-                          setConfirmModal({ show: false, title: "", message: "", onConfirm: null, onCancel: null });
-                        }
+                        onCancel: () => { setConfirmModal({ show: false, title: "", message: "", onConfirm: null, onCancel: null }); }
                       });
-                    } catch (err) {
-                      setCustomAlert({ show: true, message: "Failed to update role", type: "error" });
-                    }
+                    } catch (err) { setCustomAlert({ show: true, message: "Failed to update role", type: "error" }); }
                   }}
                   style={{ ...bP, padding: "8px 16px", fontSize: 12 }}
-                >
-                  Change Role
-                </button>
+                >Change Role</button>
               )}
             </div>
           </div>
         )}
-      </Modal>
+      </Modal>    
 
       {/* Add Vendor Modal */}
       <Modal open={showAddVendorModal} onClose={() => { setShowAddVendorModal(false); setNewVendor({ name: "", email: "", phone: "", address: "" }); }} title="Add New Vendor" width={450}>
@@ -6128,7 +6233,7 @@ export default function HelpDesk() {
               <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 12, marginBottom: 20 }}>
                 {[
                   { key: "all", icon: "👥", color: "#3b82f6", label: "Total Users", count: Array.isArray(users) ? users.length : 0 },
-                  { key: "On Duty", icon: "🟢", color: "#22c55e", label: "On Duty", count: Array.isArray(users) ? users.filter(u => u.status === "On Duty" || u.status === "On Ticket" || u.status === "Idle").length : 0 },
+                  { key: "On Duty", icon: "🟢", color: "#22c55e", label: "On Duty", count: Array.isArray(users) ? users.filter(u => u.status === "On Duty" || u.status === "On Ticket").length : 0 },
                   { key: "On Ticket", icon: "🎫", color: "#6366f1", label: "On Ticket", count: Array.isArray(users) ? users.filter(u => u.status === "On Ticket").length : 0 },
                   { key: "Idle", icon: "🟣", color: "#a855f7", label: "Idle", count: Array.isArray(users) ? users.filter(u => u.status === "Idle" || (u.status === "On Duty" && u.loginTime && (new Date() - new Date(u.loginTime)) / 60000 >= 15)).length : 0 },
                   { key: "On Lunch", icon: "🍽️", color: "#f97316", label: "On Lunch", count: Array.isArray(users) ? users.filter(u => u.status === "On Lunch").length : 0 },
@@ -6137,7 +6242,7 @@ export default function HelpDesk() {
                   const isActive = agentStatusFilter === s.key;
                   return (
                     <div key={s.key}
-                      onClick={() => setAgentStatusFilter(isActive ? "all" : s.key)}
+                      onClick={() => setAgentStatusFilter(s.key)}
                       style={{ background: isActive ? `${s.color}18` : "#fff", borderRadius: 12, padding: "16px 16px", boxShadow: isActive ? `0 0 0 2px ${s.color}` : "0 2px 6px rgba(0,0,0,0.1)", borderLeft: `5px solid ${s.color}`, transition: "all 0.2s ease", cursor: "pointer" }}
                       onMouseEnter={e => { e.currentTarget.style.boxShadow = isActive ? `0 0 0 2px ${s.color}` : "0 6px 20px rgba(0,0,0,0.15)"; e.currentTarget.style.transform = "translateY(-2px)"; }}
                       onMouseLeave={e => { e.currentTarget.style.boxShadow = isActive ? `0 0 0 2px ${s.color}` : "0 2px 6px rgba(0,0,0,0.1)"; e.currentTarget.style.transform = "translateY(0)"; }}>
@@ -6155,7 +6260,7 @@ export default function HelpDesk() {
                 {agentStats.filter(a => {
                   if (agentStatusFilter === "all") return true;
                   const userStatus = users.find(u => u.id === a.id)?.status || "Off Duty";
-                  if (agentStatusFilter === "On Duty") return userStatus === "On Duty" || userStatus === "On Ticket" || userStatus === "Idle";
+                  if (agentStatusFilter === "On Duty") return userStatus === "On Duty" || userStatus === "On Ticket";
                   if (agentStatusFilter === "Idle") { const u = users.find(x => x.id === a.id); return userStatus === "Idle" || (userStatus === "On Duty" && u?.loginTime && (new Date() - new Date(u.loginTime)) / 60000 >= 15); }
                   if (agentStatusFilter === "On Ticket") return userStatus === "On Ticket";
                   if (agentStatusFilter === "off") return userStatus !== "On Duty" && userStatus !== "On Ticket" && userStatus !== "Idle" && userStatus !== "On Lunch";
@@ -6223,18 +6328,20 @@ export default function HelpDesk() {
                         );
                       })()}
 
-                      {/* ✅ NEW: View and Manage buttons only */}
-                      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+                      {/* View and Manage buttons */}
+                      <div style={{ display: "grid", gridTemplateColumns: (currentUser?.role === "Admin" || currentUser?.role === "Manager") ? "1fr 1fr" : "1fr", gap: 8 }}>
                         <button
                           onClick={() => setSelAgent(a)}
                           style={{ padding: "6px 10px", background: "#dbeafe", color: "#1e40af", border: "none", borderRadius: 6, cursor: "pointer", fontSize: 11, fontWeight: 600 }}>
                           👁️ View
                         </button>
-                        <button
-                          onClick={() => { setUserEditModal({ show: true, user: userInfo, newRole: userInfo?.role }); }}
-                          style={{ padding: "6px 10px", background: "#f0fdf4", color: "#15803d", border: "none", borderRadius: 6, cursor: "pointer", fontSize: 11, fontWeight: 600 }}>
-                          ⚙️ Manage
-                        </button>
+                        {(currentUser?.role === "Admin" || currentUser?.role === "Manager") && (
+                          <button
+                            onClick={() => { setUserEditModal({ show: true, user: userInfo, newRole: userInfo?.role, editName: userInfo?.name || "", editEmail: userInfo?.email || "", editPhone: userInfo?.phone || "", editPassword: "" }); }}
+                            style={{ padding: "6px 10px", background: "#f0fdf4", color: "#15803d", border: "none", borderRadius: 6, cursor: "pointer", fontSize: 11, fontWeight: 600 }}>
+                            ⚙️ Manage
+                          </button>
+                        )}
                       </div>
                     </div>
                   );

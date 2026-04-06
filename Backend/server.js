@@ -47,6 +47,7 @@ const User = sequelize.define("User", {
     // ✅ NEW: Logout reason and validation fields
     logoutReason: { type: DataTypes.STRING, defaultValue: null }, // Reason for last logout/status change
     requiresLogoutReason: { type: DataTypes.BOOLEAN, defaultValue: false }, // Flag if user needs to provide reason before logout
+    forceLogout: { type: DataTypes.BOOLEAN, defaultValue: false }, // Set by admin to remotely eject an agent
 }, { timestamps: true });
 
 const Org = sequelize.define("Org", {
@@ -279,7 +280,8 @@ app.post("/api/auth/login", async (req, res) => {
             lunchStatus: false,
             currentTicketId: null,
             currentLocation: null,
-        });
+            forceLogout: false,
+            });
         res.json(fmt(user));
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
@@ -302,6 +304,14 @@ app.post("/api/auth/signup", async (req, res) => {
 app.get("/api/users", async (req, res) => {
     try { res.json((await User.findAll({ order: [['createdAt', 'ASC']] })).map(fmt)); }
     catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.get("/api/users/:id", async (req, res) => {
+    try {
+        const user = await User.findByPk(req.params.id);
+        if (!user) return res.status(404).json({ error: "User not found" });
+        res.json(fmt(user));
+    } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
 app.post("/api/users", async (req, res) => {
@@ -368,6 +378,21 @@ app.put("/api/users/:id", async (req, res) => {
 
         // Update user
         await user.update(req.body);
+        res.json(fmt(user));
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.post("/api/users/:id/force-logout", async (req, res) => {
+    try {
+        const user = await User.findByPk(req.params.id);
+        if (!user) return res.status(404).json({ error: "User not found" });
+        await user.update({
+            forceLogout: true,
+            status: "Off Duty",
+            logoutReason: req.body.logoutReason || "Force logged out by admin",
+            lunchStatus: false,
+            currentTicketId: null,
+        });
         res.json(fmt(user));
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
