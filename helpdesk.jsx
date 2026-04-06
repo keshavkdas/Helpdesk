@@ -1,6 +1,5 @@
 import React, { useState, useMemo, useEffect, useRef } from "react";
 import axios from "axios";
-import Inventory from "./Inventory";
 
 // --- SERVER CONFIGURATION ---
 const SERVER_IP = "10.0.2.111";
@@ -1157,9 +1156,6 @@ export default function HelpDesk() {
 
   // ✅ NEW: User Add Modal
   const [showAddUserModal, setShowAddUserModal] = useState(false);
-
-  // ✅ NEW: Inventory State
-  const [showInventory, setShowInventory] = useState(false);
 
   // ✅ NEW: Save current view and filters to localStorage
   useEffect(() => {
@@ -4809,19 +4805,6 @@ export default function HelpDesk() {
           ))}
         </div>
 
-        {/* ── Inventory Link ── */}
-        <div style={{ padding: "4px 8px 6px", borderTop: "1px solid #1e293b" }}>
-          <button
-            onClick={() => setShowInventory(true)}
-            style={{ display: "flex", alignItems: "center", gap: 9, width: "100%", padding: "8px 11px", borderRadius: 7, border: "none", cursor: "pointer", background: "transparent", color: "#64748b", fontSize: 13, fontWeight: 400, textAlign: "left", fontFamily: "'DM Sans',sans-serif" }}
-            onMouseEnter={e => { e.currentTarget.style.background = "#1e293b"; e.currentTarget.style.color = "#e2e8f0"; }}
-            onMouseLeave={e => { e.currentTarget.style.background = "transparent"; e.currentTarget.style.color = "#64748b"; }}
-          >
-            <span style={{ fontSize: 15 }}>📦</span>
-            <span>Inventory</span>
-          </button>
-        </div>
-
         {/* New Ticket / Project buttons */}
         <div style={{ padding: "8px 8px 10px", display: "flex", flexDirection: "column", gap: 5 }}>
           <button onClick={() => { setForm(emptyForm()); setShowNewTicket(true); }} style={{ width: "100%", padding: "8px", borderRadius: 9, border: "none", background: "linear-gradient(135deg,#3b82f6,#6366f1)", color: "#fff", fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: "'DM Sans',sans-serif" }}>+ New Ticket</button>
@@ -7467,19 +7450,6 @@ export default function HelpDesk() {
             </div>
           )}
 
-          {selTicket?.deviceId && (
-            <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "9px 13px", background: "#eff6ff", borderRadius: 9, border: "1px solid #bfdbfe", marginBottom: 14 }}>
-              <span style={{ fontSize: 16 }}>🔗</span>
-              <div style={{ flex: 1 }}>
-                <div style={{ fontSize: 10, fontWeight: 700, color: "#1d4ed8", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 2 }}>Linked Inventory Device</div>
-                <div style={{ fontSize: 13, fontWeight: 600, color: "#1e40af" }}>
-                  Device ID: {selTicket.deviceId}
-                  <span onClick={() => window.location.href = "/inventory"} style={{ marginLeft: 10, color: "#3b82f6", cursor: "pointer", textDecoration: "underline", fontSize: 12, fontWeight: 500 }}>View in Inventory →</span>
-                </div>
-              </div>
-            </div>
-          )}
-
           {selTicket.customAttrs && Object.keys(selTicket.customAttrs).length > 0 && <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 9, marginBottom: 14 }}>
             {Object.entries(selTicket.customAttrs).map(([k, v]) => <div key={k} style={{ background: "#fffbeb", padding: "9px 13px", borderRadius: 9, border: "1px solid #fde68a" }}><div style={{ fontSize: 10, fontWeight: 600, color: "#92400e", textTransform: "uppercase", marginBottom: 3 }}>{k}</div><div style={{ fontSize: 13, fontWeight: 500 }}>{String(v) || "-"}</div></div>)}
           </div>}
@@ -8562,7 +8532,6 @@ export default function HelpDesk() {
           }
         }
       `}</style>
-      {showInventory && <Inventory onClose={() => setShowInventory(false)} />}
     </div>
   );
 }
