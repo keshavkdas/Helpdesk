@@ -1327,6 +1327,8 @@ export default function HelpDesk() {
   // ── Ticket Edit Mode ──
   const [editMode, setEditMode] = useState(false);
   const [editTicket, setEditTicket] = useState(null);
+  const [editProjMode, setEditProjMode] = useState(false);
+  const [editProject, setEditProject] = useState(null);
 
   // ── Forward ticket ──
   const [showForward, setShowForward] = useState(false);
@@ -1446,6 +1448,7 @@ export default function HelpDesk() {
   const [showRemarkModal, setShowRemarkModal] = useState(false);
   const [closingTicketId, setClosingTicketId] = useState(null);
   const [ticketRemark, setTicketRemark] = useState("");
+  const [closedBy, setClosedBy] = useState(null);
 
   // ✅ NEW: Confirmation Modal State
   const [confirmModal, setConfirmModal] = useState({ show: false, title: "", message: "", onConfirm: null, onCancel: null });
@@ -2051,8 +2054,6 @@ export default function HelpDesk() {
     String(t.id).startsWith("WC-");
 
   const filtered = useMemo(() => tickets.filter(t => {
-    // ✅ Exclude true webcast tickets from regular tickets view
-    if (isTrueWebcast(t)) return false;
 
     if (!currentUser || !cvd.filter(t, currentUser)) return false;
     // ✅ Exclude Bin status from all ticket views except Bin view
@@ -2686,18 +2687,28 @@ export default function HelpDesk() {
   };
 
   // ✅ NEW: Close ticket with remark
-  const closeTicketWithRemark = async () => {
+    const closeTicketWithRemark = async () => {
     if (!ticketRemark.trim()) {
       setCustomAlert({ show: true, message: "⚠️ Remark is mandatory before closing the ticket", type: "error" });
       return;
     }
+    const t = tickets.find(x => x.id === closingTicketId);
+    const isReopening = t?.status === "Closed";
+    if (!isReopening && !closedBy) {
+      setCustomAlert({ show: true, message: "⚠️ Please select who closed this ticket", type: "error" });
+      return;
+    }
 
-    const t = tickets.find(x => x.id === closingTicketId); if (!t) return;
+    if (!t) return;
     try {
       const nowISO = new Date().toISOString();
       const newStatus = t.status === "Closed" ? "Open" : "Closed";
-      const newTimelineEvent = { action: `Status changed to ${newStatus}`, by: currentUser.name, date: nowISO, note: `Reason: ${ticketRemark}` };
-      const updatedT = { ...t, status: newStatus, updated: nowISO, timeline: [...(t.timeline || []), newTimelineEvent] };
+      const closedByName = closedBy ? closedBy.name : currentUser.name;
+      const newTimelineEvent = { action: `Status changed to ${newStatus}`, by: currentUser.name, date: nowISO, note: `Reason: ${ticketRemark}${closedBy ? ` · Closed by: ${closedBy.name}` : ""}` };
+      const updatedAssignees = closedBy && !t.assignees?.some(a => a.id === closedBy.id)
+        ? [...(t.assignees || []), closedBy]
+        : t.assignees;
+      const updatedT = { ...t, status: newStatus, updated: nowISO, closedBy: newStatus === "Closed" ? closedByName : null, timeline: [...(t.timeline || []), newTimelineEvent], assignees: updatedAssignees };
       const apiUrl = isTrueWebcast(t) ? `${BASE_URL}/webcasts/${closingTicketId}` : `${TICKETS_API}/${closingTicketId}`;
       await axios.put(apiUrl, updatedT);
       setTickets(p => p.map(x => x.id === closingTicketId ? { ...updatedT, updated: new Date(nowISO) } : x));
@@ -2730,6 +2741,7 @@ export default function HelpDesk() {
       setShowRemarkModal(false);
       setClosingTicketId(null);
       setTicketRemark("");
+      setClosedBy(null);
       setCustomAlert({ show: true, message: newStatus === "Closed" ? "✅ Ticket successfully closed" : "✅ Ticket successfully reopened", type: "success" });
       // Close the ticket details modal after 1 second to show the success message
       setTimeout(() => setSelTicket(null), 1000);
@@ -4322,7 +4334,6 @@ export default function HelpDesk() {
     { id: "dashboard", label: "Dashboard", icon: "▦" },
     { id: "tickets", label: "All Tickets", icon: "◈" },
     { id: "projects", label: "Projects", icon: "📁" },
-    { id: "webcast", label: "Webcast", icon: "📡" },
     { id: "reports", label: "Reports", icon: "◉" },
     { id: "users", label: "Agents", icon: "◎" },
     { id: "settings", label: "Settings", icon: "⚙" },
@@ -4789,11 +4800,13 @@ export default function HelpDesk() {
               </button>
               {n.id === "tickets" && view === "tickets" && ticketsExpanded && (
                 <div style={{ marginBottom: 4, paddingLeft: 8, borderLeft: "2px solid #1e293b", marginLeft: 11 }}>
-                  {TICKET_VIEWS.filter(v => {
-                    if (v.id === "all") return false;
-                    if (v.id === "unassigned") return currentUser?.role === "Admin" || currentUser?.role === "Manager";
-                    return true;
-                  }).map(v => (
+                  {[
+                    { id: "open", label: "Open Tickets", icon: "📬" },
+                    { id: "inprogress", label: "In Progress", icon: "⚙️" },
+                    { id: "closed", label: "Closed Tickets", icon: "✅" },
+                    { id: "bin", label: "Bin", icon: "🧹" },
+                    { id: "alerts", label: "Active Alerts", icon: "🔔" },
+                  ].map(v => (
                     <button key={v.id} onClick={() => setTvFilter(v.id)} style={{ display: "flex", alignItems: "center", gap: 7, width: "100%", padding: "6px 11px", borderRadius: 6, border: "none", cursor: "pointer", background: tvFilter === v.id ? "#0f172a" : "transparent", color: tvFilter === v.id ? "#93c5fd" : "#475569", fontSize: 11.5, textAlign: "left", fontFamily: "'DM Sans',sans-serif", marginBottom: 1 }}>
                       <span style={{ fontSize: 12 }}>{v.icon}</span>{v.label}
                     </button>
@@ -5383,6 +5396,9 @@ export default function HelpDesk() {
                         </div>
                       ))}
                     </div>
+                    <div style={{ padding: "10px 16px", borderTop: "1px solid #f1f5f9" }}>
+                      <button onClick={() => { setView("tickets"); setTvFilter("alerts"); setShowBellPanel(false); }} style={{ width: "100%", padding: "7px", borderRadius: 8, border: "none", background: "#f8fafc", color: "#3b82f6", fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: "'DM Sans',sans-serif" }}>View All Alerts →</button>
+                    </div>
                   </div>
                 </>}
               </div>
@@ -5426,6 +5442,9 @@ export default function HelpDesk() {
                           </div>
                         </div>
                       ))}
+                    </div>
+                    <div style={{ padding: "10px 16px", borderTop: "1px solid #f1f5f9" }}>
+                      <button onClick={() => { setView("tickets"); setTvFilter("alerts"); setShowInboxPanel(false); }} style={{ width: "100%", padding: "7px", borderRadius: 8, border: "none", background: "#f8fafc", color: "#3b82f6", fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: "'DM Sans',sans-serif" }}>View All Alerts →</button>
                     </div>
                   </div>
                 </>}
@@ -5566,6 +5585,20 @@ export default function HelpDesk() {
             <div style={{ padding: "11px 14px", borderBottom: "1px solid #f1f5f9", display: "flex", gap: 9, alignItems: "center", flexWrap: "wrap" }}>
               <input placeholder="Search…" value={search} onChange={e => setSearch(e.target.value)} style={{ ...iS, width: 200, fontSize: 13, padding: "7px 10px" }} />
               <span style={{ fontSize: 12, color: "#64748b" }}>{allSortedTickets.length} tickets</span>
+              {[
+                { id: "unassigned", label: "Unassigned", icon: "🔸" },
+                { id: "mine", label: "My Tickets", icon: "🙋" },
+                { id: "pastdue", label: "Past Due", icon: "🔴" },
+                { id: "vendor", label: "By Vendor", icon: "🏭" },
+                ].filter(v => (v.id !== "unassigned" || currentUser?.role === "Admin" || currentUser?.role === "Manager") && (tvFilter === "all" || tvFilter === v.id))
+              .map(v => (
+                <button key={v.id} onClick={() => setTvFilter(tvFilter === v.id ? "all" : v.id)} style={{ display: "flex", alignItems: "center", gap: 5, padding: "5px 10px", borderRadius: 99, border: `1.5px solid ${tvFilter === v.id ? "#3b82f6" : "#e2e8f0"}`, background: tvFilter === v.id ? "#eff6ff" : "#f8fafc", color: tvFilter === v.id ? "#1d4ed8" : "#64748b", fontSize: 12, fontWeight: tvFilter === v.id ? 600 : 400, cursor: "pointer", fontFamily: "'DM Sans',sans-serif", whiteSpace: "nowrap" }}>
+                  <span>{v.icon}</span>{v.label}
+                </button>
+              ))}
+              {tvFilter === "all" && <button onClick={() => setCategoryFilter(categoryFilter === "Webcast" ? "all" : "Webcast")} style={{ display: "flex", alignItems: "center", gap: 5, padding: "5px 10px", borderRadius: 99, border: `1.5px solid ${categoryFilter === "Webcast" ? "#f97316" : "#e2e8f0"}`, background: categoryFilter === "Webcast" ? "#fff7ed" : "#f8fafc", color: categoryFilter === "Webcast" ? "#f97316" : "#64748b", fontSize: 12, fontWeight: categoryFilter === "Webcast" ? 600 : 400, cursor: "pointer", fontFamily: "'DM Sans',sans-serif", whiteSpace: "nowrap" }}>
+                <span>📡</span>Webcast
+              </button>}
               <div style={{ marginLeft: "auto", display: "flex", gap: 8, alignItems: "center" }}>
                 {tvFilter !== "closed" && (
                   <button onClick={() => { setForm(emptyForm()); setShowNewTicket(true); }} style={{ ...bP, padding: "7px 13px", fontSize: 12 }}>+ New Ticket</button>
@@ -5730,11 +5763,19 @@ export default function HelpDesk() {
                     <td style={tdStyle} onClick={() => setSelTicket(t)}><div style={{ fontSize: 12, fontWeight: 500 }}>{t.org}</div></td>
                     <td style={tdStyle} onClick={() => setSelTicket(t)}><div style={{ fontSize: 12, color: "#64748b" }}>{t.department || "—"}</div></td>
                     <td style={tdStyle} onClick={() => setSelTicket(t)}><div style={{ fontSize: 12, color: "#64748b" }}>{t.vendor || "—"}</div></td>
-                    <td style={tdStyle} onClick={() => setSelTicket(t)}><span style={{ fontSize: 12, color: "#64748b" }}>{t.reportedBy || "—"}</span></td>
                     <td style={tdStyle} onClick={() => setSelTicket(t)}>
-                      <div style={{ display: "flex", alignItems: "center" }}>
-                        {(t.assignees || []).slice(0, 3).map((a, i) => <div key={a.id} title={a.name} style={{ marginLeft: i > 0 ? -7 : 0, border: "2px solid #fff", borderRadius: "50%" }}><Avatar name={a.name} size={22} /></div>)}
-                        {(t.assignees || []).length > 3 && <div style={{ marginLeft: -7, width: 22, height: 22, borderRadius: "50%", background: "#e2e8f0", border: "2px solid #fff", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 9, fontWeight: 700, color: "#64748b" }}>+{t.assignees.length - 3}</div>}
+                      <span style={{ fontSize: 12, color: "#64748b" }} title={t.reportedBy || "—"}>
+                        {t.reportedBy ? t.reportedBy.slice(0, 4) : "—"}
+                      </span>
+                    </td>
+                    <td style={tdStyle} onClick={() => setSelTicket(t)}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 4, flexWrap: "wrap" }}>
+                        {(t.assignees || []).map((a, i) => (
+                          <div key={a.id} style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                            <Avatar name={a.name} size={18} />
+                            <span style={{ fontSize: 11, fontWeight: 600, color: "#374151", whiteSpace: "nowrap" }}>{a.name.split(" ")[0]}</span>
+                          </div>
+                        ))}
                         {!t.assignees?.length && <span style={{ fontSize: 11, color: "#94a3b8" }}>None</span>}
                       </div>
                     </td>
@@ -6221,7 +6262,7 @@ export default function HelpDesk() {
           {view === "users" && !selAgent ? (
             <>
               {/* ✅ NEW: User Statistics Boxes */}
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 12, marginBottom: 20 }}>
+              <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 20 }}>
                 {[
                   { key: "all", icon: "👥", color: "#3b82f6", label: "Total Users", count: Array.isArray(users) ? users.length : 0 },
                   { key: "On Duty", icon: "🟢", color: "#22c55e", label: "On Duty", count: Array.isArray(users) ? users.filter(u => u.status === "On Duty" || u.status === "On Ticket").length : 0 },
@@ -6234,20 +6275,19 @@ export default function HelpDesk() {
                   return (
                     <div key={s.key}
                       onClick={() => setAgentStatusFilter(s.key)}
-                      style={{ background: isActive ? `${s.color}18` : "#fff", borderRadius: 12, padding: "16px 16px", boxShadow: isActive ? `0 0 0 2px ${s.color}` : "0 2px 6px rgba(0,0,0,0.1)", borderLeft: `5px solid ${s.color}`, transition: "all 0.2s ease", cursor: "pointer" }}
-                      onMouseEnter={e => { e.currentTarget.style.boxShadow = isActive ? `0 0 0 2px ${s.color}` : "0 6px 20px rgba(0,0,0,0.15)"; e.currentTarget.style.transform = "translateY(-2px)"; }}
-                      onMouseLeave={e => { e.currentTarget.style.boxShadow = isActive ? `0 0 0 2px ${s.color}` : "0 2px 6px rgba(0,0,0,0.1)"; e.currentTarget.style.transform = "translateY(0)"; }}>
-                      <div style={{ fontSize: 20, marginBottom: 6 }}>{s.icon}</div>
-                      <div style={{ fontSize: 32, fontWeight: 900, color: s.color, lineHeight: 1 }}>{s.count}</div>
-                      <div style={{ fontSize: 12, fontWeight: 700, color: "#1e293b", marginTop: 4 }}>
-                        {s.label}
-                      </div>
+                      style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 14px", borderRadius: 10, background: isActive ? `${s.color}18` : "#fff", borderLeft: `4px solid ${s.color}`, boxShadow: isActive ? `0 0 0 2px ${s.color}` : "0 1px 4px rgba(0,0,0,0.07)", transition: "all 0.2s ease", cursor: "pointer" }}
+                      onMouseEnter={e => { e.currentTarget.style.boxShadow = isActive ? `0 0 0 2px ${s.color}` : "0 4px 14px rgba(0,0,0,0.12)"; e.currentTarget.style.transform = "translateX(3px)"; }}
+                      onMouseLeave={e => { e.currentTarget.style.boxShadow = isActive ? `0 0 0 2px ${s.color}` : "0 1px 4px rgba(0,0,0,0.07)"; e.currentTarget.style.transform = "translateX(0)"; }}>
+                      <span style={{ fontSize: 18 }}>{s.icon}</span>
+                      <div style={{ fontSize: 22, fontWeight: 900, color: s.color, lineHeight: 1, minWidth: 36 }}>{s.count}</div>
+                      <div style={{ fontSize: 13, fontWeight: 700, color: "#1e293b" }}>{s.label}</div>
+                      {isActive && <span style={{ marginLeft: "auto", fontSize: 11, fontWeight: 600, color: s.color, background: `${s.color}18`, padding: "2px 8px", borderRadius: 99 }}>Filtered</span>}
                     </div>
                   );
                 })}
               </div>
 
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(240px,1fr))", gap: 12 }}>
+              <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
                 {agentStats.filter(a => {
                   if (agentStatusFilter === "all") return true;
                   const userStatus = users.find(u => u.id === a.id)?.status || "Off Duty";
@@ -6258,80 +6298,48 @@ export default function HelpDesk() {
                   return userStatus === agentStatusFilter;
                 }).map(a => {
                   const userInfo = users.find(u => u.id === a.id);
+                  const u = users.find(x => x.id === a.id);
+                  const statusValue = u?.status || "Off Duty";
+                  const statusStyle = statusOpts.find(s => s.l === statusValue);
+                  const rate = a.assigned ? Math.round(a.closed / a.assigned * 100) : 0;
+                  const barColor = rate > 70 ? "#22c55e" : rate > 40 ? "#f59e0b" : "#ef4444";
+                  const openCount = tickets.filter(t => t.assignees?.some(x => x.id === a.id) && (t.status === "Open" || t.status === "In Progress") && t.status !== "Bin").length;
+                  const currentTicket = u?.status === "On Ticket" && u?.currentTicketId ? tickets.find(x => x.id === u.currentTicketId) : null;
                   return (
-                    <div key={a.id} style={{ background: "#fff", borderRadius: 12, padding: 18, boxShadow: "0 1px 4px rgba(0,0,0,0.06)", transition: "all 0.2s", border: "1.5px solid transparent" }}
-                      onMouseEnter={e => { e.currentTarget.style.boxShadow = "0 4px 12px rgba(0,0,0,0.1)"; e.currentTarget.style.borderColor = "#3b82f6"; }}
-                      onMouseLeave={e => { e.currentTarget.style.boxShadow = "0 1px 4px rgba(0,0,0,0.06)"; e.currentTarget.style.borderColor = "transparent"; }}>
-                      <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12 }}>
-                        <Avatar name={a.name} size={40} />
-                        <div style={{ flex: 1, minWidth: 0 }}>
-                          <div style={{ fontSize: 14, fontWeight: 700, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }} title={a.name}>{a.name}</div>
-                          <div style={{ fontSize: 11, color: "#94a3b8", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }} title={a.email}>{a.email}</div>
-                          <div style={{ display: "flex", gap: 4, marginTop: 3, flexWrap: "wrap" }}>
-                            <Badge label={a.role} style={{ background: "#ede9fe", color: "#6d28d9" }} />
-                            {(() => {
-                              const foundUser = users.find(u => u.id === a.id);
-                              const rawStatus = foundUser?.status;
-                              const statusValue = rawStatus || "Off Duty";
-                              const statusStyle = statusOpts.find(s => s.l === statusValue);
-                              if (statusStyle) {
-                                return <Badge label={statusStyle.l} style={{ background: statusStyle.bg, color: statusStyle.c }} />;
-                              }
-                              return <Badge label="Off Duty" style={{ background: "#fef3c7", color: "#f59e0b" }} />;
-                            })()}
+                    <div key={a.id} style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px 14px", background: "#fff", borderRadius: 10, border: "1.5px solid #e2e8f0", transition: "all 0.2s" }}
+                      onMouseEnter={e => { e.currentTarget.style.boxShadow = "0 4px 12px rgba(0,0,0,0.08)"; e.currentTarget.style.borderColor = "#3b82f6"; }}
+                      onMouseLeave={e => { e.currentTarget.style.boxShadow = "none"; e.currentTarget.style.borderColor = "#e2e8f0"; }}>
+                      <Avatar name={a.name} size={36} />
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 2, flexWrap: "wrap" }}>
+                          <span style={{ fontSize: 13, fontWeight: 700, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{a.name}</span>
+                          <Badge label={a.role} style={{ background: "#ede9fe", color: "#6d28d9" }} />
+                          {statusStyle ? <Badge label={statusStyle.l} style={{ background: statusStyle.bg, color: statusStyle.c }} /> : <Badge label="Off Duty" style={{ background: "#fef3c7", color: "#f59e0b" }} />}
+                        </div>
+                        <div style={{ fontSize: 11, color: "#94a3b8", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{a.email}</div>
+                        {currentTicket !== null && (
+                          <div style={{ fontSize: 11, color: "#7c3aed", marginTop: 2 }}>🎫 {u.currentTicketId}{currentTicket ? ` — ${currentTicket.summary}` : ""}{u.currentLocation ? ` · 📍 ${u.currentLocation}` : ""}</div>
+                        )}
+                      </div>
+                      <div style={{ display: "flex", gap: 14, alignItems: "center", flexShrink: 0 }}>
+                        {[{ l: "Assigned", v: a.assigned, c: "#3b82f6" }, { l: "Closed", v: a.closed, c: "#22c55e" }, { l: "Open", v: openCount, c: "#f59e0b" }].map(s => (
+                          <div key={s.l} style={{ textAlign: "center", minWidth: 36 }}>
+                            <div style={{ fontSize: 16, fontWeight: 700, color: s.c }}>{s.v}</div>
+                            <div style={{ fontSize: 10, color: "#94a3b8" }}>{s.l}</div>
                           </div>
+                        ))}
+                        <div style={{ textAlign: "center", minWidth: 44 }}>
+                          <div style={{ fontSize: 16, fontWeight: 700, color: barColor }}>{rate}%</div>
+                          <div style={{ height: 4, background: "#f1f5f9", borderRadius: 99, overflow: "hidden", marginTop: 3 }}>
+                            <div style={{ width: `${rate}%`, height: "100%", background: barColor, borderRadius: 99 }} />
+                          </div>
+                          <div style={{ fontSize: 10, color: "#94a3b8", marginTop: 2 }}>Rate</div>
                         </div>
                       </div>
-                      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 7, marginBottom: 12 }}>
-                        {[{ l: "Assigned", v: a.assigned, c: "#3b82f6" }, { l: "Closed", v: a.closed, c: "#22c55e" }, { l: "Open", v: tickets.filter(t => t.assignees?.some(x => x.id === a.id) && (t.status === "Open" || t.status === "In Progress") && t.status !== "Bin").length, c: "#f59e0b" }].map(s => (
-                          <div key={s.l} style={{ textAlign: "center", padding: "8px 4px", background: "#f8fafc", borderRadius: 8 }}><div style={{ fontSize: 17, fontWeight: 700, color: s.c }}>{s.v}</div><div style={{ fontSize: 10, color: "#94a3b8" }}>{s.l}</div></div>
-                        ))}
-                      </div>
-
-                      {/* Closure rate progress bar */}
-                      {(() => {
-                        const rate = a.assigned ? Math.round(a.closed / a.assigned * 100) : 0;
-                        const barColor = rate > 70 ? "#22c55e" : rate > 40 ? "#f59e0b" : "#ef4444";
-                        return (
-                          <div style={{ marginBottom: 12 }}>
-                            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 5 }}>
-                              <span style={{ fontSize: 10, fontWeight: 600, color: "#64748b", textTransform: "uppercase", letterSpacing: "0.04em" }}>Closure Rate</span>
-                              <span style={{ fontSize: 12, fontWeight: 700, color: barColor }}>{rate}%</span>
-                            </div>
-                            <div style={{ height: 7, background: "#f1f5f9", borderRadius: 99, overflow: "hidden" }}>
-                              <div style={{ width: `${rate}%`, height: "100%", background: barColor, borderRadius: 99, transition: "width 0.4s ease" }} />
-                            </div>
-                          </div>
-                        );
-                      })()}
-
-                      {/* Show current ticket if On Ticket */}
-                      {(() => {
-                        const u = users.find(x => x.id === a.id);
-                        if (u?.status !== "On Ticket" || !u?.currentTicketId) return null;
-                        const t = tickets.find(x => x.id === u.currentTicketId);
-                        return (
-                          <div style={{ marginBottom: 10, padding: "7px 10px", background: "#ede9fe", borderRadius: 8 }}>
-                            <div style={{ fontSize: 10, fontWeight: 600, color: "#6d28d9", marginBottom: 2 }}>🎫 Out for Ticket</div>
-                            <div style={{ fontSize: 12, color: "#4c1d95", fontWeight: 600 }}>{u.currentTicketId}{t ? ` — ${t.summary}` : ""}</div>
-                            {u.currentLocation && <div style={{ fontSize: 11, color: "#7c3aed", marginTop: 2 }}>📍 {u.currentLocation}</div>}
-                          </div>
-                        );
-                      })()}
-
-                      {/* View and Manage buttons */}
-                      <div style={{ display: "grid", gridTemplateColumns: (currentUser?.role === "Admin" || currentUser?.role === "Manager") ? "1fr 1fr" : "1fr", gap: 8 }}>
-                        <button
-                          onClick={() => setSelAgent(a)}
-                          style={{ padding: "6px 10px", background: "#dbeafe", color: "#1e40af", border: "none", borderRadius: 6, cursor: "pointer", fontSize: 11, fontWeight: 600 }}>
-                          👁️ View
-                        </button>
+                      <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>
+                        <button onClick={() => setSelAgent(a)} style={{ padding: "6px 12px", background: "#dbeafe", color: "#1e40af", border: "none", borderRadius: 6, cursor: "pointer", fontSize: 11, fontWeight: 600 }}>👁️ View</button>
                         {(currentUser?.role === "Admin" || currentUser?.role === "Manager") && (
-                          <button
-                            onClick={() => { setUserEditModal({ show: true, user: userInfo, newRole: userInfo?.role, editName: userInfo?.name || "", editEmail: userInfo?.email || "", editPhone: userInfo?.phone || "", editPassword: "" }); }}
-                            style={{ padding: "6px 10px", background: "#f0fdf4", color: "#15803d", border: "none", borderRadius: 6, cursor: "pointer", fontSize: 11, fontWeight: 600 }}>
-                            ⚙️ Manage
-                          </button>
+                          <button onClick={() => { setUserEditModal({ show: true, user: userInfo, newRole: userInfo?.role, editName: userInfo?.name || "", editEmail: userInfo?.email || "", editPhone: userInfo?.phone || "", editPassword: "" }); }} style={{ padding: "6px 12px", background: "#f0fdf4", color: "#15803d", border: "none", borderRadius: 6, cursor: "pointer", fontSize: 11, fontWeight: 600 }}>⚙️ Manage</button>
                         )}
                       </div>
                     </div>
@@ -6547,18 +6555,15 @@ export default function HelpDesk() {
                     <button onClick={addCat} style={bP}>Add</button>
                   </div>
                 ) : <div style={{ marginBottom: 18, padding: "10px 14px", background: "#fef3c7", color: "#92400e", borderRadius: 8, fontSize: 13, fontWeight: 500 }}>Read Only: Category management is restricted to Admins.</div>}
-                <div style={{ display: "grid", gridTemplateColumns: "repeat(8, 1fr)", gap: 8, justifyItems: "stretch" }}>
-                  {[...categories].sort((a, b) => (a.name || "").localeCompare(b.name || "")).map(c => {
-                    const lightColor = c.color + "20";
-                    return (
-                      <div key={c.id} style={{ padding: 8, borderRadius: 6, background: lightColor, display: "flex", flexDirection: "column", alignItems: "center", gap: 4, cursor: currentUser?.role === "Admin" ? "pointer" : "default", transition: "all 0.2s ease", textAlign: "center", transform: "scale(1)" }} onMouseEnter={e => { if (currentUser?.role === "Admin") { e.currentTarget.style.transform = "scale(1.08)"; e.currentTarget.style.boxShadow = "0 6px 16px rgba(0,0,0,0.12)"; } }} onMouseLeave={e => { e.currentTarget.style.transform = "scale(1)"; e.currentTarget.style.boxShadow = "none"; }}>
-                        <div style={{ width: 10, height: 10, borderRadius: 2, background: c.color, flexShrink: 0 }} />
-                        <div style={{ fontSize: 11, fontWeight: 600, wordBreak: "break-word", flex: 1, color: "#1f2937" }}>{c.name}</div>
-                        <div style={{ fontSize: 9, color: "#6b7280" }}>{tickets.filter(t => t.category === c.name).length}</div>
-                        {currentUser?.role === "Admin" && <button onClick={e => { e.stopPropagation(); deleteCat(c.id); }} style={{ border: "none", background: "rgba(0,0,0,0.08)", color: "#374151", borderRadius: 3, padding: "2px 6px", cursor: "pointer", fontSize: 9, fontWeight: 600 }}>Delete</button>}
-                      </div>
-                    );
-                  })}
+                <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                  {[...categories].sort((a, b) => (a.name || "").localeCompare(b.name || "")).map(c => (
+                    <div key={c.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 12px", borderRadius: 8, background: "#f8fafc", border: "1.5px solid #e2e8f0" }}>
+                      <div style={{ width: 12, height: 12, borderRadius: 3, background: c.color, flexShrink: 0 }} />
+                      <div style={{ fontSize: 13, fontWeight: 600, color: "#1f2937", flex: 1 }}>{c.name}</div>
+                      <div style={{ fontSize: 12, color: "#6b7280" }}>{tickets.filter(t => t.category === c.name).length} tickets</div>
+                      {currentUser?.role === "Admin" && <button onClick={e => { e.stopPropagation(); deleteCat(c.id); }} style={{ border: "none", background: "#fee2e2", color: "#dc2626", borderRadius: 5, padding: "3px 10px", cursor: "pointer", fontSize: 11, fontWeight: 600 }}>Delete</button>}
+                    </div>
+                  ))}
                 </div>
               </div>}
               {/* ✅ Departments Management — org-grouped */}
@@ -6651,8 +6656,8 @@ export default function HelpDesk() {
                             <span style={{ fontSize: 11, color: "#94a3b8", background: "#f1f5f9", borderRadius: 99, padding: "2px 8px" }}>{grouped[orgName].length}</span>
                             {currentUser?.role === "Admin" && <span style={{ fontSize: 10, color: "#94a3b8", marginLeft: "auto" }}>Drop here to move</span>}
                           </div>
-                          <div style={{ display: "flex", flexWrap: "wrap", gap: 8, minHeight: 36, padding: "4px 6px", borderRadius: 8, border: grouped[orgName].length === 0 ? "1.5px dashed #e2e8f0" : "none", background: grouped[orgName].length === 0 ? "#fafafa" : "transparent" }}>
-                            {grouped[orgName].length === 0 && <span style={{ fontSize: 11, color: "#cbd5e1", alignSelf: "center" }}>No departments — drag one here</span>}
+                          <div style={{ display: "flex", flexDirection: "column", gap: 5, minHeight: 36 }}>
+                            {grouped[orgName].length === 0 && <span style={{ fontSize: 11, color: "#cbd5e1", padding: "6px 4px" }}>No departments — drag one here</span>}
                             {grouped[orgName].map((d, idx) => {
                               const color = getItemColor(d);
                               return (
@@ -6683,19 +6688,19 @@ export default function HelpDesk() {
                                     });
                                     setPendingDepartments(updated);
                                   }}
-                                  style={{ padding: "6px 10px", borderRadius: 8, background: color + "20", border: `1.5px solid ${color}40`, display: "flex", alignItems: "center", gap: 6, cursor: currentUser?.role === "Admin" ? "grab" : "default", transition: "all 0.15s", userSelect: "none" }}
-                                  onMouseEnter={e => { e.currentTarget.style.boxShadow = `0 3px 10px ${color}40`; }}
-                                  onMouseLeave={e => { e.currentTarget.style.boxShadow = "none"; }}
+                                  style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 12px", borderRadius: 8, background: "#f8fafc", border: "1.5px solid #e2e8f0", cursor: currentUser?.role === "Admin" ? "grab" : "default", transition: "all 0.15s", userSelect: "none" }}
+                                  onMouseEnter={e => { e.currentTarget.style.boxShadow = `0 2px 8px ${color}30`; e.currentTarget.style.borderColor = color + "60"; }}
+                                  onMouseLeave={e => { e.currentTarget.style.boxShadow = "none"; e.currentTarget.style.borderColor = "#e2e8f0"; }}
                                 >
-                                  <div style={{ width: 8, height: 8, borderRadius: 2, background: color, flexShrink: 0 }} />
-                                  <span style={{ fontSize: 12, fontWeight: 600, color: "#1f2937" }}>{d.name}</span>
+                                  <div style={{ width: 10, height: 10, borderRadius: 2, background: color, flexShrink: 0 }} />
+                                  <span style={{ fontSize: 13, fontWeight: 600, color: "#1f2937", flex: 1 }}>{d.name}</span>
                                   {currentUser?.role === "Admin" && (
-                                    <button onClick={e => { e.stopPropagation(); deleteDept(d.id); }} style={{ border: "none", background: "transparent", color: "#94a3b8", cursor: "pointer", fontSize: 13, fontWeight: 700, lineHeight: 1, padding: "0 2px" }}>×</button>
+                                    <button onClick={e => { e.stopPropagation(); deleteDept(d.id); }} style={{ border: "none", background: "#fee2e2", color: "#dc2626", borderRadius: 5, padding: "3px 10px", cursor: "pointer", fontSize: 11, fontWeight: 600 }}>Delete</button>
                                   )}
                                 </div>
                               );
                             })}
-                          </div>
+                          </div>  
                         </div>
                       ))}
                     </>
@@ -6718,18 +6723,14 @@ export default function HelpDesk() {
                     <button onClick={addLocation} style={bP}>Add</button>
                   </div>
                 ) : <div style={{ marginBottom: 18, padding: "10px 14px", background: "#fef3c7", color: "#92400e", borderRadius: 8, fontSize: 13, fontWeight: 500 }}>Read Only: Adding or removing locations is restricted to Admins.</div>}
-                <div style={{ display: "grid", gridTemplateColumns: "repeat(8, 1fr)", gap: 8, justifyItems: "stretch" }}>
-                  {[...locations].sort((a, b) => (a.name || "").localeCompare(b.name || "")).map(l => {
-                    const color = getItemColor(l);
-                    const lightColor = color + "20";
-                    return (
-                      <div key={l.id} style={{ padding: 8, borderRadius: 6, background: lightColor, display: "flex", flexDirection: "column", alignItems: "center", gap: 4, cursor: currentUser?.role === "Admin" ? "pointer" : "default", transition: "all 0.2s ease", textAlign: "center", transform: "scale(1)" }} onMouseEnter={e => { if (currentUser?.role === "Admin") { e.currentTarget.style.transform = "scale(1.08)"; e.currentTarget.style.boxShadow = "0 6px 16px rgba(0,0,0,0.12)"; } }} onMouseLeave={e => { e.currentTarget.style.transform = "scale(1)"; e.currentTarget.style.boxShadow = "none"; }}>
-                        <div style={{ fontSize: 14 }}>📍</div>
-                        <div style={{ fontSize: 11, fontWeight: 600, wordBreak: "break-word", flex: 1, color: "#1f2937" }}>{l.name}</div>
-                        {currentUser?.role === "Admin" && <button onClick={e => { e.stopPropagation(); deleteLocation(l.id); }} style={{ border: "none", background: "rgba(0,0,0,0.08)", color: "#374151", borderRadius: 3, padding: "2px 6px", cursor: "pointer", fontSize: 9, fontWeight: 600 }}>Delete</button>}
-                      </div>
-                    );
-                  })}
+                <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                  {[...locations].sort((a, b) => (a.name || "").localeCompare(b.name || "")).map(l => (
+                    <div key={l.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 12px", borderRadius: 8, background: "#f8fafc", border: "1.5px solid #e2e8f0" }}>
+                      <span style={{ fontSize: 14 }}>📍</span>
+                      <div style={{ fontSize: 13, fontWeight: 600, color: "#1f2937", flex: 1 }}>{l.name}</div>
+                      {currentUser?.role === "Admin" && <button onClick={e => { e.stopPropagation(); deleteLocation(l.id); }} style={{ border: "none", background: "#fee2e2", color: "#dc2626", borderRadius: 5, padding: "3px 10px", cursor: "pointer", fontSize: 11, fontWeight: 600 }}>Delete</button>}
+                    </div>
+                  ))}
                 </div>
                 {locations.length === 0 && <div style={{ textAlign: "center", color: "#94a3b8", padding: 28 }}>No locations yet. Add one to get started.</div>}
               </div>}
@@ -6750,12 +6751,12 @@ export default function HelpDesk() {
                     <button onClick={addSatsangType} style={bP}>Add</button>
                   </div>
                 ) : <div style={{ marginBottom: 18, padding: "10px 14px", background: "#fef3c7", color: "#92400e", borderRadius: 8, fontSize: 13, fontWeight: 500 }}>Read Only: Adding or removing satsang types is restricted to Admins.</div>}
-                <div style={{ display: "grid", gridTemplateColumns: "repeat(6, 1fr)", gap: 8, justifyItems: "stretch" }}>
+                <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
                   {satsangTypes.sort().map(t => (
-                    <div key={t} style={{ padding: 12, borderRadius: 6, background: "#f0f7ff", display: "flex", flexDirection: "column", alignItems: "center", gap: 6, cursor: currentUser?.role === "Admin" ? "pointer" : "default", transition: "all 0.2s ease", textAlign: "center", transform: "scale(1)", border: "1px solid #bfdbfe" }} onMouseEnter={e => { if (currentUser?.role === "Admin") { e.currentTarget.style.transform = "scale(1.08)"; e.currentTarget.style.boxShadow = "0 6px 16px rgba(0,0,0,0.12)"; } }} onMouseLeave={e => { e.currentTarget.style.transform = "scale(1)"; e.currentTarget.style.boxShadow = "none"; }}>
-                      <div style={{ fontSize: 16 }}>📡</div>
-                      <div style={{ fontSize: 12, fontWeight: 600, wordBreak: "break-word", flex: 1, color: "#1f2937" }}>{t}</div>
-                      {currentUser?.role === "Admin" && <button onClick={e => { e.stopPropagation(); deleteSatsangType(t); }} style={{ border: "none", background: "#fee2e2", color: "#dc2626", borderRadius: 3, padding: "3px 8px", cursor: "pointer", fontSize: 10, fontWeight: 600 }}>Remove</button>}
+                    <div key={t} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 12px", borderRadius: 8, background: "#f0f7ff", border: "1px solid #bfdbfe" }}>
+                      <span style={{ fontSize: 14 }}>📡</span>
+                      <div style={{ fontSize: 13, fontWeight: 600, color: "#1f2937", flex: 1 }}>{t}</div>
+                      {currentUser?.role === "Admin" && <button onClick={e => { e.stopPropagation(); deleteSatsangType(t); }} style={{ border: "none", background: "#fee2e2", color: "#dc2626", borderRadius: 5, padding: "3px 10px", cursor: "pointer", fontSize: 11, fontWeight: 600 }}>Remove</button>}
                     </div>
                   ))}
                 </div>
@@ -7914,28 +7915,82 @@ export default function HelpDesk() {
       {/* Forward requests now handled via Inbox (✉️) and floating alerts */}
 
       {/* ── PROJECT DETAIL MODAL ── */}
-      <Modal open={!!selProject} onClose={() => setSelProject(null)} title={selProject?.id || ""} width={720}>
+      <Modal open={!!selProject} onClose={() => { setSelProject(null); setEditProjMode(false); setEditProject(null); }} title={selProject?.id || ""} width={720}>        
         {selProject && <div>
-          <div style={{ display: "flex", gap: 9, marginBottom: 16, flexWrap: "wrap" }}>
+          <div style={{ display: "flex", gap: 9, marginBottom: 16, flexWrap: "wrap", alignItems: "center" }}>
             <Badge label={selProject.status} style={{ ...STATUS_COLOR[selProject.status], padding: "4px 12px", fontSize: 12 }} />
             <div style={{ display: "flex", alignItems: "center", gap: 5 }}><span style={{ width: 9, height: 9, borderRadius: "50%", background: PRIORITY_COLOR[selProject.priority] }} /><span style={{ fontSize: 13, fontWeight: 600 }}>{selProject.priority} Priority</span></div>
             {selProject.category === "Webcast" && <Badge label="📡 Webcast" style={{ background: "#fff7ed", color: "#f97316" }} />}
             <span style={{ fontSize: 12, color: "#94a3b8" }}>Created {selProject.created.toLocaleString()}</span>
-          </div>
-          <h2 style={{ margin: "0 0 9px", fontSize: 17, fontWeight: 700 }}>{selProject.title}</h2>
-          <div style={{ marginBottom: 14, padding: "11px 14px", background: "#f8fafc", borderRadius: 9 }}>
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
-              <span style={{ fontSize: 11, fontWeight: 600, color: "#94a3b8", textTransform: "uppercase" }}>Progress (Based on Status)</span>
-              <span style={{ fontSize: 14, fontWeight: 700, color: "#8b5cf6" }}>{getProgressFromStatus(selProject.status)}%</span>
+            <div style={{ marginLeft: "auto", display: "flex", gap: 7 }}>
+              {(currentUser?.role === "Admin" || currentUser?.role === "Manager") && !editProjMode && (
+                <button onClick={() => { setEditProjMode(true); setEditProject({ ...selProject }); }} style={{ padding: "6px 14px", fontSize: 12, fontWeight: 600, borderRadius: 7, border: "none", cursor: "pointer", background: "#8b5cf6", color: "#fff" }}>✏️ Edit Project</button>
+              )}
+              {editProjMode && (
+                <>
+                  <button onClick={() => { setEditProjMode(false); setEditProject(null); }} style={{ padding: "6px 14px", fontSize: 12, fontWeight: 600, borderRadius: 7, border: "1.5px solid #e2e8f0", cursor: "pointer", background: "#fff", color: "#64748b" }}>Cancel</button>
+                  <button onClick={async () => {
+                    try {
+                      const updated = { ...editProject, updated: new Date().toISOString() };
+                      await axios.put(`${PROJECTS_API}/${selProject.id}`, updated);
+                      setProjects(p => p.map(x => x.id === selProject.id ? { ...updated, updated: new Date(updated.updated), created: selProject.created } : x));
+                      setSelProject({ ...updated, updated: new Date(updated.updated), created: selProject.created });
+                      setEditProjMode(false);
+                      setEditProject(null);
+                      showToast("Project updated successfully ✓", "success");
+                    } catch (e) { showToast("Failed to save project", "error"); }
+                  }} style={{ padding: "6px 14px", fontSize: 12, fontWeight: 600, borderRadius: 7, border: "none", cursor: "pointer", background: "#22c55e", color: "#fff" }}>💾 Save Changes</button>
+                </>
+              )}
             </div>
-            <ProgressBar value={getProgressFromStatus(selProject.status)} color={getProgressFromStatus(selProject.status) > 70 ? "#22c55e" : getProgressFromStatus(selProject.status) > 40 ? "#f59e0b" : "#ef4444"} />
           </div>
-          <p style={{ margin: "0 0 16px", color: "#64748b", fontSize: 14, lineHeight: 1.6 }}>{selProject.description}</p>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 9, marginBottom: 14 }}>
-            {[{ l: "Organisation", v: selProject.org }, { l: "Department", v: selProject.department }, { l: "Reported By", v: selProject.reportedBy }, { l: "Category", v: selProject.category }, { l: "Location", v: selProject.location }, { l: "Due Date", v: selProject.dueDate?.toLocaleDateString() || "-" }].map(f => (
-              <div key={f.l} style={{ background: "#f8fafc", padding: "9px 13px", borderRadius: 9 }}><div style={{ fontSize: 10, fontWeight: 600, color: "#94a3b8", textTransform: "uppercase", marginBottom: 3 }}>{f.l}</div><div style={{ fontSize: 13, fontWeight: 500 }}>{f.v || "-"}</div></div>
-            ))}
-          </div>
+
+          {editProjMode && editProject ? (
+            <div style={{ display: "flex", flexDirection: "column", gap: 12, marginBottom: 16 }}>
+              <div><label style={{ fontSize: 11, fontWeight: 600, color: "#374151", display: "block", marginBottom: 4 }}>Title</label>
+                <input value={editProject.title} onChange={e => setEditProject({ ...editProject, title: e.target.value })} style={{ ...iS, width: "100%", fontSize: 13 }} /></div>
+              <div><label style={{ fontSize: 11, fontWeight: 600, color: "#374151", display: "block", marginBottom: 4 }}>Description</label>
+                <textarea value={editProject.description || ""} onChange={e => setEditProject({ ...editProject, description: e.target.value })} style={{ ...iS, width: "100%", fontSize: 13, height: 80, resize: "vertical" }} /></div>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+                <div><label style={{ fontSize: 11, fontWeight: 600, color: "#374151", display: "block", marginBottom: 4 }}>Organisation</label>
+                  <select value={editProject.org} onChange={e => setEditProject({ ...editProject, org: e.target.value })} style={{ ...iS, width: "100%", fontSize: 13 }}>
+                    {orgs.map(o => <option key={o.id}>{o.name}</option>)}
+                  </select></div>
+                <div><label style={{ fontSize: 11, fontWeight: 600, color: "#374151", display: "block", marginBottom: 4 }}>Department</label>
+                  <input value={editProject.department || ""} onChange={e => setEditProject({ ...editProject, department: e.target.value })} style={{ ...iS, width: "100%", fontSize: 13 }} /></div>
+                <div><label style={{ fontSize: 11, fontWeight: 600, color: "#374151", display: "block", marginBottom: 4 }}>Priority</label>
+                  <select value={editProject.priority} onChange={e => setEditProject({ ...editProject, priority: e.target.value })} style={{ ...iS, width: "100%", fontSize: 13 }}>
+                    {PROJECT_PRIORITIES.map(p => <option key={p}>{p}</option>)}
+                  </select></div>
+                <div><label style={{ fontSize: 11, fontWeight: 600, color: "#374151", display: "block", marginBottom: 4 }}>Category</label>
+                  <select value={editProject.category || ""} onChange={e => setEditProject({ ...editProject, category: e.target.value })} style={{ ...iS, width: "100%", fontSize: 13 }}>
+                    <option value="">— None —</option>
+                    {categories.map(c => <option key={c.id}>{c.name}</option>)}
+                  </select></div>
+                <div><label style={{ fontSize: 11, fontWeight: 600, color: "#374151", display: "block", marginBottom: 4 }}>Reported By</label>
+                  <input value={editProject.reportedBy || ""} onChange={e => setEditProject({ ...editProject, reportedBy: e.target.value })} style={{ ...iS, width: "100%", fontSize: 13 }} /></div>
+                <div><label style={{ fontSize: 11, fontWeight: 600, color: "#374151", display: "block", marginBottom: 4 }}>Due Date</label>
+                  <input type="date" value={editProject.dueDate ? new Date(editProject.dueDate).toISOString().split('T')[0] : ""} onChange={e => setEditProject({ ...editProject, dueDate: e.target.value ? new Date(e.target.value).toISOString() : "" })} style={{ ...iS, width: "100%", fontSize: 13 }} /></div>
+              </div>
+            </div>
+          ) : (
+            <>
+              <h2 style={{ margin: "0 0 9px", fontSize: 17, fontWeight: 700 }}>{selProject.title}</h2>
+              <div style={{ marginBottom: 14, padding: "11px 14px", background: "#f8fafc", borderRadius: 9 }}>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
+                  <span style={{ fontSize: 11, fontWeight: 600, color: "#94a3b8", textTransform: "uppercase" }}>Progress (Based on Status)</span>
+                  <span style={{ fontSize: 14, fontWeight: 700, color: "#8b5cf6" }}>{getProgressFromStatus(selProject.status)}%</span>
+                </div>
+                <ProgressBar value={getProgressFromStatus(selProject.status)} color={getProgressFromStatus(selProject.status) > 70 ? "#22c55e" : getProgressFromStatus(selProject.status) > 40 ? "#f59e0b" : "#ef4444"} />
+              </div>
+              <p style={{ margin: "0 0 16px", color: "#64748b", fontSize: 14, lineHeight: 1.6 }}>{selProject.description}</p>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 9, marginBottom: 14 }}>
+                {[{ l: "Organisation", v: selProject.org }, { l: "Department", v: selProject.department }, { l: "Reported By", v: selProject.reportedBy }, { l: "Category", v: selProject.category }, { l: "Location", v: selProject.location }, { l: "Due Date", v: selProject.dueDate?.toLocaleDateString() || "-" }].map(f => (
+                  <div key={f.l} style={{ background: "#f8fafc", padding: "9px 13px", borderRadius: 9 }}><div style={{ fontSize: 10, fontWeight: 600, color: "#94a3b8", textTransform: "uppercase", marginBottom: 3 }}>{f.l}</div><div style={{ fontSize: 13, fontWeight: 500 }}>{f.v || "-"}</div></div>
+                ))}
+              </div>
+            </>
+          )}
           <div style={{ marginBottom: 14, padding: "11px 13px", background: "#f8fafc", borderRadius: 9 }}>
             <div style={{ fontSize: 10, fontWeight: 600, color: "#94a3b8", textTransform: "uppercase", marginBottom: 7 }}>Assignees</div>
             {(currentUser?.role === "Admin" || currentUser?.role === "Manager") ? (
@@ -8151,7 +8206,7 @@ export default function HelpDesk() {
       </Modal>
 
       {/* ✅ NEW: Close Ticket with Remark Modal */}
-      <Modal open={showRemarkModal} onClose={() => { setShowRemarkModal(false); setTicketRemark(""); }} title={closingTicketId && tickets.find(x => x.id === closingTicketId)?.status === "Closed" ? "Reopen Ticket - Add Reason" : "Close Ticket - Add Remark"} width={500}>
+      <Modal open={showRemarkModal} onClose={() => { setShowRemarkModal(false); setTicketRemark(""); setClosedBy(null); }} title={closingTicketId && tickets.find(x => x.id === closingTicketId)?.status === "Closed" ? "Reopen Ticket - Add Reason" : "Close Ticket - Add Remark"} width={500}>
         <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
           <div>
             <label style={{ fontSize: 12, fontWeight: 600, color: "#374151", marginBottom: 8, display: "block" }}>{closingTicketId && tickets.find(x => x.id === closingTicketId)?.status === "Closed" ? "🔄 Why are you reopening? (Mandatory)" : "📝 What have you done? (Mandatory)"}</label>
@@ -8177,6 +8232,38 @@ export default function HelpDesk() {
             )}
           </div>
 
+          {/* Closed By — only shown when closing (not reopening) */}
+          {!(closingTicketId && tickets.find(x => x.id === closingTicketId)?.status === "Closed") && (
+            <div>
+              <label style={{ fontSize: 12, fontWeight: 600, color: "#374151", marginBottom: 8, display: "block" }}>👤 Closed By <span style={{ color: "#ef4444" }}>*</span></label>
+              <div style={{ position: "relative" }}>
+                <select
+                  value={closedBy ? String(closedBy.id) : ""}
+                  onChange={e => {
+                    const selected = users.find(u => String(u.id) === e.target.value);
+                    setClosedBy(selected || null);
+                  }}
+                  style={{ ...iS, cursor: "pointer" }}
+                >
+                  <option value="">— Select who closed this ticket —</option>
+                  {[...users].sort((a, b) => a.name.localeCompare(b.name)).map(u => (
+                    <option key={u.id} value={u.id}>{u.name} ({u.role})</option>
+                  ))}
+                </select>
+              </div>
+              {!closedBy && (
+                <div style={{ marginTop: 6, fontSize: 11, color: "#ef4444" }}>⚠️ Closed By is mandatory before closing</div>
+              )}
+              {closedBy && (
+                <div style={{ marginTop: 8, display: "flex", alignItems: "center", gap: 8, padding: "8px 12px", background: "#f0fdf4", borderRadius: 8, border: "1px solid #86efac" }}>
+                  <Avatar name={closedBy.name} size={24} />
+                  <span style={{ fontSize: 12, fontWeight: 600, color: "#15803d" }}>Closing as: {closedBy.name}</span>
+                  <button onClick={() => setClosedBy(null)} style={{ marginLeft: "auto", border: "none", background: "transparent", cursor: "pointer", fontSize: 16, color: "#94a3b8", lineHeight: 1 }}>×</button>
+                </div>
+              )}
+            </div>
+          )}
+
           <div style={{ display: "flex", gap: 8 }}>
             <button
               onClick={closeTicketWithRemark}
@@ -8193,12 +8280,13 @@ export default function HelpDesk() {
                 fontSize: 12
               }}
             >
-              ✅ Close & Save Remark
+              ✅ {closingTicketId && tickets.find(x => x.id === closingTicketId)?.status === "Closed" ? "Reopen Ticket" : "Close & Save Remark"}
             </button>
             <button
               onClick={() => {
                 setShowRemarkModal(false);
                 setTicketRemark("");
+                setClosedBy(null);
               }}
               style={{
                 flex: 1,
