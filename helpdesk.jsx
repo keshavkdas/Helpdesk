@@ -834,9 +834,7 @@ const ProgressBar = ({ value, color = "#3b82f6" }) => (
 // ─── SMART CHART ───────────────────────────────────────────────────────────────
 const CHART_TYPES = [
   { id: "bar", icon: "▐▌", label: "Vert. Bar" }, { id: "hbar", icon: "▬", label: "Horiz. Bar" }, { id: "line", icon: "╱", label: "Line" }, { id: "pie", icon: "◔", label: "Pie" },
-  { id: "area", icon: "◺", label: "Area" },
-  { id: "histogram", icon: "▮", label: "Histogram" }, { id: "scatter", icon: "⠿", label: "Scatter" },
-  { id: "treemap", icon: "▦", label: "Treemap" }, { id: "bubble", icon: "⬤", label: "Bubble" },
+  { id: "treemap", icon: "▦", label: "Treemap" },
 ];
 
 const SmartChart = ({ title, data, defaultType = "bar", defaultColor = "#3b82f6", size = "normal" }) => {
@@ -1097,9 +1095,11 @@ export default function HelpDesk() {
     }
   });
   const [settingsTab, setSettingsTab] = useState("ticketviews");
-  const [tvFilter, setTvFilter] = useState(() => {
-    try {
-      return localStorage.getItem("deskflow_tvFilter") || "all";
+  const [activeQuickFilters, setActiveQuickFilters] = useState([]);
+  const [showQuickFilterDD, setShowQuickFilterDD] = useState(false);
+  const [tvFilter, setTvFilter] = useState(() => {    try {
+      const saved = localStorage.getItem("deskflow_tvFilter") || "all";
+      return TICKET_VIEWS.find(v => v.id === saved) ? saved : "all";
     } catch {
       return "all";
     }
@@ -2043,7 +2043,7 @@ export default function HelpDesk() {
 
   const isPrivilegedRole = currentUser?.role === "Admin" || currentUser?.role === "Manager";
   const effectiveTvFilter = (tvFilter === "unassigned" && !isPrivilegedRole) ? "all" : tvFilter;
-  const cvd = TICKET_VIEWS.find(v => v.id === effectiveTvFilter) || TICKET_VIEWS[5];
+  const cvd = TICKET_VIEWS.find(v => v.id === effectiveTvFilter) || TICKET_VIEWS[6];
   const cpv = PROJECT_VIEWS.find(v => v.id === pvFilter) || PROJECT_VIEWS[5];
 
   // ✅ A ticket is a TRUE webcast only if isWebcast=true OR ID starts with WEB- or WC-
@@ -2054,18 +2054,25 @@ export default function HelpDesk() {
     String(t.id).startsWith("WC-");
 
   const filtered = useMemo(() => tickets.filter(t => {
-
     if (!currentUser || !cvd.filter(t, currentUser)) return false;
-    // ✅ Exclude Bin status from all ticket views except Bin view
     if (cvd.id !== "bin" && t.status === "Bin") return false;
-    // Non-admins/managers only see tickets assigned to them or reported by them
     if (currentUser.role !== "Admin" && currentUser.role !== "Manager" && t.reportedBy !== currentUser.name && !t.assignees?.some(a => a.id === currentUser.id)) return false;
     if (statusF !== "All" && t.status !== statusF) return false;
     if (priorityF !== "All" && t.priority !== priorityF) return false;
-    // ✅ NEW: Apply org and dept filters
     if (orgFilter !== "all" && t.org !== orgFilter) return false;
     if (deptFilter !== "all" && t.department !== deptFilter) return false;
     if (categoryFilter !== "all" && t.category !== categoryFilter) return false;
+    if (activeQuickFilters.length > 0) {
+    const pass = activeQuickFilters.every(f => {
+      if (f === "unassigned") return (!t.assignees || t.assignees.length === 0) && t.status !== "Closed";
+      if (f === "mine") return (t.status === "Open" || t.status === "In Progress") && t.assignees?.some(a => a.id === currentUser.id);
+      if (f === "pastdue") return t.status === "Open" && t.dueDate && new Date(String(t.dueDate)) < new Date();
+      if (f === "vendor") return t.status === "Pending" && t.timeline?.some(ev => ev.action?.includes("Sent for Repair"));
+      if (f === "webcast") return t.category === "Webcast" || isTrueWebcast(t);
+      return false;
+    });
+    if (!pass) return false;
+  }
     if (search) {
       if (search.startsWith("event:")) {
         const id = search.split(":")[1];
@@ -2074,7 +2081,7 @@ export default function HelpDesk() {
       if (!t.summary.toLowerCase().includes(search.toLowerCase()) && !t.id.toLowerCase().includes(search.toLowerCase()) && !t.org.toLowerCase().includes(search.toLowerCase())) return false;
     }
     return true;
-  }), [tickets, cvd, currentUser, statusF, priorityF, search, orgFilter, deptFilter, categoryFilter]);
+  }), [tickets, cvd, currentUser, statusF, priorityF, search, orgFilter, deptFilter, categoryFilter, activeQuickFilters]);
 
   // ✅ NEW: Filter for webcast tickets only
   const webcastFiltered = useMemo(() => tickets.filter(t => {
@@ -2122,11 +2129,11 @@ export default function HelpDesk() {
 
   // ✅ NEW: Dashboard stats (filtered by organization)
   const dashboardStats = useMemo(() => ({
-    total: dashboardData.length,
+    total: dashboardData.filter(x => x.status !== "Bin").length,
     open: dashboardData.filter(x => x.status === "Open" || x.status === "In Progress").length,
     inProgress: dashboardData.filter(x => x.status === "In Progress").length,
     closed: dashboardData.filter(x => x.status === "Closed").length,
-    critical: dashboardData.filter(x => x.priority === "Critical" && x.status !== "Closed").length
+    critical: dashboardData.filter(x => x.priority === "Critical" && x.status !== "Bin").length
   }), [dashboardData]);
 
   // For dashboard: Agents and Viewers only see stats for projects assigned to them
@@ -2174,28 +2181,13 @@ export default function HelpDesk() {
   }, [dashboardData, range, now, dayMs]);
 
   const dashboardStatusDist = useMemo(() => {
-    const statusCounts = {};
-    STATUSES.filter(s => s !== "Bin").forEach(s => statusCounts[s] = 0);
-    statusCounts["Unassigned"] = 0;
-
-    dashboardData.filter(t => t.status !== "Bin").forEach(t => {
-      if (!t.assignees || t.assignees.length === 0) {
-        statusCounts["Unassigned"]++;
-      } else {
-        // Treat "Resolved" as "Closed" — no separate classification
-        const status = t.status === "Resolved" ? "Closed" : t.status;
-        if (STATUSES.includes(status)) {
-          statusCounts[status] = (statusCounts[status] || 0) + 1;
-        }
-      }
-    });
-
-    return Object.entries(statusCounts).map(([s, count]) => ({
-      label: s,
-      color: s === "Unassigned" ? "#94a3b8" : Object.values(STATUS_COLOR)[STATUSES.indexOf(s)]?.text || "#64748b",
-      value: count
-    }));
-  }, [dashboardData]);
+  const base = dashboardData.filter(t => t.status !== "Bin");
+  return [
+    { label: "Open",        value: base.filter(t => t.status === "Open").length,                                          color: STATUS_COLOR["Open"]?.text || "#1d4ed8" },
+    { label: "In Progress", value: base.filter(t => t.status === "In Progress").length,                                   color: STATUS_COLOR["In Progress"]?.text || "#854d0e" },
+    { label: "Closed",      value: base.filter(t => t.status === "Closed" || t.status === "Resolved").length,             color: STATUS_COLOR["Closed"]?.text || "#15803d" },
+  ];
+}, [dashboardData]);
 
   const dashboardClosingUsers = useMemo(() => {
     const closedTickets = dashboardData.filter(t => t.status === "Closed");
@@ -2705,10 +2697,7 @@ export default function HelpDesk() {
       const newStatus = t.status === "Closed" ? "Open" : "Closed";
       const closedByName = closedBy ? closedBy.name : currentUser.name;
       const newTimelineEvent = { action: `Status changed to ${newStatus}`, by: currentUser.name, date: nowISO, note: `Reason: ${ticketRemark}${closedBy ? ` · Closed by: ${closedBy.name}` : ""}` };
-      const updatedAssignees = closedBy && !t.assignees?.some(a => a.id === closedBy.id)
-        ? [...(t.assignees || []), closedBy]
-        : t.assignees;
-      const updatedT = { ...t, status: newStatus, updated: nowISO, closedBy: newStatus === "Closed" ? closedByName : null, timeline: [...(t.timeline || []), newTimelineEvent], assignees: updatedAssignees };
+      const updatedT = { ...t, status: newStatus, updated: nowISO, closedBy: newStatus === "Closed" ? closedByName : null, timeline: [...(t.timeline || []), newTimelineEvent] };
       const apiUrl = isTrueWebcast(t) ? `${BASE_URL}/webcasts/${closingTicketId}` : `${TICKETS_API}/${closingTicketId}`;
       await axios.put(apiUrl, updatedT);
       setTickets(p => p.map(x => x.id === closingTicketId ? { ...updatedT, updated: new Date(nowISO) } : x));
@@ -5476,9 +5465,9 @@ export default function HelpDesk() {
               <div style={{ display: "grid", gridTemplateColumns: "repeat(6,1fr)", gap: 9, marginBottom: 20 }}>
                 {[
                   { label: "Open", value: dashboardStats.open, bg: "#fef3c7", accent: "#f59e0b", icon: "📬", action: () => { setView("tickets"); setTvFilter("open"); setStatusF("All"); setPriorityF("All"); } },
-                  ...((currentUser?.role === "Admin" || currentUser?.role === "Manager") ? [{ label: "Unassigned", value: dashboardData.filter(t => (!t.assignees || t.assignees.length === 0) && t.status !== "Closed" && !isTrueWebcast(t)).length, bg: "#f3e8ff", accent: "#a855f7", icon: "🔸", action: () => { setView("tickets"); setTvFilter("unassigned"); } }] : []),
-                  { label: "In Progress", value: dashboardStats.inProgress, bg: "#ede9fe", accent: "#6366f1", icon: "⚙️", action: () => { setView("tickets"); setTvFilter("all"); setStatusF("In Progress"); setPriorityF("All"); } },
-                  { label: "Critical", value: dashboardStats.critical, bg: "#fee2e2", accent: "#ef4444", icon: "🔥", action: () => { setView("tickets"); setTvFilter("alerts"); setStatusF("All"); setPriorityF("Critical"); } },
+                  ...((currentUser?.role === "Admin" || currentUser?.role === "Manager") ? [{ label: "Unassigned", value: dashboardData.filter(t => (!t.assignees || t.assignees.length === 0) && t.status !== "Closed" && t.status !== "Bin").length, bg: "#f3e8ff", accent: "#a855f7", icon: "🔸", action: () => { setView("tickets"); setTvFilter("unassigned"); } }] : []),
+                  { label: "In Progress", value: dashboardStats.inProgress, bg: "#ede9fe", accent: "#6366f1", icon: "⚙️",  action: () => { setView("tickets"); setTvFilter("inprogress"); setStatusF("All"); setPriorityF("All"); } },
+                  { label: "Critical", value: dashboardStats.critical, bg: "#fee2e2", accent: "#ef4444", icon: "🔥", action: () => { setView("tickets"); setTvFilter("all"); setStatusF("All"); setPriorityF("Critical"); } },
                   { label: "Closed", value: dashboardStats.closed, bg: "#dcfce7", accent: "#22c55e", icon: "✅", action: () => { setView("tickets"); setTvFilter("closed"); setStatusF("All"); setPriorityF("All"); } },
                   { label: "Total", value: dashboardStats.total, bg: "#dbeafe", accent: "#3b82f6", icon: "🎫", action: () => { setView("tickets"); setTvFilter("all"); setStatusF("All"); setPriorityF("All"); } },
                 ].map(s => (
@@ -5536,11 +5525,11 @@ export default function HelpDesk() {
                   <div style={{ display: "grid", gridTemplateColumns: "1fr", gap: 12 }}>
                     <div style={{ background: "#fff", borderRadius: 12, padding: 16, boxShadow: "0 1px 4px rgba(0,0,0,0.06)" }}>
                       <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 10, color: "#374151" }}>Recent Tickets</div>
-                      {(currentUser?.role === "Admin" || currentUser?.role === "Manager" ? tickets : tickets.filter(t => t.reportedBy === currentUser?.name || t.assignees?.some(a => a.id === currentUser?.id))).slice(0, 5).map(t => (
+                      {(currentUser?.role === "Admin" || currentUser?.role === "Manager" ? tickets : tickets.filter(t => t.reportedBy === currentUser?.name || t.assignees?.some(a => a.id === currentUser?.id))).slice(0, 10).map(t => (
                         <div key={t.id} onClick={() => setSelTicket(t)} style={{ display: "flex", alignItems: "center", gap: 9, padding: "6px", borderRadius: 8, cursor: "pointer", border: "1px solid #f1f5f9", marginBottom: 5 }}>
                           <div style={{ display: "flex" }}>{(t.assignees || []).slice(0, 2).map((a, i) => <div key={a.id} style={{ marginLeft: i > 0 ? -6 : 0, border: "2px solid #fff", borderRadius: "50%" }}><Avatar name={a.name} size={24} /></div>)}{!t.assignees?.length && <Avatar name="?" size={24} />}</div>
                           <div style={{ flex: 1, minWidth: 0 }}><div style={{ fontSize: 12, fontWeight: 600, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{t.summary}</div><div style={{ fontSize: 10, color: "#94a3b8" }}>{t.id} · {t.org}</div></div>
-                          <Badge label={t.status} style={{ ...STATUS_COLOR[t.status], fontSize: 10 }} />
+                          <Badge label={t.status} style={{...STATUS_COLOR[t.status], fontSize: 10}}/>
                         </div>
                       ))}
                     </div>
@@ -5554,7 +5543,7 @@ export default function HelpDesk() {
                       <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 10, color: "#374151" }}>Tickets Over Time (Weekly)</div>
                       <SmartChart data={dashboardDailyData} defaultColor="#3b82f6" size="small" />
                     </div>
-                    <SmartChart title="Ticket Priority" data={priorityDist} defaultType="bubble" size="small" />
+                    <SmartChart title="Ticket Priority" data={priorityDist} defaultType="pie" size="small" />
                   </div>
                   <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 12 }}>
                     <div style={{ background: "#fff", borderRadius: 12, padding: 12, boxShadow: "0 1px 4px rgba(0,0,0,0.06)", minHeight: 200 }}>
@@ -5585,20 +5574,38 @@ export default function HelpDesk() {
             <div style={{ padding: "11px 14px", borderBottom: "1px solid #f1f5f9", display: "flex", gap: 9, alignItems: "center", flexWrap: "wrap" }}>
               <input placeholder="Search…" value={search} onChange={e => setSearch(e.target.value)} style={{ ...iS, width: 200, fontSize: 13, padding: "7px 10px" }} />
               <span style={{ fontSize: 12, color: "#64748b" }}>{allSortedTickets.length} tickets</span>
-              {[
-                { id: "unassigned", label: "Unassigned", icon: "🔸" },
-                { id: "mine", label: "My Tickets", icon: "🙋" },
-                { id: "pastdue", label: "Past Due", icon: "🔴" },
-                { id: "vendor", label: "By Vendor", icon: "🏭" },
-                ].filter(v => (v.id !== "unassigned" || currentUser?.role === "Admin" || currentUser?.role === "Manager") && (tvFilter === "all" || tvFilter === v.id))
-              .map(v => (
-                <button key={v.id} onClick={() => setTvFilter(tvFilter === v.id ? "all" : v.id)} style={{ display: "flex", alignItems: "center", gap: 5, padding: "5px 10px", borderRadius: 99, border: `1.5px solid ${tvFilter === v.id ? "#3b82f6" : "#e2e8f0"}`, background: tvFilter === v.id ? "#eff6ff" : "#f8fafc", color: tvFilter === v.id ? "#1d4ed8" : "#64748b", fontSize: 12, fontWeight: tvFilter === v.id ? 600 : 400, cursor: "pointer", fontFamily: "'DM Sans',sans-serif", whiteSpace: "nowrap" }}>
-                  <span>{v.icon}</span>{v.label}
+              <div style={{ position: "relative" }}>
+                <button onClick={() => setShowQuickFilterDD(v => !v)} style={{ display: "flex", alignItems: "center", gap: 6, padding: "5px 12px", borderRadius: 8, border: `1.5px solid ${activeQuickFilters.length > 0 ? "#3b82f6" : "#e2e8f0"}`, background: activeQuickFilters.length > 0 ? "#eff6ff" : "#f8fafc", color: activeQuickFilters.length > 0 ? "#1d4ed8" : "#64748b", fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: "'DM Sans',sans-serif", whiteSpace: "nowrap" }}>
+                  🔽 Filter{activeQuickFilters.length > 0 ? ` (${activeQuickFilters.length})` : ""}
                 </button>
-              ))}
-              {tvFilter === "all" && <button onClick={() => setCategoryFilter(categoryFilter === "Webcast" ? "all" : "Webcast")} style={{ display: "flex", alignItems: "center", gap: 5, padding: "5px 10px", borderRadius: 99, border: `1.5px solid ${categoryFilter === "Webcast" ? "#f97316" : "#e2e8f0"}`, background: categoryFilter === "Webcast" ? "#fff7ed" : "#f8fafc", color: categoryFilter === "Webcast" ? "#f97316" : "#64748b", fontSize: 12, fontWeight: categoryFilter === "Webcast" ? 600 : 400, cursor: "pointer", fontFamily: "'DM Sans',sans-serif", whiteSpace: "nowrap" }}>
-                <span>📡</span>Webcast
-              </button>}
+                {showQuickFilterDD && (
+                  <>
+                    <div style={{ position: "fixed", inset: 0, zIndex: 199 }} onClick={() => setShowQuickFilterDD(false)} />
+                    <div style={{ position: "absolute", top: "110%", left: 0, background: "#fff", border: "1.5px solid #e2e8f0", borderRadius: 10, boxShadow: "0 8px 24px rgba(0,0,0,0.12)", zIndex: 200, minWidth: 180, padding: 8 }}>
+                      {[
+                        { id: "unassigned", label: "Unassigned", icon: "🔸", adminOnly: true },
+                        { id: "mine", label: "My Tickets", icon: "🙋", adminOnly: false },
+                        { id: "pastdue", label: "Past Due", icon: "🔴", adminOnly: false },
+                        { id: "vendor", label: "By Vendor", icon: "🏭", adminOnly: false },
+                        { id: "webcast", label: "Webcast", icon: "📡", adminOnly: false },
+                      ].filter(v => !v.adminOnly || currentUser?.role === "Admin" || currentUser?.role === "Manager")
+                      .map(v => {
+                        const active = activeQuickFilters.includes(v.id);
+                        return (
+                          <div key={v.id} onClick={() => setActiveQuickFilters(prev => active ? prev.filter(x => x !== v.id) : [...prev, v.id])}
+                            style={{ display: "flex", alignItems: "center", gap: 8, padding: "7px 10px", borderRadius: 6, cursor: "pointer", background: active ? "#eff6ff" : "transparent", color: active ? "#1d4ed8" : "#374151", fontSize: 13, fontWeight: active ? 600 : 400 }}>
+                            <span style={{ fontSize: 14, width: 18, textAlign: "center", border: `1.5px solid ${active ? "#3b82f6" : "#cbd5e1"}`, borderRadius: 4, background: active ? "#3b82f6" : "#fff", color: active ? "#fff" : "transparent", lineHeight: "16px", display: "inline-block" }}>✓</span>
+                            <span>{v.icon}</span>{v.label}
+                          </div>
+                        );
+                      })}
+                      {activeQuickFilters.length > 0 && (
+                        <div onClick={() => setActiveQuickFilters([])} style={{ marginTop: 6, borderTop: "1px solid #f1f5f9", paddingTop: 6, padding: "6px 10px", color: "#ef4444", fontSize: 12, fontWeight: 600, cursor: "pointer" }}>✕ Clear filters</div>
+                      )}
+                    </div>
+                  </>
+                )}
+              </div>
               <div style={{ marginLeft: "auto", display: "flex", gap: 8, alignItems: "center" }}>
                 {tvFilter !== "closed" && (
                   <button onClick={() => { setForm(emptyForm()); setShowNewTicket(true); }} style={{ ...bP, padding: "7px 13px", fontSize: 12 }}>+ New Ticket</button>
