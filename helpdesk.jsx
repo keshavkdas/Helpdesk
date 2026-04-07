@@ -1073,7 +1073,17 @@ export default function HelpDesk() {
     selectedPriorities: [],
     selectedVendors: [],
   });
-  const [reportTimeRange, setReportTimeRange] = useState("all"); // Time range filter for reports
+  const [reportTimeRange, setReportTimeRange] = useState("all");
+  const [savedReports, setSavedReports] = useState(() => {
+    try { return JSON.parse(localStorage.getItem("df_saved_reports") || "[]"); } catch { return []; }
+  });
+  const [reportBuilderOpen, setReportBuilderOpen] = useState(false);
+  const [reportFilters, setReportFilters] = useState({
+    dataSource: "tickets", status: [], priority: [], category: [], assignee: "",
+    dateFrom: "", dateTo: "", columns: ["id","summary","status","priority","category","org","assignees","createdAt"],
+  });
+  const [reportPreview, setReportPreview] = useState([]);
+  const [reportName, setReportName] = useState("");
 
   // ✅ NEW: User management edit modal state
   const [userEditModal, setUserEditModal] = useState({ show: false, user: null, newRole: null, editName: "", editEmail: "", editPhone: "", editPassword: "" });
@@ -6059,7 +6069,276 @@ export default function HelpDesk() {
           </>}
 
           {/* ── REPORTS (v1 charts) ── */}
-          {view === "reports" && <></>}
+          {view === "reports" && (() => {
+            const ALL_COLUMNS = {
+              tickets: [
+                { key: "id", label: "ID" }, { key: "summary", label: "Summary" },
+                { key: "status", label: "Status" }, { key: "priority", label: "Priority" },
+                { key: "category", label: "Category" }, { key: "org", label: "Organisation" },
+                { key: "department", label: "Department" }, { key: "contact", label: "Contact" },
+                { key: "reportedBy", label: "Reported By" },
+                { key: "assignees", label: "Assignees" }, { key: "location", label: "Location" },
+                { key: "dueDate", label: "Due Date" }, { key: "createdAt", label: "Created" },
+                { key: "updatedAt", label: "Updated" },
+              ],
+              projects: [
+                { key: "id", label: "ID" }, { key: "title", label: "Title" },
+                { key: "status", label: "Status" }, { key: "priority", label: "Priority" },
+                { key: "category", label: "Category" }, { key: "org", label: "Organisation" },
+                { key: "department", label: "Department" }, { key: "reportedBy", label: "Reported By" },
+                { key: "assignees", label: "Assignees" }, { key: "progress", label: "Progress" },
+                { key: "dueDate", label: "Due Date" }, { key: "createdAt", label: "Created" },
+              ],
+            };
+
+            const availableCols = ALL_COLUMNS[reportFilters.dataSource] || ALL_COLUMNS.tickets;
+            const sourceData = reportFilters.dataSource === "projects" ? projects : tickets;
+
+            const applyFilters = (data) => {
+              let result = [...data];
+              if (reportFilters.status.length) result = result.filter(r => reportFilters.status.includes(r.status));
+              if (reportFilters.priority.length) result = result.filter(r => reportFilters.priority.includes(r.priority));
+              if (reportFilters.category.length) result = result.filter(r => reportFilters.category.includes(r.category));
+              if (reportFilters.assignee) result = result.filter(r => (r.assignees || []).some(a => a.name?.toLowerCase().includes(reportFilters.assignee.toLowerCase())));
+              if (reportFilters.dateFrom) result = result.filter(r => new Date(r.createdAt) >= new Date(reportFilters.dateFrom));
+              if (reportFilters.dateTo) result = result.filter(r => new Date(r.createdAt) <= new Date(reportFilters.dateTo + "T23:59:59"));
+              return result;
+            };
+
+            const getCellValue = (row, key) => {
+              if (key === "assignees") return (row.assignees || []).map(a => a.name).join(", ");
+              if (key === "createdAt" || key === "updatedAt" || key === "dueDate") return row[key] ? new Date(row[key]).toLocaleDateString() : "—";
+              if (key === "progress") return row[key] != null ? `${row[key]}%` : "—";
+              return row[key] || "—";
+            };
+
+            const runReport = () => {
+              const result = applyFilters(sourceData);
+              setReportPreview(result);
+            };
+
+            const saveReport = () => {
+              if (!reportName.trim()) { alert("Enter a report name"); return; }
+              const report = {
+                id: Date.now(),
+                name: reportName.trim(),
+                createdAt: new Date().toISOString(),
+                filters: { ...reportFilters },
+                rowCount: reportPreview.length,
+              };
+              const updated = [report, ...savedReports];
+              setSavedReports(updated);
+              localStorage.setItem("df_saved_reports", JSON.stringify(updated));
+              setReportName("");
+              setReportBuilderOpen(false);
+              alert(`Report "${report.name}" saved.`);
+            };
+
+            const downloadReport = (reportOrLive, label) => {
+              const data = reportOrLive === "live" ? reportPreview : applyFilters(sourceData);
+              const cols = reportFilters.columns.length ? reportFilters.columns : availableCols.map(c => c.key);
+              const headers = cols.map(k => availableCols.find(c => c.key === k)?.label || k);
+              const rows = data.map(row => cols.map(k => `"${String(getCellValue(row, k)).replace(/"/g, '""')}"`));
+              const csv = [headers, ...rows].map(r => r.join(",")).join("\n");
+              const a = document.createElement("a");
+              a.href = URL.createObjectURL(new Blob([csv], { type: "text/csv" }));
+              a.download = `${label || "report"}_${new Date().toISOString().split("T")[0]}.csv`;
+              a.click();
+            };
+
+            const deleteReport = (id) => {
+              const updated = savedReports.filter(r => r.id !== id);
+              setSavedReports(updated);
+              localStorage.setItem("df_saved_reports", JSON.stringify(updated));
+            };
+
+            const loadReport = (r) => {
+              setReportFilters({ ...r.filters });
+              const result = applyFilters(reportFilters.dataSource === "projects" ? projects : tickets);
+              setReportPreview(result);
+              setReportBuilderOpen(true);
+            };
+
+            const btn = (label, onClick, color = "#3b82f6", ghost = false) => (
+              <button onClick={onClick} style={{
+                padding: "7px 14px", borderRadius: 7, fontSize: 13, fontWeight: 600, cursor: "pointer",
+                background: ghost ? "transparent" : color, color: ghost ? color : "#fff",
+                border: ghost ? `1.5px solid ${color}` : "none",
+              }}>{label}</button>
+            );
+
+            const chip = (val, active, onClick) => (
+              <span onClick={onClick} key={val} style={{
+                padding: "4px 10px", borderRadius: 20, fontSize: 12, cursor: "pointer", userSelect: "none",
+                background: active ? "#3b82f6" : "#f1f5f9", color: active ? "#fff" : "#334155",
+                border: active ? "none" : "1px solid #e2e8f0", fontWeight: 500,
+              }}>{val}</span>
+            );
+
+            const toggleArr = (field, val) => setReportFilters(f => ({
+              ...f, [field]: f[field].includes(val) ? f[field].filter(x => x !== val) : [...f[field], val],
+            }));
+            const toggleCol = (k) => setReportFilters(f => ({
+              ...f, columns: f.columns.includes(k) ? f.columns.filter(x => x !== k) : [...f.columns, k],
+            }));
+
+            const allCategories = [...new Set(sourceData.map(r => r.category).filter(Boolean))];
+            const activeCols = reportFilters.columns.length ? reportFilters.columns : availableCols.map(c => c.key);
+
+            return (
+              <div style={{ padding: "0 0 40px 0", maxWidth: 1100 }}>
+                {/* Header */}
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
+                  <div>
+                    <h2 style={{ margin: 0, fontSize: 20, fontWeight: 700, color: "#0f172a" }}>📊 Reports</h2>
+                    <p style={{ margin: "4px 0 0", fontSize: 13, color: "#64748b" }}>Build, save, and export reports from your data.</p>
+                  </div>
+                  {btn("＋ New Report", () => { setReportPreview([]); setReportBuilderOpen(true); })}
+                </div>
+
+                {/* Saved Reports History */}
+                {!reportBuilderOpen && (
+                  <div>
+                    <h3 style={{ fontSize: 14, fontWeight: 600, color: "#475569", marginBottom: 10 }}>Saved Reports</h3>
+                    {savedReports.length === 0 ? (
+                      <div style={{ padding: 32, textAlign: "center", background: "#f8fafc", borderRadius: 10, border: "1px dashed #cbd5e1", color: "#94a3b8" }}>
+                        No saved reports yet. Click <strong>+ New Report</strong> to create one.
+                      </div>
+                    ) : (
+                      <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                        {savedReports.map(r => (
+                          <div key={r.id} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "14px 18px", background: "#fff", border: "1px solid #e2e8f0", borderRadius: 10, boxShadow: "0 1px 4px rgba(0,0,0,0.04)" }}>
+                            <div>
+                              <div style={{ fontWeight: 600, fontSize: 14, color: "#0f172a" }}>{r.name}</div>
+                              <div style={{ fontSize: 12, color: "#94a3b8", marginTop: 2 }}>
+                                {r.filters.dataSource} · {r.rowCount} rows · {new Date(r.createdAt).toLocaleDateString()}
+                              </div>
+                            </div>
+                            <div style={{ display: "flex", gap: 8 }}>
+                              {btn("Load", () => loadReport(r), "#6366f1", true)}
+                              {btn("⬇ CSV", () => downloadReport(r, r.name), "#10b981", true)}
+                              {btn("✕", () => deleteReport(r.id), "#ef4444", true)}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* Report Builder */}
+                {reportBuilderOpen && (
+                  <div style={{ background: "#fff", border: "1px solid #e2e8f0", borderRadius: 12, padding: 24, boxShadow: "0 2px 12px rgba(0,0,0,0.06)" }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
+                      <h3 style={{ margin: 0, fontSize: 16, fontWeight: 700, color: "#0f172a" }}>🔧 Report Builder</h3>
+                      {btn("← Back to History", () => setReportBuilderOpen(false), "#64748b", true)}
+                    </div>
+
+                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20, marginBottom: 20 }}>
+                      {/* Data Source */}
+                      <div>
+                        <label style={{ fontSize: 12, fontWeight: 600, color: "#475569", display: "block", marginBottom: 6 }}>DATA SOURCE</label>
+                        <div style={{ display: "flex", gap: 8 }}>
+                          {["tickets", "projects"].map(s => chip(s.charAt(0).toUpperCase() + s.slice(1), reportFilters.dataSource === s, () => setReportFilters(f => ({ ...f, dataSource: s, status: [], priority: [], category: [], columns: ALL_COLUMNS[s].map(c => c.key) }))))}
+                        </div>
+                      </div>
+                      {/* Date Range */}
+                      <div>
+                        <label style={{ fontSize: 12, fontWeight: 600, color: "#475569", display: "block", marginBottom: 6 }}>DATE RANGE (Created)</label>
+                        <div style={{ display: "flex", gap: 8 }}>
+                          <input type="date" value={reportFilters.dateFrom} onChange={e => setReportFilters(f => ({ ...f, dateFrom: e.target.value }))} style={{ flex: 1, padding: "7px 10px", border: "1px solid #e2e8f0", borderRadius: 7, fontSize: 13 }} />
+                          <input type="date" value={reportFilters.dateTo} onChange={e => setReportFilters(f => ({ ...f, dateTo: e.target.value }))} style={{ flex: 1, padding: "7px 10px", border: "1px solid #e2e8f0", borderRadius: 7, fontSize: 13 }} />
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Filters Row */}
+                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 16, marginBottom: 20 }}>
+                      <div>
+                        <label style={{ fontSize: 12, fontWeight: 600, color: "#475569", display: "block", marginBottom: 6 }}>STATUS</label>
+                        <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                          {(reportFilters.dataSource === "projects" ? PROJECT_STATUSES : STATUSES).map(s => chip(s, reportFilters.status.includes(s), () => toggleArr("status", s)))}
+                        </div>
+                      </div>
+                      <div>
+                        <label style={{ fontSize: 12, fontWeight: 600, color: "#475569", display: "block", marginBottom: 6 }}>PRIORITY</label>
+                        <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                          {PRIORITIES.map(p => chip(p, reportFilters.priority.includes(p), () => toggleArr("priority", p)))}
+                        </div>
+                      </div>
+                      <div>
+                        <label style={{ fontSize: 12, fontWeight: 600, color: "#475569", display: "block", marginBottom: 6 }}>CATEGORY</label>
+                        <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                          {allCategories.map(c => chip(c, reportFilters.category.includes(c), () => toggleArr("category", c)))}
+                          {allCategories.length === 0 && <span style={{ fontSize: 12, color: "#94a3b8" }}>No categories</span>}
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Assignee search */}
+                    <div style={{ marginBottom: 20 }}>
+                      <label style={{ fontSize: 12, fontWeight: 600, color: "#475569", display: "block", marginBottom: 6 }}>ASSIGNEE CONTAINS</label>
+                      <input value={reportFilters.assignee} onChange={e => setReportFilters(f => ({ ...f, assignee: e.target.value }))} placeholder="Type agent name..." style={{ padding: "7px 12px", border: "1px solid #e2e8f0", borderRadius: 7, fontSize: 13, width: 260 }} />
+                    </div>
+
+                    {/* Columns */}
+                    <div style={{ marginBottom: 20 }}>
+                      <label style={{ fontSize: 12, fontWeight: 600, color: "#475569", display: "block", marginBottom: 6 }}>COLUMNS TO EXPORT</label>
+                      <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                        {availableCols.map(c => chip(c.label, activeCols.includes(c.key), () => toggleCol(c.key)))}
+                      </div>
+                    </div>
+
+                    {/* Actions */}
+                    <div style={{ display: "flex", gap: 10, marginBottom: 20 }}>
+                      {btn("▶ Run Report", runReport)}
+                      {reportPreview.length > 0 && btn("⬇ Export CSV", () => downloadReport("live", reportName || "report"), "#10b981")}
+                    </div>
+
+                    {/* Preview */}
+                    {reportPreview.length > 0 && (
+                      <div>
+                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+                          <span style={{ fontSize: 13, fontWeight: 600, color: "#334155" }}>{reportPreview.length} rows</span>
+                          <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                            <input value={reportName} onChange={e => setReportName(e.target.value)} placeholder="Report name…" style={{ padding: "6px 10px", border: "1px solid #e2e8f0", borderRadius: 7, fontSize: 13 }} />
+                            {btn("💾 Save Report", saveReport, "#6366f1")}
+                          </div>
+                        </div>
+                        <div style={{ overflowX: "auto", borderRadius: 8, border: "1px solid #e2e8f0" }}>
+                          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
+                            <thead>
+                              <tr style={{ background: "#f8fafc" }}>
+                                {activeCols.map(k => (
+                                  <th key={k} style={{ padding: "9px 12px", textAlign: "left", fontWeight: 600, color: "#475569", borderBottom: "1px solid #e2e8f0", whiteSpace: "nowrap" }}>
+                                    {availableCols.find(c => c.key === k)?.label || k}
+                                  </th>
+                                ))}
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {reportPreview.slice(0, 100).map((row, i) => (
+                                <tr key={row.id || i} style={{ borderBottom: "1px solid #f1f5f9", background: i % 2 === 0 ? "#fff" : "#fafafa" }}>
+                                  {activeCols.map(k => (
+                                    <td key={k} style={{ padding: "8px 12px", color: "#334155", maxWidth: 200, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                                      {getCellValue(row, k)}
+                                    </td>
+                                  ))}
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                          {reportPreview.length > 100 && (
+                            <div style={{ padding: "8px 12px", fontSize: 12, color: "#94a3b8", textAlign: "center" }}>Showing first 100 rows. Export CSV for full data.</div>
+                          )}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            );
+          })()}
 
           {/* ── AGENTS ── */}
           {view === "users" && !selAgent ? (
