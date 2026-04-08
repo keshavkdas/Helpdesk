@@ -66,12 +66,12 @@ const TICKET_VIEWS = [
 ];
 
 const PROJECT_VIEWS = [
+  { id: "all", label: "All Projects", icon: "◈", desc: "Every project in the system", filter: () => true },
   { id: "open", label: "Open Projects", icon: "📂", desc: "All open projects", filter: p => p.status === "Open" },
   { id: "inprogress", label: "In Progress", icon: "⚙️", desc: "Projects being worked on", filter: p => p.status === "In Progress" },
   { id: "closed", label: "Closed Projects", icon: "✅", desc: "All closed projects", filter: p => p.status === "Closed" },
   { id: "unassigned", label: "Unassigned", icon: "👤", desc: "Projects with no assignee", filter: p => (!p.assignees || p.assignees.length === 0) && p.status !== "Closed" },
   { id: "mine", label: "My Projects", icon: "🙋", desc: "Projects assigned to me", filter: (p, me) => p.assignees?.some(a => a.id === me?.id) && p.status !== "Closed" },
-  { id: "all", label: "All Projects", icon: "◈", desc: "Every project in the system", filter: () => true },
   { id: "critical", label: "Critical", icon: "🔔", desc: "Critical priority projects", filter: p => p.priority === "Critical" && p.status !== "Closed" },
 ];
 
@@ -841,6 +841,13 @@ const SmartChart = ({ title, data, defaultType = "bar", defaultColor = "#3b82f6"
   const [type, setType] = useState(defaultType);
   const [showPicker, setShowPicker] = useState(false);
   const [hov, setHov] = useState(null);
+  const pickerRef = useRef(null);
+  useEffect(() => {
+    if (!showPicker) return;
+    const handler = (e) => { if (pickerRef.current && !pickerRef.current.contains(e.target)) setShowPicker(false); };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [showPicker]);
   const baseW = 280, baseH = 130;
   const W = size === "small" ? 240 : baseW;
   const H = size === "small" ? 100 : baseH;
@@ -956,7 +963,7 @@ const SmartChart = ({ title, data, defaultType = "bar", defaultColor = "#3b82f6"
       <div style={{ background: "#fff", borderRadius: 12, padding: "14px 16px", boxShadow: "0 1px 4px rgba(0,0,0,0.06)", position: "relative", zIndex: 1 }}>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
           <span style={{ fontSize: 12, fontWeight: 700, color: "#374151" }}>{title}</span>
-          <div style={{ position: "relative", zIndex: 10 }}>
+          <div ref={pickerRef} style={{ position: "relative", zIndex: 10 }}>
             <button onClick={() => setShowPicker(!showPicker)} style={{ display: "flex", alignItems: "center", gap: 5, padding: "4px 8px", borderRadius: 6, border: "1px solid #e2e8f0", background: "#f8fafc", cursor: "pointer", fontSize: 11, color: "#374151", fontFamily: "'DM Sans',sans-serif", fontWeight: 500 }}>
               <span>{CHART_TYPES.find(t => t.id === type)?.icon}</span>
               <span>{CHART_TYPES.find(t => t.id === type)?.label}</span>
@@ -986,8 +993,8 @@ const SmartChart = ({ title, data, defaultType = "bar", defaultColor = "#3b82f6"
     <div style={{ background: "#fff", borderRadius: 12, padding: "14px 16px", boxShadow: "0 1px 4px rgba(0,0,0,0.06)", position: "relative", zIndex: 1 }}>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
         <span style={{ fontSize: 12, fontWeight: 700, color: "#374151" }}>{title}</span>
-        <div style={{ position: "relative", zIndex: 10 }}>
-          <button onClick={() => setShowPicker(!showPicker)} style={{ display: "flex", alignItems: "center", gap: 5, padding: "4px 8px", borderRadius: 6, border: "1px solid #e2e8f0", background: "#f8fafc", cursor: "pointer", fontSize: 11, color: "#374151", fontFamily: "'DM Sans',sans-serif", fontWeight: 500 }}>
+        <div ref={pickerRef} style={{ position: "relative", zIndex: 10 }}>
+            <button onClick={() => setShowPicker(!showPicker)} style={{ display: "flex", alignItems: "center", gap: 5, padding: "4px 8px", borderRadius: 6, border: "1px solid #e2e8f0", background: "#f8fafc", cursor: "pointer", fontSize: 11, color: "#374151", fontFamily: "'DM Sans',sans-serif", fontWeight: 500 }}>
             <span>{CHART_TYPES.find(t => t.id === type)?.icon}</span>
             <span>{CHART_TYPES.find(t => t.id === type)?.label}</span>
             <span style={{ fontSize: 9, color: "#94a3b8" }}>▾</span>
@@ -1080,7 +1087,7 @@ export default function HelpDesk() {
   const [reportBuilderOpen, setReportBuilderOpen] = useState(false);
   const [reportFilters, setReportFilters] = useState({
     dataSource: "tickets", status: [], priority: [], category: [], assignee: "",
-    dateFrom: "", dateTo: "", columns: ["id","summary","status","priority","category","org","assignees","createdAt"],
+    dateFrom: "", dateTo: "", columns: [],
   });
   const [reportPreview, setReportPreview] = useState([]);
   const [reportName, setReportName] = useState("");
@@ -1107,6 +1114,12 @@ export default function HelpDesk() {
   const [settingsTab, setSettingsTab] = useState("ticketviews");
   const [activeQuickFilters, setActiveQuickFilters] = useState([]);
   const [showQuickFilterDD, setShowQuickFilterDD] = useState(false);
+  const [quickFilterDDPos, setQuickFilterDDPos] = useState({ top: 0, left: 0 });
+  const quickFilterBtnRef = useRef(null);
+  const quickFilterDDRef = useRef(null);
+  const [showProjFilterDD, setShowProjFilterDD] = useState(false);
+  const ticketFilterRef = useRef(null);
+  const projFilterRef = useRef(null);
   const [tvFilter, setTvFilter] = useState(() => {    try {
       const saved = localStorage.getItem("deskflow_tvFilter") || "all";
       return TICKET_VIEWS.find(v => v.id === saved) ? saved : "all";
@@ -1202,6 +1215,37 @@ export default function HelpDesk() {
       console.error("Failed to save pvFilter:", e);
     }
   }, [pvFilter]);
+
+  // Close filter dropdowns on outside click
+  useEffect(() => {
+    const handler = (e) => {
+      if (ticketFilterRef.current && !ticketFilterRef.current.contains(e.target)) setShowQuickFilterDD(false);
+      if (projFilterRef.current && !projFilterRef.current.contains(e.target)) setShowProjFilterDD(false);
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, []);
+
+  useEffect(() => {
+    if (!showQuickFilterDD) return;
+    const handler = (e) => {
+      if (
+        quickFilterBtnRef.current && !quickFilterBtnRef.current.contains(e.target) &&
+        quickFilterDDRef.current && !quickFilterDDRef.current.contains(e.target)
+      ) {
+        setShowQuickFilterDD(false);
+      }
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [showQuickFilterDD]);
+
+  useEffect(() => {
+    if (!showQuickFilterDD) return;
+    const handler = () => setShowQuickFilterDD(false);
+    window.addEventListener("scroll", handler, true);
+    return () => window.removeEventListener("scroll", handler, true);
+  }, [showQuickFilterDD]);
 
   // ── Ticket filters ──
   const [statusF, setStatusF] = useState("All");
@@ -4806,21 +4850,13 @@ export default function HelpDesk() {
                     { id: "bin", label: "Bin", icon: "🧹" },
                     { id: "alerts", label: "Active Alerts", icon: "🔔" },
                   ].map(v => (
-                    <button key={v.id} onClick={() => setTvFilter(v.id)} style={{ display: "flex", alignItems: "center", gap: 7, width: "100%", padding: "6px 11px", borderRadius: 6, border: "none", cursor: "pointer", background: tvFilter === v.id ? "#0f172a" : "transparent", color: tvFilter === v.id ? "#93c5fd" : "#475569", fontSize: 11.5, textAlign: "left", fontFamily: "'DM Sans',sans-serif", marginBottom: 1 }}>
+                    <button key={v.id} onClick={() => { setTvFilter(v.id); setStatusF("All"); setPriorityF("All"); }} style={{ display: "flex", alignItems: "center", gap: 7, width: "100%", padding: "6px 11px", borderRadius: 6, border: "none", cursor: "pointer", background: tvFilter === v.id ? "#0f172a" : "transparent", color: tvFilter === v.id ? "#93c5fd" : "#475569", fontSize: 11.5, textAlign: "left", fontFamily: "'DM Sans',sans-serif", marginBottom: 1 }}>
                       <span style={{ fontSize: 12 }}>{v.icon}</span>{v.label}
                     </button>
                   ))}
                 </div>
               )}
-              {n.id === "projects" && view === "projects" && (
-                <div style={{ marginBottom: 4, paddingLeft: 8, borderLeft: "2px solid #1e293b", marginLeft: 11 }}>
-                  {PROJECT_VIEWS.map(v => (
-                    <button key={v.id} onClick={() => setPvFilter(v.id)} style={{ display: "flex", alignItems: "center", gap: 7, width: "100%", padding: "6px 11px", borderRadius: 6, border: "none", cursor: "pointer", background: pvFilter === v.id ? "#0f172a" : "transparent", color: pvFilter === v.id ? "#93c5fd" : "#475569", fontSize: 11.5, textAlign: "left", fontFamily: "'DM Sans',sans-serif", marginBottom: 1 }}>
-                      <span style={{ fontSize: 12 }}>{v.icon}</span>{v.label}
-                    </button>
-                  ))}
-                </div>
-              )}
+              {/* Projects sub-menu removed — filter moved to action bar dropdown */}
             </React.Fragment>
           ))}
         </div>
@@ -5585,13 +5621,13 @@ export default function HelpDesk() {
               <input placeholder="Search…" value={search} onChange={e => setSearch(e.target.value)} style={{ ...iS, width: 200, fontSize: 13, padding: "7px 10px" }} />
               <span style={{ fontSize: 12, color: "#64748b" }}>{allSortedTickets.length} tickets</span>
               <div style={{ position: "relative" }}>
-                <button onClick={() => setShowQuickFilterDD(v => !v)} style={{ display: "flex", alignItems: "center", gap: 6, padding: "5px 12px", borderRadius: 8, border: `1.5px solid ${activeQuickFilters.length > 0 ? "#3b82f6" : "#e2e8f0"}`, background: activeQuickFilters.length > 0 ? "#eff6ff" : "#f8fafc", color: activeQuickFilters.length > 0 ? "#1d4ed8" : "#64748b", fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: "'DM Sans',sans-serif", whiteSpace: "nowrap" }}>
+                <button ref={quickFilterBtnRef} onClick={() => { const r = quickFilterBtnRef.current?.getBoundingClientRect(); if (r) setQuickFilterDDPos({ top: r.bottom + 6, left: r.left }); setShowQuickFilterDD(v => !v); }} style={{ display: "flex", alignItems: "center", gap: 6, padding: "5px 12px", borderRadius: 8, border: `1.5px solid ${activeQuickFilters.length > 0 ? "#3b82f6" : "#e2e8f0"}`, background: activeQuickFilters.length > 0 ? "#eff6ff" : "#f8fafc", color: activeQuickFilters.length > 0 ? "#1d4ed8" : "#64748b", fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: "'DM Sans',sans-serif", whiteSpace: "nowrap" }}>
                   🔽 Filter{activeQuickFilters.length > 0 ? ` (${activeQuickFilters.length})` : ""}
                 </button>
-                {showQuickFilterDD && (
+                 {showQuickFilterDD && (
                   <>
-                    <div style={{ position: "fixed", inset: 0, zIndex: 199 }} onClick={() => setShowQuickFilterDD(false)} />
-                    <div style={{ position: "absolute", top: "110%", left: 0, background: "#fff", border: "1.5px solid #e2e8f0", borderRadius: 10, boxShadow: "0 8px 24px rgba(0,0,0,0.12)", zIndex: 200, minWidth: 180, padding: 8 }}>
+                    <div style={{ position: "fixed", inset: 0, zIndex: 199, pointerEvents: "none" }} />
+                    <div ref={quickFilterDDRef} style={{ position: "fixed", top: quickFilterDDPos.top, left: quickFilterDDPos.left, background: "#fff", border: "1.5px solid #e2e8f0", borderRadius: 10, boxShadow: "0 8px 24px rgba(0,0,0,0.12)", zIndex: 200, minWidth: 180, padding: 8 }}>
                       {[
                         { id: "unassigned", label: "Unassigned", icon: "🔸", adminOnly: true },
                         { id: "mine", label: "My Tickets", icon: "🙋", adminOnly: false },
@@ -5911,42 +5947,37 @@ export default function HelpDesk() {
           {/* ── PROJECTS ── */}
           {view === "projects" && <div style={{ background: "#fff", borderRadius: 12, boxShadow: "0 1px 4px rgba(0,0,0,0.06)", overflow: "hidden" }}>
 
-            {/* ✅ PROJECT STATS - Now in Projects View Only */}
-            <div style={{ padding: "18px 18px 0 18px" }}>
-              <div style={{ marginBottom: 6 }}>
-                <span style={{ fontSize: 14, fontWeight: 900, color: "#1e293b", textTransform: "uppercase", letterSpacing: "0.1em", marginLeft: 2 }}>📁 PROJECTS</span>
-              </div>
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(6,1fr)", gap: 9, marginBottom: 20 }}>
-                {[
-                  { label: "Open", value: projStats.open, bg: "#fef3c7", accent: "#f59e0b", icon: "📂", action: () => { setPvFilter("open"); setProjStatusF("All"); setProjPriorityF("All"); } },
-                  { label: "Unassigned", value: dashboardProjects.filter(p => (!p.assignees || p.assignees.length === 0) && p.status !== "Closed").length, bg: "#f3e8ff", accent: "#a855f7", icon: "👤", action: () => { setPvFilter("unassigned"); } },
-                  { label: "In Progress", value: projStats.inProgress, bg: "#ede9fe", accent: "#6366f1", icon: "⚙️", action: () => { setPvFilter("inprogress"); setProjStatusF("All"); setProjPriorityF("All"); } },
-                  { label: "Critical", value: projStats.critical, bg: "#fee2e2", accent: "#ef4444", icon: "🔥", action: () => { setPvFilter("critical"); setProjStatusF("All"); setProjPriorityF("All"); } },
-                  { label: "Closed", value: projStats.closed, bg: "#dcfce7", accent: "#22c55e", icon: "✅", action: () => { setPvFilter("closed"); setProjStatusF("All"); setProjPriorityF("All"); } },
-                  { label: "Total", value: projStats.total, bg: "#ede9fe", accent: "#8b5cf6", icon: "📁", action: () => { setPvFilter("all"); setProjStatusF("All"); setProjPriorityF("All"); } },
-                ].map(s => (
-                  <div key={s.label} onClick={s.action} style={{ background: s.bg, borderRadius: 12, padding: "16px 16px", boxShadow: "0 2px 6px rgba(0,0,0,0.1)", borderLeft: `5px solid ${s.accent}`, cursor: "pointer", transition: "all 0.2s ease" }}
-                    onMouseEnter={e => { e.currentTarget.style.boxShadow = "0 6px 20px rgba(0,0,0,0.15)"; e.currentTarget.style.transform = "translateY(-2px)"; }}
-                    onMouseLeave={e => { e.currentTarget.style.boxShadow = "0 2px 6px rgba(0,0,0,0.1)"; e.currentTarget.style.transform = "translateY(0)"; }}>
-                    <div style={{ fontSize: 20, marginBottom: 6 }}>{s.icon}</div>
-                    <div style={{ fontSize: 32, fontWeight: 900, color: s.accent, lineHeight: 1 }}>{s.value}</div>
-                    <div style={{ fontSize: 12, fontWeight: 700, color: "#1e293b", marginTop: 4 }}>{s.label}</div>
-                  </div>
-                ))}
-              </div>
-            </div>
-
             {/* Project action bar */}
             <div style={{ padding: "11px 14px", borderBottom: "1px solid #f1f5f9", display: "flex", gap: 9, alignItems: "center", flexWrap: "wrap" }}>
               <input placeholder="Search projects…" value={projSearch} onChange={e => setProjSearch(e.target.value)} style={{ ...iS, width: 200, fontSize: 13, padding: "7px 10px" }} />
               <span style={{ fontSize: 12, color: "#64748b" }}>{applySort(filteredProjects, projSort).length} projects</span>
+              <div ref={projFilterRef} style={{ position: "relative" }}>
+                <button onClick={() => setShowProjFilterDD(v => !v)} style={{ display: "flex", alignItems: "center", gap: 6, padding: "5px 12px", borderRadius: 8, border: `1.5px solid ${pvFilter !== "all" ? "#8b5cf6" : "#e2e8f0"}`, background: pvFilter !== "all" ? "#f5f3ff" : "#f8fafc", color: pvFilter !== "all" ? "#6d28d9" : "#64748b", fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: "'DM Sans',sans-serif", whiteSpace: "nowrap" }}>
+                  🔽 {PROJECT_VIEWS.find(v => v.id === pvFilter)?.label || "All Projects"}
+                </button>
+                {showProjFilterDD && (() => {
+                  const rect = projFilterRef.current?.getBoundingClientRect();
+                  return (
+                    <div style={{ position: "fixed", top: rect ? rect.bottom + 4 : 0, left: rect ? rect.left : 0, background: "#fff", border: "1.5px solid #e2e8f0", borderRadius: 10, boxShadow: "0 8px 24px rgba(0,0,0,0.12)", zIndex: 9999, minWidth: 190, padding: 8 }}>
+                      {PROJECT_VIEWS.map(v => {
+                        const active = pvFilter === v.id;
+                        return (
+                          <div key={v.id} onClick={() => { setPvFilter(v.id); setProjStatusF("All"); setProjPriorityF("All"); setShowProjFilterDD(false); }}
+                            style={{ display: "flex", alignItems: "center", gap: 8, padding: "7px 10px", borderRadius: 6, cursor: "pointer", background: active ? "#f5f3ff" : "transparent", color: active ? "#6d28d9" : "#374151", fontSize: 13, fontWeight: active ? 600 : 400 }}>
+                            <span>{v.icon}</span>{v.label}
+                            {active && <span style={{ marginLeft: "auto", color: "#8b5cf6", fontWeight: 700 }}>✓</span>}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  );
+                })()}
+              </div>
               <div style={{ marginLeft: "auto", display: "flex", gap: 8, alignItems: "center" }}>
                 {selectedProjIds.size > 0 && <span style={{ fontSize: 12, color: "#3b82f6", fontWeight: 600, background: "#eff6ff", padding: "4px 10px", borderRadius: 99 }}>{selectedProjIds.size} selected</span>}
                 {(currentUser?.role === "Admin" || currentUser?.role === "Manager") && <button onClick={() => setShowNewProject(true)} style={{ ...bP, padding: "7px 13px", fontSize: 13, background: "linear-gradient(135deg,#8b5cf6,#6366f1)" }}>+ New Project</button>}
               </div>
             </div>
-
-
             <div style={{ overflowX: "auto" }}>
               <table style={{ width: "100%", borderCollapse: "collapse" }}>
                 <thead><tr style={{ background: "#f8fafc" }}>
@@ -6095,7 +6126,7 @@ export default function HelpDesk() {
             const sourceData = reportFilters.dataSource === "projects" ? projects : tickets;
 
             const applyFilters = (data) => {
-              let result = [...data];
+              let result = data.filter(r => r.status !== "Bin");
               if (reportFilters.status.length) result = result.filter(r => reportFilters.status.includes(r.status));
               if (reportFilters.priority.length) result = result.filter(r => reportFilters.priority.includes(r.priority));
               if (reportFilters.category.length) result = result.filter(r => reportFilters.category.includes(r.category));
@@ -6193,7 +6224,12 @@ export default function HelpDesk() {
                     <h2 style={{ margin: 0, fontSize: 20, fontWeight: 700, color: "#0f172a" }}>📊 Reports</h2>
                     <p style={{ margin: "4px 0 0", fontSize: 13, color: "#64748b" }}>Build, save, and export reports from your data.</p>
                   </div>
-                  {btn("＋ New Report", () => { setReportPreview([]); setReportBuilderOpen(true); })}
+                  {btn("＋ New Report", () => {
+                    setReportPreview([]);
+                    setReportName("");
+                    setReportFilters({ dataSource: "tickets", status: [], priority: [], category: [], assignee: "", dateFrom: "", dateTo: "", columns: ALL_COLUMNS.tickets.map(c => c.key) });
+                    setReportBuilderOpen(true);
+                  })}
                 </div>
 
                 {/* Saved Reports History */}
@@ -6247,38 +6283,40 @@ export default function HelpDesk() {
                         <label style={{ fontSize: 12, fontWeight: 600, color: "#475569", display: "block", marginBottom: 6 }}>DATE RANGE (Created)</label>
                         <div style={{ display: "flex", gap: 8 }}>
                           <input type="date" value={reportFilters.dateFrom} onChange={e => setReportFilters(f => ({ ...f, dateFrom: e.target.value }))} style={{ flex: 1, padding: "7px 10px", border: "1px solid #e2e8f0", borderRadius: 7, fontSize: 13 }} />
-                          <input type="date" value={reportFilters.dateTo} onChange={e => setReportFilters(f => ({ ...f, dateTo: e.target.value }))} style={{ flex: 1, padding: "7px 10px", border: "1px solid #e2e8f0", borderRadius: 7, fontSize: 13 }} />
+                          <input type="date" value={reportFilters.dateTo} max={new Date().toISOString().split("T")[0]} onChange={e => setReportFilters(f => ({ ...f, dateTo: e.target.value }))} style={{ flex: 1, padding: "7px 10px", border: "1px solid #e2e8f0", borderRadius: 7, fontSize: 13 }} />
                         </div>
                       </div>
                     </div>
 
                     {/* Filters Row */}
-                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 16, marginBottom: 20 }}>
+                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 16, marginBottom: 20 }}>
                       <div>
                         <label style={{ fontSize: 12, fontWeight: 600, color: "#475569", display: "block", marginBottom: 6 }}>STATUS</label>
                         <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-                          {(reportFilters.dataSource === "projects" ? PROJECT_STATUSES : STATUSES).map(s => chip(s, reportFilters.status.includes(s), () => toggleArr("status", s)))}
+                          {(reportFilters.dataSource === "projects" ? PROJECT_STATUSES : STATUSES.filter(s => s !== "Bin")).map(s => chip(s, reportFilters.status.includes(s), () => toggleArr("status", s)))}
                         </div>
                       </div>
                       <div>
                         <label style={{ fontSize: 12, fontWeight: 600, color: "#475569", display: "block", marginBottom: 6 }}>PRIORITY</label>
-                        <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-                          {PRIORITIES.map(p => chip(p, reportFilters.priority.includes(p), () => toggleArr("priority", p)))}
-                        </div>
+                        <select value={reportFilters.priority[0] || ""} onChange={e => setReportFilters(f => ({ ...f, priority: e.target.value ? [e.target.value] : [] }))} style={{ width: "100%", padding: "7px 10px", border: "1px solid #e2e8f0", borderRadius: 7, fontSize: 13, background: "#fff", color: "#334155" }}>
+                          <option value="">All Priorities</option>
+                          {(reportFilters.dataSource === "projects" ? PROJECT_PRIORITIES : PRIORITIES).map(p => <option key={p} value={p}>{p}</option>)}
+                        </select>
                       </div>
                       <div>
                         <label style={{ fontSize: 12, fontWeight: 600, color: "#475569", display: "block", marginBottom: 6 }}>CATEGORY</label>
-                        <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-                          {allCategories.map(c => chip(c, reportFilters.category.includes(c), () => toggleArr("category", c)))}
-                          {allCategories.length === 0 && <span style={{ fontSize: 12, color: "#94a3b8" }}>No categories</span>}
-                        </div>
+                        <select value={reportFilters.category[0] || ""} onChange={e => setReportFilters(f => ({ ...f, category: e.target.value ? [e.target.value] : [] }))} style={{ width: "100%", padding: "7px 10px", border: "1px solid #e2e8f0", borderRadius: 7, fontSize: 13, background: "#fff", color: "#334155" }}>
+                          <option value="">All Categories</option>
+                          {categories.map(c => <option key={c.id} value={c.name}>{c.name}</option>)}
+                        </select>
                       </div>
-                    </div>
-
-                    {/* Assignee search */}
-                    <div style={{ marginBottom: 20 }}>
-                      <label style={{ fontSize: 12, fontWeight: 600, color: "#475569", display: "block", marginBottom: 6 }}>ASSIGNEE CONTAINS</label>
-                      <input value={reportFilters.assignee} onChange={e => setReportFilters(f => ({ ...f, assignee: e.target.value }))} placeholder="Type agent name..." style={{ padding: "7px 12px", border: "1px solid #e2e8f0", borderRadius: 7, fontSize: 13, width: 260 }} />
+                      <div>
+                        <label style={{ fontSize: 12, fontWeight: 600, color: "#475569", display: "block", marginBottom: 6 }}>ASSIGNEE</label>
+                        <select value={reportFilters.assignee} onChange={e => setReportFilters(f => ({ ...f, assignee: e.target.value }))} style={{ width: "100%", padding: "7px 10px", border: "1px solid #e2e8f0", borderRadius: 7, fontSize: 13, background: "#fff", color: "#334155" }}>
+                          <option value="">All Assignees</option>
+                          {users.filter(u => u.active).map(u => <option key={u.id} value={u.name}>{u.name}</option>)}
+                        </select>
+                      </div>
                     </div>
 
                     {/* Columns */}
