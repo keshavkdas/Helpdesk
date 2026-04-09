@@ -26,7 +26,7 @@ const PRIORITIES = ["Critical", "High", "Standard", "Medium"];
 const STATUSES = ["Closed", "In Progress", "Open", "Bin"];
 const ROLES = ["Admin", "Agent", "Manager", "Viewer"];
 const SATSANG_TYPES = ["Children Satsang", "G Satsang", "Special Satsang", "Weekly Satsang", "Youth Satsang"];
-const PROJECT_STATUSES = ["Closed", "In Progress", "Open"];
+const PROJECT_STATUSES = ["Closed", "In Progress", "Open", "Bin"];
 const PROJECT_PRIORITIES = ["Critical", "High", "Low", "Medium"];
 
 
@@ -66,13 +66,14 @@ const TICKET_VIEWS = [
 ];
 
 const PROJECT_VIEWS = [
-  { id: "all", label: "All Projects", icon: "◈", desc: "Every project in the system", filter: () => true },
+  { id: "all", label: "All Projects", icon: "◈", desc: "Every project in the system", filter: p => p.status !== "Bin" },
   { id: "open", label: "Open Projects", icon: "📂", desc: "All open projects", filter: p => p.status === "Open" },
   { id: "inprogress", label: "In Progress", icon: "⚙️", desc: "Projects being worked on", filter: p => p.status === "In Progress" },
   { id: "closed", label: "Closed Projects", icon: "✅", desc: "All closed projects", filter: p => p.status === "Closed" },
-  { id: "unassigned", label: "Unassigned", icon: "👤", desc: "Projects with no assignee", filter: p => (!p.assignees || p.assignees.length === 0) && p.status !== "Closed" },
-  { id: "mine", label: "My Projects", icon: "🙋", desc: "Projects assigned to me", filter: (p, me) => p.assignees?.some(a => a.id === me?.id) && p.status !== "Closed" },
-  { id: "critical", label: "Critical", icon: "🔔", desc: "Critical priority projects", filter: p => p.priority === "Critical" && p.status !== "Closed" },
+  { id: "bin", label: "Bin", icon: "🧹", desc: "Deleted projects (30-day retention)", filter: p => p.status === "Bin" },
+  { id: "unassigned", label: "Unassigned", icon: "👤", desc: "Projects with no assignee", filter: p => (!p.assignees || p.assignees.length === 0) && p.status !== "Closed" && p.status !== "Bin" },
+  { id: "mine", label: "My Projects", icon: "🙋", desc: "Projects assigned to me", filter: (p, me) => p.assignees?.some(a => a.id === me?.id) && p.status !== "Closed" && p.status !== "Bin" },
+  { id: "critical", label: "Critical", icon: "🔔", desc: "Critical priority projects", filter: p => p.priority === "Critical" && p.status !== "Closed" && p.status !== "Bin" },
 ];
 
 // ─── EXPORT HELPERS ────────────────────────────────────────────────────────────
@@ -533,32 +534,24 @@ const SearchableSelect = ({ field, fieldValues, setFieldValues }) => {
 // ─── FILTERABLE HEADER ───────────────────────────────────────────────────────
 // Click header → searchable dropdown of unique values for that column.
 // Active filter shown with blue highlight + ✕ to clear.
-const FilterableHeader = ({ label, field, data, filters, onFilter, style = {}, getVal }) => {
+const FilterableHeader = ({ label, field, data, filters, onFilter, style = {} }) => {
   const [open, setOpen] = React.useState(false);
-  const [search, setSearch] = React.useState("");
-  const active = filters[field] != null && filters[field] !== "";
+  const active = filters._sortField === field;
+  const dir = active ? filters._sortDir : null;
 
-  // Collect unique display values for this column
-  const unique = React.useMemo(() => {
-    const seen = new Set();
-    const vals = [];
-    (data || []).forEach(row => {
-      let v = getVal ? getVal(row, field) : row[field];
-      if (v == null || v === "") v = "—";
-      if (Array.isArray(v)) v = v.length > 0 ? v.map(a => a.name || a).join(", ") : "None";
-      if (v instanceof Date) v = v.toLocaleDateString();
-      const s = String(v);
-      if (!seen.has(s)) { seen.add(s); vals.push(s); }
-    });
-    return vals.sort((a, b) => a === "—" ? 1 : b === "—" ? -1 : a.localeCompare(b));
-  }, [data, field]);
-
-  const filtered = unique.filter(v => v.toLowerCase().includes(search.toLowerCase()));
+  const choose = (opt) => {
+    if (opt === "all") {
+      onFilter({ ...filters, _sortField: null, _sortDir: null });
+    } else {
+      onFilter({ ...filters, _sortField: field, _sortDir: opt });
+    }
+    setOpen(false);
+  };
 
   return (
     <th style={{ ...style, position: "relative", userSelect: "none", whiteSpace: "nowrap" }}>
       <div
-        onClick={() => { setOpen(o => !o); setSearch(""); }}
+        onClick={() => setOpen(o => !o)}
         style={{
           display: "inline-flex", alignItems: "center", gap: 5, cursor: "pointer", padding: "2px 4px", borderRadius: 5,
           background: active ? "#eff6ff" : "transparent", color: active ? "#3b82f6" : "inherit"
@@ -566,77 +559,55 @@ const FilterableHeader = ({ label, field, data, filters, onFilter, style = {}, g
       >
         <span style={{ fontSize: "inherit", fontWeight: "inherit" }}>{label}</span>
         {active
-          ? <span
-            onClick={e => { e.stopPropagation(); onFilter({ ...filters, [field]: "" }); }}
-            style={{ fontSize: 10, background: "#3b82f6", color: "#fff", borderRadius: 99, padding: "1px 5px", fontWeight: 700, cursor: "pointer" }}
-          >✕</span>
+          ? <span style={{ fontSize: 10, color: "#3b82f6", fontWeight: 700 }}>{dir === "asc" ? "↑" : "↓"}</span>
           : <span style={{ fontSize: 10, color: "#94a3b8" }}>▾</span>
         }
       </div>
       {open && <>
         <div style={{ position: "fixed", inset: 0, zIndex: 499 }} onClick={() => setOpen(false)} />
         <div style={{
-          position: "absolute", top: "calc(100% + 2px)", left: 0, minWidth: 180, maxWidth: 260,
+          position: "absolute", top: "calc(100% + 2px)", left: 0, minWidth: 160,
           background: "#fff", border: "1.5px solid #e2e8f0", borderRadius: 10,
           boxShadow: "0 8px 28px rgba(0,0,0,0.13)", zIndex: 500, overflow: "hidden"
         }}>
-          <div style={{ padding: "8px 10px", borderBottom: "1px solid #f1f5f9" }}>
-            <input
-              autoFocus
-              type="text"
-              placeholder={`Search ${label}…`}
-              value={search}
-              onChange={e => setSearch(e.target.value)}
-              onClick={e => e.stopPropagation()}
+          {[
+            { id: "all", label: "All", icon: "◈" },
+            { id: "asc", label: "Sort Ascending", icon: "↑" },
+            { id: "desc", label: "Sort Descending", icon: "↓" },
+          ].map(opt => (
+            <div key={opt.id} onClick={() => choose(opt.id)}
               style={{
-                width: "100%", padding: "6px 9px", border: "1.5px solid #e2e8f0", borderRadius: 7,
-                fontSize: 12, outline: "none", boxSizing: "border-box", fontFamily: "'DM Sans',sans-serif"
-              }}
-            />
-          </div>
-          <div style={{ maxHeight: 220, overflowY: "auto" }}>
-            <div
-              onClick={() => { onFilter({ ...filters, [field]: "" }); setOpen(false); setSearch(""); }}
-              style={{
-                padding: "7px 12px", fontSize: 12, cursor: "pointer", color: "#64748b",
-                background: !active ? "#f0f9ff" : "#fff", fontWeight: !active ? 600 : 400,
+                padding: "8px 13px", fontSize: 12, cursor: "pointer", display: "flex", alignItems: "center", gap: 8,
+                background: (opt.id === "all" && !active) || (opt.id === dir) ? "#eff6ff" : "#fff",
+                color: (opt.id === "all" && !active) || (opt.id === dir) ? "#3b82f6" : "#1e293b",
+                fontWeight: (opt.id === "all" && !active) || (opt.id === dir) ? 600 : 400,
                 borderBottom: "1px solid #f8fafc"
               }}
-            >All</div>
-            {filtered.length === 0 && <div style={{ padding: "10px 12px", fontSize: 12, color: "#94a3b8" }}>No results</div>}
-            {filtered.map(v => (
-              <div key={v}
-                onClick={() => { onFilter({ ...filters, [field]: v }); setOpen(false); setSearch(""); }}
-                style={{
-                  padding: "7px 12px", fontSize: 12, cursor: "pointer",
-                  background: filters[field] === v ? "#eff6ff" : "#fff",
-                  color: filters[field] === v ? "#3b82f6" : "#1e293b",
-                  fontWeight: filters[field] === v ? 600 : 400,
-                  borderBottom: "1px solid #f8fafc"
-                }}
-              >
-                {v}
-              </div>
-            ))}
-          </div>
+            >
+              <span style={{ fontSize: 13, minWidth: 16, textAlign: "center" }}>{opt.icon}</span>{opt.label}
+            </div>
+          ))}
         </div>
       </>}
     </th>
   );
 };
 
-// Apply column filters to a dataset
+// Apply column sort to a dataset
 const applySort = (arr, filters) => {
-  if (!filters || Object.keys(filters).every(k => !filters[k])) return arr;
-  return arr.filter(row => {
-    return Object.entries(filters).every(([field, val]) => {
-      if (!val) return true;
-      let v = row[field];
-      if (v == null || v === "") v = "—";
-      if (Array.isArray(v)) v = v.length > 0 ? v.map(a => a.name || a).join(", ") : "None";
-      if (v instanceof Date) v = v.toLocaleDateString();
-      return String(v).toLowerCase().includes(val.toLowerCase());
-    });
+  if (!filters || !filters._sortField) return arr;
+  const { _sortField: field, _sortDir: dir } = filters;
+  return [...arr].sort((a, b) => {
+    let av = a[field]; let bv = b[field];
+    if (Array.isArray(av)) av = (av || []).map(x => x.name || x).join(", ");
+    if (Array.isArray(bv)) bv = (bv || []).map(x => x.name || x).join(", ");
+    if (av instanceof Date) av = av.getTime();
+    if (bv instanceof Date) bv = bv.getTime();
+    if (av == null) av = ""; if (bv == null) bv = "";
+    const cmp = typeof av === "number" && typeof bv === "number"
+      ? av - bv
+      : String(av).localeCompare(String(bv));
+    return dir === "asc" ? cmp : -cmp;
   });
 };
 
@@ -1509,6 +1480,42 @@ export default function HelpDesk() {
   const [selectedTickets, setSelectedTickets] = useState(new Set());
   const [ticketsPerPage, setTicketsPerPage] = useState(10);
   const [sortOrder, setSortOrder] = useState("desc"); // "desc" = newest first, "asc" = oldest first
+  const ALL_TICKET_COLS = ["id","summary","org","department","vendor","reportedBy","assignees","priority","category","status","created"];
+  const [visibleTicketCols, setVisibleTicketCols] = useState(new Set(ALL_TICKET_COLS));
+  const [showTicketColPicker, setShowTicketColPicker] = useState(false);
+  const ALL_PROJ_COLS = ["id","title","org","department","assignees","priority","category","status","progress","dueDate"];
+  const [visibleProjCols, setVisibleProjCols] = useState(new Set(ALL_PROJ_COLS));
+  const [showProjColPicker, setShowProjColPicker] = useState(false);
+  const [ticketColDDPos, setTicketColDDPos] = useState({ top: 0, right: 0 });
+  const [projColDDPos, setProjColDDPos] = useState({ top: 0, right: 0 });
+  const ticketColBtnRef = useRef(null);
+  const projColBtnRef = useRef(null);
+
+  // ✅ NEW: Refs for column pickers (to handle scroll closing)
+  const ticketColPickerRef = useRef(null);
+  const projColPickerRef = useRef(null);
+
+  useEffect(() => {
+      if (!showTicketColPicker) return;
+      const handler = () => setShowTicketColPicker(false);
+      window.addEventListener("scroll", handler, true);
+      window.addEventListener("mousedown", handler, true);
+      return () => {
+        window.removeEventListener("scroll", handler, true);
+        window.removeEventListener("mousedown", handler, true);
+      };
+    }, [showTicketColPicker]);
+
+    useEffect(() => {
+      if (!showProjColPicker) return;
+      const handler = () => setShowProjColPicker(false);
+      window.addEventListener("scroll", handler, true);
+      window.addEventListener("mousedown", handler, true);
+      return () => {
+        window.removeEventListener("scroll", handler, true);
+        window.removeEventListener("mousedown", handler, true);
+      };
+  }, [showProjColPicker]);
 
   // ── Per-table sort state ──
   const [ticketSort, setTicketSort] = useState({});
@@ -1522,6 +1529,7 @@ export default function HelpDesk() {
   const [webcastSort, setWebcastSort] = useState({});
   const [webcastFilter, setWebcastFilter] = useState(null);
   const [agentSort, setAgentSort] = useState({});
+  
 
   // ✅ NEW: Admin edit user modal
   const [editUserOpen, setEditUserOpen] = useState(null); // Holds the user being edited
@@ -4163,7 +4171,7 @@ export default function HelpDesk() {
     return () => clearInterval(interval);
   }, []);
 
-  // Auto-logout Idle agents after 15 min (admin/manager poll)
+ /*  // Auto-logout Idle agents after 15 min (admin/manager poll)
   useEffect(() => {
     if (!currentUser) return;
     if (currentUser.role !== "Admin" && currentUser.role !== "Manager") return;
@@ -4185,7 +4193,7 @@ export default function HelpDesk() {
     }
   }, 60000);
     return () => clearInterval(interval);
-  }, [currentUser, users]);
+  }, [currentUser, users]); */
 
   // ✅ REMOVED: Idle detection useEffect - no longer auto-detecting
   // Idle status is now only set when user manually updates status
@@ -4384,7 +4392,6 @@ export default function HelpDesk() {
     { id: "dashboard", label: "Dashboard", icon: "▦" },
     { id: "tickets", label: "All Tickets", icon: "◈" },
     { id: "projects", label: "Projects", icon: "📁" },
-    { id: "webcast", label: "Webcast", icon: "📡" },
     { id: "settings", label: "Settings", icon: "⚙" },
   ];
   const stabs = currentUser?.role === "Admin" ? [
@@ -4415,7 +4422,6 @@ export default function HelpDesk() {
   ] : [
     { id: "ticketviews", label: "Ticket Views", icon: "👁" },
     { id: "projectviews", label: "Project Views", icon: "📂" },
-    { id: "bin", label: "Bin", icon: "🧹" },
   ];
   const getPageTitle = () => {
     if (view === "dashboard") return "Dashboard";
@@ -4847,7 +4853,6 @@ export default function HelpDesk() {
                     { id: "open", label: "Open Tickets", icon: "📬" },
                     { id: "inprogress", label: "In Progress", icon: "⚙️" },
                     { id: "closed", label: "Closed Tickets", icon: "✅" },
-                    { id: "bin", label: "Bin", icon: "🧹" },
                     { id: "alerts", label: "Active Alerts", icon: "🔔" },
                   ].map(v => (
                     <button key={v.id} onClick={() => { setTvFilter(v.id); setStatusF("All"); setPriorityF("All"); }} style={{ display: "flex", alignItems: "center", gap: 7, width: "100%", padding: "6px 11px", borderRadius: 6, border: "none", cursor: "pointer", background: tvFilter === v.id ? "#0f172a" : "transparent", color: tvFilter === v.id ? "#93c5fd" : "#475569", fontSize: 11.5, textAlign: "left", fontFamily: "'DM Sans',sans-serif", marginBottom: 1 }}>
@@ -5653,6 +5658,21 @@ export default function HelpDesk() {
                 )}
               </div>
               <div style={{ marginLeft: "auto", display: "flex", gap: 8, alignItems: "center" }}>
+                <div style={{ position: "relative" }}>
+                  <button ref={ticketColBtnRef} onClick={() => { const r = ticketColBtnRef.current?.getBoundingClientRect(); if (r) setTicketColDDPos({ top: r.bottom + 4, right: window.innerWidth - r.right }); setShowTicketColPicker(v => !v); }} style={{ ...bG, padding: "5px 11px", fontSize: 12 }}>⚙ Columns</button>
+                  {showTicketColPicker && <>
+                    <div style={{ position: "fixed", inset: 0, zIndex: 499, pointerEvents: "none" }} onClick={() => setShowTicketColPicker(false)} />                    
+                      <div style={{ position: "fixed", top: ticketColDDPos.top, right: ticketColDDPos.right, background: "#fff", border: "1.5px solid #e2e8f0", borderRadius: 10, boxShadow: "0 8px 28px rgba(0,0,0,0.13)", zIndex: 500, padding: 10, minWidth: 180, maxHeight: "60vh", overflowY: "auto" }}>
+                      <div style={{ fontSize: 11, fontWeight: 700, color: "#64748b", textTransform: "uppercase", marginBottom: 7 }}>Show / Hide Columns</div>
+                      {ALL_TICKET_COLS.map(col => (
+                        <label key={col} style={{ display: "flex", alignItems: "center", gap: 8, padding: "5px 4px", cursor: "pointer", fontSize: 13 }}>
+                          <input type="checkbox" checked={visibleTicketCols.has(col)} onChange={() => setVisibleTicketCols(prev => { const n = new Set(prev); n.has(col) ? n.delete(col) : n.add(col); return n; })} />
+                          {col.charAt(0).toUpperCase() + col.slice(1).replace(/([A-Z])/g, ' $1')}
+                        </label>
+                      ))}
+                    </div>
+                  </>}
+                </div>
                 {tvFilter !== "closed" && (
                   <button onClick={() => { setForm(emptyForm()); setShowNewTicket(true); }} style={{ ...bP, padding: "7px 13px", fontSize: 12 }}>+ New Ticket</button>
                 )}
@@ -5792,17 +5812,17 @@ export default function HelpDesk() {
                       </th>
                     );
                   })()}
-                  <FilterableHeader label="ID" field="id" data={filtered} filters={ticketSort} onFilter={setTicketSort} style={thStyle} />
-                  <FilterableHeader label="Summary" field="summary" data={filtered} filters={ticketSort} onFilter={setTicketSort} style={thStyle} />
-                  <FilterableHeader label="Org" field="org" data={filtered} filters={ticketSort} onFilter={setTicketSort} style={thStyle} />
-                  <FilterableHeader label="Dept" field="department" data={filtered} filters={ticketSort} onFilter={setTicketSort} style={thStyle} />
-                  <FilterableHeader label="Vendor" field="vendor" data={filtered} filters={ticketSort} onFilter={setTicketSort} style={thStyle} />
-                  <FilterableHeader label="Reported By" field="reportedBy" data={filtered} filters={ticketSort} onFilter={setTicketSort} style={thStyle} />
-                  <FilterableHeader label="Assignees" field="assignees" data={filtered} filters={ticketSort} onFilter={setTicketSort} style={thStyle} />
-                  <FilterableHeader label="Priority" field="priority" data={filtered} filters={ticketSort} onFilter={setTicketSort} style={thStyle} />
-                  <FilterableHeader label="Category" field="category" data={filtered} filters={ticketSort} onFilter={setTicketSort} style={thStyle} />
-                  <FilterableHeader label="Status" field="status" data={filtered} filters={ticketSort} onFilter={setTicketSort} style={thStyle} />
-                  <FilterableHeader label="Created" field="created" data={filtered} filters={ticketSort} onFilter={setTicketSort} style={thStyle} />
+                  {visibleTicketCols.has("id") && <FilterableHeader label="ID" field="id" data={filtered} filters={ticketSort} onFilter={setTicketSort} style={thStyle} />}
+                  {visibleTicketCols.has("summary") && <FilterableHeader label="Summary" field="summary" data={filtered} filters={ticketSort} onFilter={setTicketSort} style={thStyle} />}
+                  {visibleTicketCols.has("org") && <FilterableHeader label="Org" field="org" data={filtered} filters={ticketSort} onFilter={setTicketSort} style={thStyle} />}
+                  {visibleTicketCols.has("department") && <FilterableHeader label="Dept" field="department" data={filtered} filters={ticketSort} onFilter={setTicketSort} style={thStyle} />}
+                  {visibleTicketCols.has("vendor") && <FilterableHeader label="Vendor" field="vendor" data={filtered} filters={ticketSort} onFilter={setTicketSort} style={thStyle} />}
+                  {visibleTicketCols.has("reportedBy") && <FilterableHeader label="Reported By" field="reportedBy" data={filtered} filters={ticketSort} onFilter={setTicketSort} style={thStyle} />}
+                  {visibleTicketCols.has("assignees") && <FilterableHeader label="Assignees" field="assignees" data={filtered} filters={ticketSort} onFilter={setTicketSort} style={thStyle} />}
+                  {visibleTicketCols.has("priority") && <FilterableHeader label="Priority" field="priority" data={filtered} filters={ticketSort} onFilter={setTicketSort} style={thStyle} />}
+                  {visibleTicketCols.has("category") && <FilterableHeader label="Category" field="category" data={filtered} filters={ticketSort} onFilter={setTicketSort} style={thStyle} />}
+                  {visibleTicketCols.has("status") && <FilterableHeader label="Status" field="status" data={filtered} filters={ticketSort} onFilter={setTicketSort} style={thStyle} />}
+                  {visibleTicketCols.has("created") && <FilterableHeader label="Created" field="created" data={filtered} filters={ticketSort} onFilter={setTicketSort} style={thStyle} />}
                   <th style={thStyle}>Action</th>
                 </tr></thead>
                 <tbody>{currentTickets.map(t => (
@@ -5811,19 +5831,15 @@ export default function HelpDesk() {
                     {currentUser?.role === "Admin" && (
                       <td style={tdStyle} onClick={e => e.stopPropagation()}><input type="checkbox" checked={selectedIds.has(t.id)} onChange={() => toggleSel(t.id)} style={{ cursor: "pointer" }} /></td>
                     )}
-                    <td style={tdStyle} onClick={() => setSelTicket(t)}><span style={{ fontFamily: "'DM Mono',monospace", fontSize: 11.5, color: "#3b82f6", fontWeight: 500 }}>{t.id}</span>{t.category === "Webcast" && <span style={{ marginLeft: 5, fontSize: 10, background: "#fff7ed", color: "#f97316", padding: "1px 5px", borderRadius: 4, fontWeight: 600 }}>📡</span>}</td>
-                    <td style={{ ...tdStyle, maxWidth: 180 }} onClick={() => setSelTicket(t)}><div style={{ fontWeight: 500, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{t.summary}</div></td>
-                    <td style={tdStyle} onClick={() => setSelTicket(t)}><div style={{ fontSize: 12, fontWeight: 500 }}>{t.org}</div></td>
-                    <td style={tdStyle} onClick={() => setSelTicket(t)}><div style={{ fontSize: 12, color: "#64748b" }}>{t.department || "—"}</div></td>
-                    <td style={tdStyle} onClick={() => setSelTicket(t)}><div style={{ fontSize: 12, color: "#64748b" }}>{t.vendor || "—"}</div></td>
-                    <td style={tdStyle} onClick={() => setSelTicket(t)}>
-                      <span style={{ fontSize: 12, color: "#64748b" }} title={t.reportedBy || "—"}>
-                        {t.reportedBy ? t.reportedBy.slice(0, 4) : "—"}
-                      </span>
-                    </td>
-                    <td style={tdStyle} onClick={() => setSelTicket(t)}>
+                    {visibleTicketCols.has("id") && <td style={tdStyle} onClick={() => setSelTicket(t)}><span style={{ fontFamily: "'DM Mono',monospace", fontSize: 11.5, color: "#3b82f6", fontWeight: 500 }}>{t.id}</span>{t.category === "Webcast" && <span style={{ marginLeft: 5, fontSize: 10, background: "#fff7ed", color: "#f97316", padding: "1px 5px", borderRadius: 4, fontWeight: 600 }}>📡</span>}</td>}
+                    {visibleTicketCols.has("summary") && <td style={{ ...tdStyle, maxWidth: 180 }} onClick={() => setSelTicket(t)}><div style={{ fontWeight: 500, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{t.summary}</div></td>}
+                    {visibleTicketCols.has("org") && <td style={tdStyle} onClick={() => setSelTicket(t)}><div style={{ fontSize: 12, fontWeight: 500 }}>{t.org}</div></td>}
+                    {visibleTicketCols.has("department") && <td style={tdStyle} onClick={() => setSelTicket(t)}><div style={{ fontSize: 12, color: "#64748b" }}>{t.department || "—"}</div></td>}
+                    {visibleTicketCols.has("vendor") && <td style={tdStyle} onClick={() => setSelTicket(t)}><div style={{ fontSize: 12, color: "#64748b" }}>{t.vendor || "—"}</div></td>}
+                    {visibleTicketCols.has("reportedBy") && <td style={tdStyle} onClick={() => setSelTicket(t)}><span style={{ fontSize: 12, color: "#64748b" }} title={t.reportedBy || "—"}>{t.reportedBy ? t.reportedBy.slice(0, 4) : "—"}</span></td>}
+                    {visibleTicketCols.has("assignees") && <td style={tdStyle} onClick={() => setSelTicket(t)}>
                       <div style={{ display: "flex", alignItems: "center", gap: 4, flexWrap: "wrap" }}>
-                        {(t.assignees || []).map((a, i) => (
+                        {(t.assignees || []).map((a) => (
                           <div key={a.id} style={{ display: "flex", alignItems: "center", gap: 4 }}>
                             <Avatar name={a.name} size={18} />
                             <span style={{ fontSize: 11, fontWeight: 600, color: "#374151", whiteSpace: "nowrap" }}>{a.name.split(" ")[0]}</span>
@@ -5831,11 +5847,11 @@ export default function HelpDesk() {
                         ))}
                         {!t.assignees?.length && <span style={{ fontSize: 11, color: "#94a3b8" }}>None</span>}
                       </div>
-                    </td>
-                    <td style={tdStyle} onClick={() => setSelTicket(t)}><div style={{ display: "flex", alignItems: "center", gap: 4 }}><span style={{ width: 7, height: 7, borderRadius: "50%", background: PRIORITY_COLOR[t.priority], display: "inline-block" }} /><span style={{ fontSize: 12 }}>{t.priority}</span></div></td>
-                    <td style={tdStyle} onClick={() => setSelTicket(t)}><span style={{ fontSize: 12, color: "#64748b" }}>{t.category || "—"}</span></td>
-                    <td style={tdStyle} onClick={() => setSelTicket(t)}><Badge label={t.status} style={{ ...STATUS_COLOR[t.status] }} /></td>
-                    <td style={tdStyle} onClick={() => setSelTicket(t)}><span style={{ fontSize: 11, color: "#94a3b8" }}>{t.created ? new Date(String(t.created)).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' }) : "—"}</span></td>
+                    </td>}
+                    {visibleTicketCols.has("priority") && <td style={tdStyle} onClick={() => setSelTicket(t)}><div style={{ display: "flex", alignItems: "center", gap: 4 }}><span style={{ width: 7, height: 7, borderRadius: "50%", background: PRIORITY_COLOR[t.priority], display: "inline-block" }} /><span style={{ fontSize: 12 }}>{t.priority}</span></div></td>}
+                    {visibleTicketCols.has("category") && <td style={tdStyle} onClick={() => setSelTicket(t)}><span style={{ fontSize: 12, color: "#64748b" }}>{t.category || "—"}</span></td>}
+                    {visibleTicketCols.has("status") && <td style={tdStyle} onClick={() => setSelTicket(t)}><Badge label={t.status} style={{ ...STATUS_COLOR[t.status] }} /></td>}
+                    {visibleTicketCols.has("created") && <td style={tdStyle} onClick={() => setSelTicket(t)}><span style={{ fontSize: 11, color: "#94a3b8" }}>{t.created ? new Date(String(t.created)).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' }) : "—"}</span></td>}
                     <td style={tdStyle} onClick={e => e.stopPropagation()}>
                       {t.status === "Closed" ? (
                         <button
@@ -5974,6 +5990,20 @@ export default function HelpDesk() {
                 })()}
               </div>
               <div style={{ marginLeft: "auto", display: "flex", gap: 8, alignItems: "center" }}>
+                <div style={{ position: "relative" }}>
+                  <button ref={projColBtnRef} onClick={() => { const r = projColBtnRef.current?.getBoundingClientRect(); if (r) setProjColDDPos({ top: r.bottom + 4, right: window.innerWidth - r.right }); setShowProjColPicker(v => !v); }} style={{ ...bG, padding: "5px 11px", fontSize: 12 }}>⚙ Columns</button>
+                  {showProjColPicker && <>
+                    <div style={{ position: "fixed", top: projColDDPos.top, right: projColDDPos.right, background: "#fff", border: "1.5px solid #e2e8f0", borderRadius: 10, boxShadow: "0 8px 28px rgba(0,0,0,0.13)", zIndex: 500, padding: 10, minWidth: 180, maxHeight: "60vh", overflowY: "auto" }}>
+                      <div style={{ fontSize: 11, fontWeight: 700, color: "#64748b", textTransform: "uppercase", marginBottom: 7 }}>Show / Hide Columns</div>
+                      {ALL_PROJ_COLS.map(col => (
+                        <label key={col} style={{ display: "flex", alignItems: "center", gap: 8, padding: "5px 4px", cursor: "pointer", fontSize: 13 }}>
+                          <input type="checkbox" checked={visibleProjCols.has(col)} onChange={() => setVisibleProjCols(prev => { const n = new Set(prev); n.has(col) ? n.delete(col) : n.add(col); return n; })} />
+                          {col.charAt(0).toUpperCase() + col.slice(1).replace(/([A-Z])/g, ' $1')}
+                        </label>
+                      ))}
+                    </div>
+                  </>}
+                </div>
                 {selectedProjIds.size > 0 && <span style={{ fontSize: 12, color: "#3b82f6", fontWeight: 600, background: "#eff6ff", padding: "4px 10px", borderRadius: 99 }}>{selectedProjIds.size} selected</span>}
                 {(currentUser?.role === "Admin" || currentUser?.role === "Manager") && <button onClick={() => setShowNewProject(true)} style={{ ...bP, padding: "7px 13px", fontSize: 13, background: "linear-gradient(135deg,#8b5cf6,#6366f1)" }}>+ New Project</button>}
               </div>
@@ -5981,43 +6011,67 @@ export default function HelpDesk() {
             <div style={{ overflowX: "auto" }}>
               <table style={{ width: "100%", borderCollapse: "collapse" }}>
                 <thead><tr style={{ background: "#f8fafc" }}>
-                  <th style={{ ...thStyle, width: 40 }}><input type="checkbox" checked={selectedProjIds.size === filteredProjects.length && filteredProjects.length > 0} onChange={toggleAllProj} style={{ cursor: "pointer" }} /></th>
-                  <FilterableHeader label="ID" field="id" data={filteredProjects} filters={projSort} onFilter={setProjSort} style={thStyle} />
-                  <FilterableHeader label="Title" field="title" data={filteredProjects} filters={projSort} onFilter={setProjSort} style={thStyle} />
-                  <FilterableHeader label="Org" field="org" data={filteredProjects} filters={projSort} onFilter={setProjSort} style={thStyle} />
-                  <FilterableHeader label="Dept" field="department" data={filteredProjects} filters={projSort} onFilter={setProjSort} style={thStyle} />
-                  <FilterableHeader label="Assignees" field="assignees" data={filteredProjects} filters={projSort} onFilter={setProjSort} style={thStyle} />
-                  <FilterableHeader label="Priority" field="priority" data={filteredProjects} filters={projSort} onFilter={setProjSort} style={thStyle} />
-                  <FilterableHeader label="Category" field="category" data={filteredProjects} filters={projSort} onFilter={setProjSort} style={thStyle} />
-                  <FilterableHeader label="Status" field="status" data={filteredProjects} filters={projSort} onFilter={setProjSort} style={thStyle} />
-                  <FilterableHeader label="Progress" field="progress" data={filteredProjects} filters={projSort} onFilter={setProjSort} style={thStyle} />
-                  <FilterableHeader label="Due Date" field="dueDate" data={filteredProjects} filters={projSort} onFilter={setProjSort} style={thStyle} />
+                  {visibleProjCols.has("id") && <FilterableHeader label="ID" field="id" data={filteredProjects} filters={projSort} onFilter={setProjSort} style={thStyle} />}
+                  {visibleProjCols.has("title") && <FilterableHeader label="Title" field="title" data={filteredProjects} filters={projSort} onFilter={setProjSort} style={thStyle} />}
+                  {visibleProjCols.has("org") && <FilterableHeader label="Org" field="org" data={filteredProjects} filters={projSort} onFilter={setProjSort} style={thStyle} />}
+                  {visibleProjCols.has("department") && <FilterableHeader label="Dept" field="department" data={filteredProjects} filters={projSort} onFilter={setProjSort} style={thStyle} />}
+                  {visibleProjCols.has("assignees") && <FilterableHeader label="Assignees" field="assignees" data={filteredProjects} filters={projSort} onFilter={setProjSort} style={thStyle} />}
+                  {visibleProjCols.has("priority") && <FilterableHeader label="Priority" field="priority" data={filteredProjects} filters={projSort} onFilter={setProjSort} style={thStyle} />}
+                  {visibleProjCols.has("category") && <FilterableHeader label="Category" field="category" data={filteredProjects} filters={projSort} onFilter={setProjSort} style={thStyle} />}
+                  {visibleProjCols.has("status") && <FilterableHeader label="Status" field="status" data={filteredProjects} filters={projSort} onFilter={setProjSort} style={thStyle} />}
+                  {visibleProjCols.has("progress") && <FilterableHeader label="Progress" field="progress" data={filteredProjects} filters={projSort} onFilter={setProjSort} style={thStyle} />}
+                  {visibleProjCols.has("dueDate") && <FilterableHeader label="Due Date" field="dueDate" data={filteredProjects} filters={projSort} onFilter={setProjSort} style={thStyle} />}
                   <th style={thStyle}>Action</th>
                 </tr></thead>
                 <tbody>{applySort(filteredProjects, projSort).map(p => (
                   <tr key={p.id} className="rh" style={{ cursor: "pointer", background: selectedProjIds.has(p.id) ? "#f5f3ff" : "#fff" }}>
                     <td style={tdStyle} onClick={e => e.stopPropagation()}><input type="checkbox" checked={selectedProjIds.has(p.id)} onChange={() => toggleProjSel(p.id)} style={{ cursor: "pointer" }} /></td>
-                    <td style={tdStyle} onClick={() => setSelProject(p)}><span style={{ fontFamily: "'DM Mono',monospace", fontSize: 11.5, color: "#8b5cf6", fontWeight: 500 }}>{p.id}</span></td>
-                    <td style={{ ...tdStyle, maxWidth: 180 }} onClick={() => setSelProject(p)}><div style={{ fontWeight: 500, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{p.title}</div></td>
-                    <td style={tdStyle} onClick={() => setSelProject(p)}><div style={{ fontSize: 12, fontWeight: 500 }}>{p.org}</div></td>
-                    <td style={tdStyle} onClick={() => setSelProject(p)}><div style={{ fontSize: 12, color: "#64748b" }}>{p.department || "—"}</div></td>
-                    <td style={tdStyle} onClick={() => setSelProject(p)}>
-                      <div style={{ display: "flex", alignItems: "center" }}>
-                        {(p.assignees || []).slice(0, 3).map((a, i) => <div key={a.id} title={a.name} style={{ marginLeft: i > 0 ? -7 : 0, border: "2px solid #fff", borderRadius: "50%" }}><Avatar name={a.name} size={22} /></div>)}
+                    {visibleProjCols.has("id") && <td style={tdStyle} onClick={() => setSelProject(p)}><span style={{ fontFamily: "'DM Mono',monospace", fontSize: 11.5, color: "#8b5cf6", fontWeight: 500 }}>{p.id}</span></td>}
+                    {visibleProjCols.has("title") && <td style={{ ...tdStyle, maxWidth: 180 }} onClick={() => setSelProject(p)}><div style={{ fontWeight: 500, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{p.title}</div></td>}
+                    {visibleProjCols.has("org") && <td style={tdStyle} onClick={() => setSelProject(p)}><div style={{ fontSize: 12, fontWeight: 500 }}>{p.org}</div></td>}
+                    {visibleProjCols.has("department") && <td style={tdStyle} onClick={() => setSelProject(p)}><div style={{ fontSize: 12, color: "#64748b" }}>{p.department || "—"}</div></td>}
+                    {visibleProjCols.has("assignees") && <td style={tdStyle} onClick={() => setSelProject(p)}>
+                      <div style={{ display: "flex", flexWrap: "wrap", gap: 3 }}>
+                        {(p.assignees || []).map((a) => (
+                          <span key={a.id} style={{ fontSize: 11, background: "#f3e8ff", color: "#6d28d9", borderRadius: 99, padding: "2px 7px", fontWeight: 600, whiteSpace: "nowrap" }}>{a.name}</span>
+                        ))}
                         {!p.assignees?.length && <span style={{ fontSize: 11, color: "#94a3b8" }}>None</span>}
                       </div>
-                    </td>
-                    <td style={tdStyle} onClick={() => setSelProject(p)}><div style={{ display: "flex", alignItems: "center", gap: 4 }}><span style={{ width: 7, height: 7, borderRadius: "50%", background: PRIORITY_COLOR[p.priority], display: "inline-block" }} /><span style={{ fontSize: 12 }}>{p.priority}</span></div></td>
-                    <td style={tdStyle} onClick={() => setSelProject(p)}><span style={{ fontSize: 12, color: "#64748b" }}>{p.category || "—"}</span></td>
-                    <td style={tdStyle} onClick={() => setSelProject(p)}><Badge label={p.status} style={{ ...STATUS_COLOR[p.status] }} /></td>
-                    <td style={tdStyle} onClick={() => setSelProject(p)}>
+                    </td>}
+                    {visibleProjCols.has("priority") && <td style={tdStyle} onClick={() => setSelProject(p)}><div style={{ display: "flex", alignItems: "center", gap: 4 }}><span style={{ width: 7, height: 7, borderRadius: "50%", background: PRIORITY_COLOR[p.priority], display: "inline-block" }} /><span style={{ fontSize: 12 }}>{p.priority}</span></div></td>}
+                    {visibleProjCols.has("category") && <td style={tdStyle} onClick={() => setSelProject(p)}><span style={{ fontSize: 12, color: "#64748b" }}>{p.category || "—"}</span></td>}
+                    {visibleProjCols.has("status") && <td style={tdStyle} onClick={() => setSelProject(p)}><Badge label={p.status} style={{ ...STATUS_COLOR[p.status] }} /></td>}
+                    {visibleProjCols.has("progress") && <td style={tdStyle} onClick={() => setSelProject(p)}>
                       <div style={{ display: "flex", alignItems: "center", gap: 7 }}>
                         <ProgressBar value={getProgressFromStatus(p.status)} color={getProgressFromStatus(p.status) > 70 ? "#22c55e" : getProgressFromStatus(p.status) > 40 ? "#f59e0b" : "#ef4444"} />
                         <span style={{ fontSize: 11, fontWeight: 600, color: "#374151", minWidth: 28 }}>{getProgressFromStatus(p.status)}%</span>
                       </div>
+                    </td>}
+                    {visibleProjCols.has("dueDate") && <td style={tdStyle} onClick={() => setSelProject(p)}><span style={{ fontSize: 11, color: "#94a3b8" }}>{p.dueDate?.toLocaleDateString() || "—"}</span></td>}
+                    <td style={tdStyle} onClick={e => e.stopPropagation()}>
+                      {p.status === "Closed" ? (
+                        <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+                          <button onClick={() => updateProjectStatus(p.id, "Open")} style={{ padding: "4px 10px", borderRadius: 6, border: "1.5px solid #f59e0b", background: "#fffbeb", color: "#b45309", cursor: "pointer", fontSize: 12, fontWeight: 600, whiteSpace: "nowrap" }}>🔄 Reopen</button>
+                          {p.closedBy && <span style={{ fontSize: 10, color: "#64748b" }}>by {p.closedBy}</span>}
+                        </div>
+                      ) : p.status === "Bin" ? (
+                        <div style={{ display: "flex", gap: 4 }}>
+                          <button onClick={() => updateProjectStatus(p.id, "Open")} style={{ padding: "4px 8px", borderRadius: 6, border: "1.5px solid #22c55e", background: "#f0fdf4", color: "#15803d", cursor: "pointer", fontSize: 11, fontWeight: 600 }}>Restore</button>
+                          <button onClick={() => { setConfirmModal({ show: true, title: "Delete Project Permanently", message: "This cannot be undone.", confirmLabel: "Delete", confirmDanger: true, onConfirm: async () => { try { await axios.delete(`${PROJECTS_API}/${p.id}`); setProjects(prev => prev.filter(x => x.id !== p.id)); setCustomAlert({ show: true, message: "✅ Project permanently deleted", type: "success" }); } catch(e) { setCustomAlert({ show: true, message: "Failed to delete", type: "error" }); } setConfirmModal({ show: false }); }, onCancel: () => setConfirmModal({ show: false }) }); }} style={{ padding: "4px 8px", borderRadius: 6, border: "1.5px solid #ef4444", background: "#fee2e2", color: "#dc2626", cursor: "pointer", fontSize: 11, fontWeight: 600 }}>Delete</button>
+                        </div>
+                      ) : (
+                        <select value={p.status} onChange={e => {
+                          const newStatus = e.target.value;
+                          if (newStatus === "Bin") {
+                            updateProjectStatus(p.id, "Bin");
+                          } else if (newStatus === "Closed") {
+                            setConfirmModal({ show: true, title: "Close Project", message: "Who is closing this project?", fields: [{ name: "closedBy", label: "Closed By", type: "select", options: [...users].sort((a,b) => a.name.localeCompare(b.name)).map(u => ({ value: u.name, label: `${u.name} (${u.role})` })) }], confirmLabel: "Close Project", confirmDanger: false, onConfirm: async (data) => { const nowISO = new Date().toISOString(); const updated = { ...p, status: "Closed", closedBy: data.closedBy || currentUser.name, updated: nowISO, timeline: [...(p.timeline || []), { action: "Status changed to Closed", by: currentUser.name, date: nowISO, note: `Closed by: ${data.closedBy || currentUser.name}` }] }; try { await axios.put(`${PROJECTS_API}/${p.id}`, updated); setProjects(prev => prev.map(x => x.id === p.id ? { ...updated, updated: new Date(nowISO) } : x)); setCustomAlert({ show: true, message: "✅ Project closed!", type: "success" }); } catch(e) { setCustomAlert({ show: true, message: "Failed to close", type: "error" }); } setConfirmModal({ show: false }); }, onCancel: () => setConfirmModal({ show: false }) });
+                          } else {
+                            updateProjectStatus(p.id, newStatus);
+                          }
+                        }} style={{ ...sS, width: 108, fontSize: 12, padding: "4px 7px" }}>{PROJECT_STATUSES.map(s => <option key={s}>{s}</option>)}</select>
+                      )}
                     </td>
-                    <td style={tdStyle} onClick={() => setSelProject(p)}><span style={{ fontSize: 11, color: "#94a3b8" }}>{p.dueDate?.toLocaleDateString() || "—"}</span></td>
-                    <td style={tdStyle} onClick={e => e.stopPropagation()}><select value={p.status} onChange={e => updateProjectStatus(p.id, e.target.value)} style={{ ...sS, width: 108, fontSize: 12, padding: "4px 7px" }}>{PROJECT_STATUSES.map(s => <option key={s}>{s}</option>)}</select></td>
                   </tr>
                 ))}</tbody>
               </table>
@@ -6381,90 +6435,77 @@ export default function HelpDesk() {
           {/* ── AGENTS ── */}
           {view === "users" && !selAgent ? (
             <>
-              {/* ✅ NEW: User Statistics Boxes */}
-              <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 20 }}>
+              {/* Status filter tabs — plain text, no animated cards */}
+              <div style={{ display: "flex", gap: 6, marginBottom: 14, flexWrap: "wrap" }}>
                 {[
-                  { key: "all", icon: "👥", color: "#3b82f6", label: "Total Users", count: Array.isArray(users) ? users.length : 0 },
-                  { key: "On Duty", icon: "🟢", color: "#22c55e", label: "On Duty", count: Array.isArray(users) ? users.filter(u => u.status === "On Duty" || u.status === "On Ticket").length : 0 },
-                  { key: "On Ticket", icon: "🎫", color: "#6366f1", label: "On Ticket", count: Array.isArray(users) ? users.filter(u => u.status === "On Ticket").length : 0 },
-                  { key: "Idle", icon: "🟣", color: "#a855f7", label: "Idle", count: Array.isArray(users) ? users.filter(u => u.status === "Idle" || (u.status === "On Duty" && u.loginTime && (new Date() - new Date(u.loginTime)) / 60000 >= 15)).length : 0 },
-                  { key: "On Lunch", icon: "🍽️", color: "#f97316", label: "On Lunch", count: Array.isArray(users) ? users.filter(u => u.status === "On Lunch").length : 0 },
-                  { key: "off", icon: "⚪", color: "#f59e0b", label: "Off Duty", count: Array.isArray(users) ? users.filter(u => u.status !== "On Duty" && u.status !== "On Ticket" && u.status !== "Idle" && u.status !== "On Lunch").length : 0 },
-                ].map(s => {
-                  const isActive = agentStatusFilter === s.key;
-                  return (
-                    <div key={s.key}
-                      onClick={() => setAgentStatusFilter(s.key)}
-                      style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 14px", borderRadius: 10, background: isActive ? `${s.color}18` : "#fff", borderLeft: `4px solid ${s.color}`, boxShadow: isActive ? `0 0 0 2px ${s.color}` : "0 1px 4px rgba(0,0,0,0.07)", transition: "all 0.2s ease", cursor: "pointer" }}
-                      onMouseEnter={e => { e.currentTarget.style.boxShadow = isActive ? `0 0 0 2px ${s.color}` : "0 4px 14px rgba(0,0,0,0.12)"; e.currentTarget.style.transform = "translateX(3px)"; }}
-                      onMouseLeave={e => { e.currentTarget.style.boxShadow = isActive ? `0 0 0 2px ${s.color}` : "0 1px 4px rgba(0,0,0,0.07)"; e.currentTarget.style.transform = "translateX(0)"; }}>
-                      <span style={{ fontSize: 18 }}>{s.icon}</span>
-                      <div style={{ fontSize: 22, fontWeight: 900, color: s.color, lineHeight: 1, minWidth: 36 }}>{s.count}</div>
-                      <div style={{ fontSize: 13, fontWeight: 700, color: "#1e293b" }}>{s.label}</div>
-                      {isActive && <span style={{ marginLeft: "auto", fontSize: 11, fontWeight: 600, color: s.color, background: `${s.color}18`, padding: "2px 8px", borderRadius: 99 }}>Filtered</span>}
-                    </div>
-                  );
-                })}
+                  { key: "all", label: "All", count: users.length },
+                  { key: "On Duty", label: "On Duty", count: users.filter(u => u.status === "On Duty" || u.status === "On Ticket").length },
+                  { key: "On Ticket", label: "On Ticket", count: users.filter(u => u.status === "On Ticket").length },
+                  { key: "Idle", label: "Idle", count: users.filter(u => u.status === "Idle").length },
+                  { key: "On Lunch", label: "On Lunch", count: users.filter(u => u.status === "On Lunch").length },
+                  { key: "off", label: "Off Duty", count: users.filter(u => u.status !== "On Duty" && u.status !== "On Ticket" && u.status !== "Idle" && u.status !== "On Lunch").length },
+                ].map(s => (
+                  <button key={s.key} onClick={() => setAgentStatusFilter(s.key)}
+                    style={{ padding: "5px 12px", borderRadius: 6, border: `1.5px solid ${agentStatusFilter === s.key ? "#3b82f6" : "#e2e8f0"}`, background: agentStatusFilter === s.key ? "#eff6ff" : "#fff", color: agentStatusFilter === s.key ? "#1d4ed8" : "#64748b", fontSize: 12, fontWeight: agentStatusFilter === s.key ? 700 : 400, cursor: "pointer", fontFamily: "'DM Sans',sans-serif" }}>
+                    {s.label} <span style={{ opacity: 0.7 }}>({s.count})</span>
+                  </button>
+                ))}
               </div>
-
-              <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                {agentStats.filter(a => {
-                  if (agentStatusFilter === "all") return true;
-                  const userStatus = users.find(u => u.id === a.id)?.status || "Off Duty";
-                  if (agentStatusFilter === "On Duty") return userStatus === "On Duty" || userStatus === "On Ticket";
-                  if (agentStatusFilter === "Idle") { const u = users.find(x => x.id === a.id); return userStatus === "Idle" || (userStatus === "On Duty" && u?.loginTime && (new Date() - new Date(u.loginTime)) / 60000 >= 15); }
-                  if (agentStatusFilter === "On Ticket") return userStatus === "On Ticket";
-                  if (agentStatusFilter === "off") return userStatus !== "On Duty" && userStatus !== "On Ticket" && userStatus !== "Idle" && userStatus !== "On Lunch";
-                  return userStatus === agentStatusFilter;
-                }).map(a => {
-                  const userInfo = users.find(u => u.id === a.id);
-                  const u = users.find(x => x.id === a.id);
-                  const statusValue = u?.status || "Off Duty";
-                  const statusStyle = statusOpts.find(s => s.l === statusValue);
-                  const rate = a.assigned ? Math.round(a.closed / a.assigned * 100) : 0;
-                  const barColor = rate > 70 ? "#22c55e" : rate > 40 ? "#f59e0b" : "#ef4444";
-                  const openCount = tickets.filter(t => t.assignees?.some(x => x.id === a.id) && (t.status === "Open" || t.status === "In Progress") && t.status !== "Bin").length;
-                  const currentTicket = u?.status === "On Ticket" && u?.currentTicketId ? tickets.find(x => x.id === u.currentTicketId) : null;
-                  return (
-                    <div key={a.id} style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px 14px", background: "#fff", borderRadius: 10, border: "1.5px solid #e2e8f0", transition: "all 0.2s" }}
-                      onMouseEnter={e => { e.currentTarget.style.boxShadow = "0 4px 12px rgba(0,0,0,0.08)"; e.currentTarget.style.borderColor = "#3b82f6"; }}
-                      onMouseLeave={e => { e.currentTarget.style.boxShadow = "none"; e.currentTarget.style.borderColor = "#e2e8f0"; }}>
-                      <Avatar name={a.name} size={36} />
-                      <div style={{ flex: 1, minWidth: 0 }}>
-                        <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 2, flexWrap: "wrap" }}>
-                          <span style={{ fontSize: 13, fontWeight: 700, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{a.name}</span>
-                          <Badge label={a.role} style={{ background: "#ede9fe", color: "#6d28d9" }} />
-                          {statusStyle ? <Badge label={statusStyle.l} style={{ background: statusStyle.bg, color: statusStyle.c }} /> : <Badge label="Off Duty" style={{ background: "#fef3c7", color: "#f59e0b" }} />}
-                        </div>
-                        <div style={{ fontSize: 11, color: "#94a3b8", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{a.email}</div>
-                        {currentTicket !== null && (
-                          <div style={{ fontSize: 11, color: "#7c3aed", marginTop: 2 }}>🎫 {u.currentTicketId}{currentTicket ? ` — ${currentTicket.summary}` : ""}{u.currentLocation ? ` · 📍 ${u.currentLocation}` : ""}</div>
-                        )}
-                      </div>
-                      <div style={{ display: "flex", gap: 14, alignItems: "center", flexShrink: 0 }}>
-                        {[{ l: "Assigned", v: a.assigned, c: "#3b82f6" }, { l: "Closed", v: a.closed, c: "#22c55e" }, { l: "Open", v: openCount, c: "#f59e0b" }].map(s => (
-                          <div key={s.l} style={{ textAlign: "center", minWidth: 36 }}>
-                            <div style={{ fontSize: 16, fontWeight: 700, color: s.c }}>{s.v}</div>
-                            <div style={{ fontSize: 10, color: "#94a3b8" }}>{s.l}</div>
-                          </div>
-                        ))}
-                        <div style={{ textAlign: "center", minWidth: 44 }}>
-                          <div style={{ fontSize: 16, fontWeight: 700, color: barColor }}>{rate}%</div>
-                          <div style={{ height: 4, background: "#f1f5f9", borderRadius: 99, overflow: "hidden", marginTop: 3 }}>
-                            <div style={{ width: `${rate}%`, height: "100%", background: barColor, borderRadius: 99 }} />
-                          </div>
-                          <div style={{ fontSize: 10, color: "#94a3b8", marginTop: 2 }}>Rate</div>
-                        </div>
-                      </div>
-                      <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>
-                        <button onClick={() => setSelAgent(a)} style={{ padding: "6px 12px", background: "#dbeafe", color: "#1e40af", border: "none", borderRadius: 6, cursor: "pointer", fontSize: 11, fontWeight: 600 }}>👁️ View</button>
-                        {(currentUser?.role === "Admin" || currentUser?.role === "Manager") && (
-                          <button onClick={() => { setUserEditModal({ show: true, user: userInfo, newRole: userInfo?.role, editName: userInfo?.name || "", editEmail: userInfo?.email || "", editPhone: userInfo?.phone || "", editPassword: "" }); }} style={{ padding: "6px 12px", background: "#f0fdf4", color: "#15803d", border: "none", borderRadius: 6, cursor: "pointer", fontSize: 11, fontWeight: 600 }}>⚙️ Manage</button>
-                        )}
-                      </div>
-                    </div>
-                  );
-                })}
+              <div style={{ background: "#fff", borderRadius: 10, border: "1.5px solid #e2e8f0", overflow: "hidden" }}>
+                <table style={{ width: "100%", borderCollapse: "collapse" }}>
+                  <thead>
+                    <tr style={{ background: "#f8fafc" }}>
+                      <th style={thStyle}>Agent</th>
+                      <th style={thStyle}>Role</th>
+                      <th style={thStyle}>Status</th>
+                      <th style={thStyle}>Email</th>
+                      <th style={thStyle}>Assigned</th>
+                      <th style={thStyle}>Closed</th>
+                      <th style={thStyle}>Open</th>
+                      <th style={thStyle}>Rate</th>
+                      <th style={thStyle}>Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {agentStats.filter(a => {
+                      if (agentStatusFilter === "all") return true;
+                      const userStatus = users.find(u => u.id === a.id)?.status || "Off Duty";
+                      if (agentStatusFilter === "On Duty") return userStatus === "On Duty" || userStatus === "On Ticket";
+                      if (agentStatusFilter === "Idle") { const u = users.find(x => x.id === a.id); return userStatus === "Idle" || (userStatus === "On Duty" && u?.loginTime && (new Date() - new Date(u.loginTime)) / 60000 >= 15); }
+                      if (agentStatusFilter === "On Ticket") return userStatus === "On Ticket";
+                      if (agentStatusFilter === "off") return userStatus !== "On Duty" && userStatus !== "On Ticket" && userStatus !== "Idle" && userStatus !== "On Lunch";
+                      return userStatus === agentStatusFilter;
+                    }).map(a => {
+                      const userInfo = users.find(u => u.id === a.id);
+                      const u = users.find(x => x.id === a.id);
+                      const statusValue = u?.status || "Off Duty";
+                      const statusStyle = statusOpts.find(s => s.l === statusValue);
+                      const rate = a.assigned ? Math.round(a.closed / a.assigned * 100) : 0;
+                      const barColor = rate > 70 ? "#22c55e" : rate > 40 ? "#f59e0b" : "#ef4444";
+                      const openCount = tickets.filter(t => t.assignees?.some(x => x.id === a.id) && (t.status === "Open" || t.status === "In Progress") && t.status !== "Bin").length;
+                      return (
+                        <tr key={a.id} className="rh" style={{ background: "#fff" }}>
+                          <td style={tdStyle}><span style={{ fontSize: 13, fontWeight: 500, color: "#0f172a" }}>{a.name}</span></td>
+                          <td style={{ ...tdStyle, color: "#64748b", fontSize: 12 }}>{a.role}</td>
+                          <td style={{ ...tdStyle, fontSize: 12, color: statusStyle ? statusStyle.c : "#94a3b8" }}>{statusValue}</td>
+                          <td style={{ ...tdStyle, fontSize: 12, color: "#64748b" }}>{a.email}</td>
+                          <td style={{ ...tdStyle, textAlign: "center", fontSize: 13, color: "#334155" }}>{a.assigned}</td>
+                          <td style={{ ...tdStyle, textAlign: "center", fontSize: 13, color: "#334155" }}>{a.closed}</td>
+                          <td style={{ ...tdStyle, textAlign: "center", fontSize: 13, color: "#334155" }}>{openCount}</td>
+                          <td style={{ ...tdStyle, fontSize: 12, color: rate > 70 ? "#15803d" : rate > 40 ? "#b45309" : "#b91c1c" }}>{rate}%</td>
+                          <td style={tdStyle}>
+                            <div style={{ display: "flex", gap: 5 }}>
+                              <button onClick={() => setSelAgent(a)} style={{ padding: "4px 10px", background: "none", color: "#3b82f6", border: "1px solid #bfdbfe", borderRadius: 5, cursor: "pointer", fontSize: 11, fontWeight: 600 }}>View</button>
+                              {(currentUser?.role === "Admin" || currentUser?.role === "Manager") && (
+                                <button onClick={() => { setUserEditModal({ show: true, user: userInfo, newRole: userInfo?.role, editName: userInfo?.name || "", editEmail: userInfo?.email || "", editPhone: userInfo?.phone || "", editPassword: "" }); }} style={{ padding: "4px 10px", background: "none", color: "#64748b", border: "1px solid #e2e8f0", borderRadius: 5, cursor: "pointer", fontSize: 11, fontWeight: 600 }}>Edit</button>
+                              )}
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
               </div>
             </>
           ) : view === "users" && selAgent ? <div>
@@ -6619,7 +6660,7 @@ export default function HelpDesk() {
                   <div key={v.id} style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px 14px", borderRadius: 10, border: "1.5px solid #f1f5f9", marginBottom: 7, background: "#fafafa" }}>
                     <div style={{ fontSize: 20, width: 32, textAlign: "center" }}>{v.icon}</div>
                     <div style={{ flex: 1 }}><div style={{ fontSize: 13, fontWeight: 600 }}>{v.label}</div><div style={{ fontSize: 11, color: "#94a3b8" }}>{v.desc}</div></div>
-                    <span style={{ fontSize: 11, color: "#64748b", background: "#f1f5f9", padding: "3px 9px", borderRadius: 99, fontWeight: 600 }}>{tickets.filter(t => v.filter(t, currentUser)).length}</span>
+                    <span style={{ fontSize: 11, color: "#64748b", background: "#f1f5f9", padding: "3px 9px", borderRadius: 99, fontWeight: 600 }}>{tickets.filter(t => v.filter(t, currentUser) && (currentUser?.role === "Admin" || currentUser?.role === "Manager" || t.reportedBy === currentUser?.name || (t.assignees || []).some(a => a.id === currentUser?.id))).length}</span>
                     <button onClick={() => { setView("tickets"); setTvFilter(v.id); }} style={{ ...bP, padding: "5px 12px", fontSize: 12 }}>View</button>
                   </div>
                 ))}
@@ -6631,8 +6672,7 @@ export default function HelpDesk() {
                   <div key={v.id} style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px 14px", borderRadius: 10, border: "1.5px solid #f1f5f9", marginBottom: 7, background: "#fafafa" }}>
                     <div style={{ fontSize: 20, width: 32, textAlign: "center" }}>{v.icon}</div>
                     <div style={{ flex: 1 }}><div style={{ fontSize: 13, fontWeight: 600 }}>{v.label}</div><div style={{ fontSize: 11, color: "#94a3b8" }}>{v.desc}</div></div>
-                    <span style={{ fontSize: 11, color: "#64748b", background: "#f1f5f9", padding: "3px 9px", borderRadius: 99, fontWeight: 600 }}>{projects.filter(p => v.filter(p, currentUser)).length}</span>
-                    <button onClick={() => { setView("projects"); setPvFilter(v.id); }} style={{ ...bP, padding: "5px 12px", fontSize: 12, background: "linear-gradient(135deg,#8b5cf6,#6366f1)" }}>View</button>
+                    <span style={{ fontSize: 11, color: "#64748b", background: "#f1f5f9", padding: "3px 9px", borderRadius: 99, fontWeight: 600 }}>{projects.filter(p => v.filter(p, currentUser) && (currentUser?.role === "Admin" || currentUser?.role === "Manager" || (p.assignees || []).some(a => a.id === currentUser?.id))).length}</span>                    <button onClick={() => { setView("projects"); setPvFilter(v.id); }} style={{ ...bP, padding: "5px 12px", fontSize: 12, background: "linear-gradient(135deg,#8b5cf6,#6366f1)" }}>View</button>
                   </div>
                 ))}
               </div>}
@@ -6675,16 +6715,22 @@ export default function HelpDesk() {
                     <button onClick={addCat} style={bP}>Add</button>
                   </div>
                 ) : <div style={{ marginBottom: 18, padding: "10px 14px", background: "#fef3c7", color: "#92400e", borderRadius: 8, fontSize: 13, fontWeight: 500 }}>Read Only: Category management is restricted to Admins.</div>}
-                <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                  {[...categories].sort((a, b) => (a.name || "").localeCompare(b.name || "")).map(c => (
-                    <div key={c.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 12px", borderRadius: 8, background: "#f8fafc", border: "1.5px solid #e2e8f0" }}>
-                      <div style={{ width: 12, height: 12, borderRadius: 3, background: c.color, flexShrink: 0 }} />
-                      <div style={{ fontSize: 13, fontWeight: 600, color: "#1f2937", flex: 1 }}>{c.name}</div>
-                      <div style={{ fontSize: 12, color: "#6b7280" }}>{tickets.filter(t => t.category === c.name).length} tickets</div>
-                      {currentUser?.role === "Admin" && <button onClick={e => { e.stopPropagation(); deleteCat(c.id); }} style={{ border: "none", background: "#fee2e2", color: "#dc2626", borderRadius: 5, padding: "3px 10px", cursor: "pointer", fontSize: 11, fontWeight: 600 }}>Delete</button>}
-                    </div>
-                  ))}
-                </div>
+                <table style={{ width: "100%", borderCollapse: "collapse" }}>
+                  <thead><tr style={{ background: "#f8fafc" }}>
+                    <th style={thStyle}>Name</th>
+                    <th style={thStyle}>Color</th>
+                    <th style={thStyle}>Tickets</th>
+                    {currentUser?.role === "Admin" && <th style={thStyle}></th>}
+                  </tr></thead>
+                  <tbody>{[...categories].sort((a, b) => (a.name || "").localeCompare(b.name || "")).map(c => (
+                    <tr key={c.id} className="rh">
+                      <td style={tdStyle}><span style={{ fontSize: 13, color: "#1f2937" }}>{c.name}</span></td>
+                      <td style={tdStyle}><div style={{ width: 14, height: 14, borderRadius: 3, background: c.color }} /></td>
+                      <td style={{ ...tdStyle, color: "#64748b", fontSize: 12 }}>{tickets.filter(t => t.category === c.name).length}</td>
+                      {currentUser?.role === "Admin" && <td style={tdStyle}><button onClick={e => { e.stopPropagation(); deleteCat(c.id); }} style={{ border: "none", background: "none", color: "#ef4444", borderRadius: 5, padding: "3px 8px", cursor: "pointer", fontSize: 11, fontWeight: 600 }}>Delete</button></td>}
+                    </tr>
+                  ))}</tbody>
+                </table>
               </div>}
               {/* ✅ Departments Management — org-grouped */}
               {settingsTab === "departments" && <div style={{ background: "#fff", borderRadius: 12, padding: 22, boxShadow: "0 1px 4px rgba(0,0,0,0.06)" }}>
@@ -6771,10 +6817,10 @@ export default function HelpDesk() {
                             setPendingDepartments(updated);
                           }}
                         >
-                          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10, padding: "6px 10px", background: "#f8fafc", borderRadius: 8, border: "1.5px dashed #e2e8f0" }}>
-                            <span style={{ fontSize: 13, fontWeight: 700, color: "#1e293b" }}>🏢 {orgName}</span>
-                            <span style={{ fontSize: 11, color: "#94a3b8", background: "#f1f5f9", borderRadius: 99, padding: "2px 8px" }}>{grouped[orgName].length}</span>
-                            {currentUser?.role === "Admin" && <span style={{ fontSize: 10, color: "#94a3b8", marginLeft: "auto" }}>Drop here to move</span>}
+                          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6, padding: "5px 8px", borderBottom: "1.5px solid #e2e8f0" }}>
+                            <span style={{ fontSize: 12, fontWeight: 700, color: "#1e293b" }}>{orgName}</span>
+                            <span style={{ fontSize: 11, color: "#94a3b8" }}>({grouped[orgName].length})</span>
+                            {currentUser?.role === "Admin" && <span style={{ fontSize: 10, color: "#cbd5e1", marginLeft: "auto" }}>drag to reorder or move</span>}
                           </div>
                           <div style={{ display: "flex", flexDirection: "column", gap: 5, minHeight: 36 }}>
                             {grouped[orgName].length === 0 && <span style={{ fontSize: 11, color: "#cbd5e1", padding: "6px 4px" }}>No departments — drag one here</span>}
@@ -6793,7 +6839,6 @@ export default function HelpDesk() {
                                     if (!raw) return;
                                     const src = JSON.parse(raw);
                                     if (src.orgName !== orgName || src.id === d.id) return;
-                                    // Reorder within same org (in pending state)
                                     const grp = [...grouped[orgName]];
                                     const fromIdx = grp.findIndex(x => x.id === src.id);
                                     const toIdx = idx;
@@ -6808,14 +6853,11 @@ export default function HelpDesk() {
                                     });
                                     setPendingDepartments(updated);
                                   }}
-                                  style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 12px", borderRadius: 8, background: "#f8fafc", border: "1.5px solid #e2e8f0", cursor: currentUser?.role === "Admin" ? "grab" : "default", transition: "all 0.15s", userSelect: "none" }}
-                                  onMouseEnter={e => { e.currentTarget.style.boxShadow = `0 2px 8px ${color}30`; e.currentTarget.style.borderColor = color + "60"; }}
-                                  onMouseLeave={e => { e.currentTarget.style.boxShadow = "none"; e.currentTarget.style.borderColor = "#e2e8f0"; }}
+                                  style={{ display: "flex", alignItems: "center", gap: 10, padding: "6px 10px", borderBottom: "1px solid #f1f5f9", cursor: currentUser?.role === "Admin" ? "grab" : "default", userSelect: "none" }}
                                 >
-                                  <div style={{ width: 10, height: 10, borderRadius: 2, background: color, flexShrink: 0 }} />
-                                  <span style={{ fontSize: 13, fontWeight: 600, color: "#1f2937", flex: 1 }}>{d.name}</span>
+                                  <span style={{ fontSize: 13, color: "#1f2937", flex: 1 }}>{d.name}</span>
                                   {currentUser?.role === "Admin" && (
-                                    <button onClick={e => { e.stopPropagation(); deleteDept(d.id); }} style={{ border: "none", background: "#fee2e2", color: "#dc2626", borderRadius: 5, padding: "3px 10px", cursor: "pointer", fontSize: 11, fontWeight: 600 }}>Delete</button>
+                                    <button onClick={e => { e.stopPropagation(); deleteDept(d.id); }} style={{ border: "none", background: "none", color: "#ef4444", borderRadius: 5, padding: "3px 8px", cursor: "pointer", fontSize: 11, fontWeight: 600 }}>Delete</button>
                                   )}
                                 </div>
                               );
@@ -6843,21 +6885,24 @@ export default function HelpDesk() {
                     <button onClick={addLocation} style={bP}>Add</button>
                   </div>
                 ) : <div style={{ marginBottom: 18, padding: "10px 14px", background: "#fef3c7", color: "#92400e", borderRadius: 8, fontSize: 13, fontWeight: 500 }}>Read Only: Adding or removing locations is restricted to Admins.</div>}
-                <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                  {[...locations].sort((a, b) => (a.name || "").localeCompare(b.name || "")).map(l => (
-                    <div key={l.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 12px", borderRadius: 8, background: "#f8fafc", border: "1.5px solid #e2e8f0" }}>
-                      <span style={{ fontSize: 14 }}>📍</span>
-                      <div style={{ fontSize: 13, fontWeight: 600, color: "#1f2937", flex: 1 }}>{l.name}</div>
-                      {currentUser?.role === "Admin" && <button onClick={e => { e.stopPropagation(); deleteLocation(l.id); }} style={{ border: "none", background: "#fee2e2", color: "#dc2626", borderRadius: 5, padding: "3px 10px", cursor: "pointer", fontSize: 11, fontWeight: 600 }}>Delete</button>}
-                    </div>
-                  ))}
-                </div>
+                <table style={{ width: "100%", borderCollapse: "collapse" }}>
+                  <thead><tr style={{ background: "#f8fafc" }}>
+                    <th style={thStyle}>Name</th>
+                    {currentUser?.role === "Admin" && <th style={thStyle}></th>}
+                  </tr></thead>
+                  <tbody>{[...locations].sort((a, b) => (a.name || "").localeCompare(b.name || "")).map(l => (
+                    <tr key={l.id} className="rh">
+                      <td style={tdStyle}><span style={{ fontSize: 13, color: "#1f2937" }}>{l.name}</span></td>
+                      {currentUser?.role === "Admin" && <td style={tdStyle}><button onClick={e => { e.stopPropagation(); deleteLocation(l.id); }} style={{ border: "none", background: "none", color: "#ef4444", borderRadius: 5, padding: "3px 8px", cursor: "pointer", fontSize: 11, fontWeight: 600 }}>Delete</button></td>}
+                    </tr>
+                  ))}</tbody>
+                </table>
                 {locations.length === 0 && <div style={{ textAlign: "center", color: "#94a3b8", padding: 28 }}>No locations yet. Add one to get started.</div>}
               </div>}
 
               {/* ✅ NEW: Satsang Types Management */}
               {settingsTab === "satsangtypes" && <div style={{ background: "#fff", borderRadius: 12, padding: 22, boxShadow: "0 1px 4px rgba(0,0,0,0.06)" }}>
-                <h3 style={{ margin: "0 0 4px", fontSize: 15, fontWeight: 700 }}>📡 Satsang Types ({satsangTypes.length})</h3>
+                <h3 style={{ margin: "0 0 4px", fontSize: 15, fontWeight: 700 }}>Satsang Types ({satsangTypes.length})</h3>
                 <p style={{ margin: "0 0 18px", fontSize: 12, color: "#64748b" }}>Manage webcast satsang types for ticket creation.</p>
                 {currentUser?.role === "Admin" ? (
                   <div style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: 9, marginBottom: 18, padding: 14, background: "#f8fafc", borderRadius: 9 }}>
@@ -6871,19 +6916,22 @@ export default function HelpDesk() {
                     <button onClick={addSatsangType} style={bP}>Add</button>
                   </div>
                 ) : <div style={{ marginBottom: 18, padding: "10px 14px", background: "#fef3c7", color: "#92400e", borderRadius: 8, fontSize: 13, fontWeight: 500 }}>Read Only: Adding or removing satsang types is restricted to Admins.</div>}
-                <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                  {satsangTypes.sort().map(t => (
-                    <div key={t} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 12px", borderRadius: 8, background: "#f0f7ff", border: "1px solid #bfdbfe" }}>
-                      <span style={{ fontSize: 14 }}>📡</span>
-                      <div style={{ fontSize: 13, fontWeight: 600, color: "#1f2937", flex: 1 }}>{t}</div>
-                      {currentUser?.role === "Admin" && <button onClick={e => { e.stopPropagation(); deleteSatsangType(t); }} style={{ border: "none", background: "#fee2e2", color: "#dc2626", borderRadius: 5, padding: "3px 10px", cursor: "pointer", fontSize: 11, fontWeight: 600 }}>Remove</button>}
-                    </div>
-                  ))}
-                </div>
+                <table style={{ width: "100%", borderCollapse: "collapse" }}>
+                  <thead><tr style={{ background: "#f8fafc" }}>
+                    <th style={thStyle}>Name</th>
+                    {currentUser?.role === "Admin" && <th style={thStyle}></th>}
+                  </tr></thead>
+                  <tbody>{satsangTypes.sort().map(t => (
+                    <tr key={t} className="rh">
+                      <td style={tdStyle}><span style={{ fontSize: 13, color: "#1f2937" }}>{t}</span></td>
+                      {currentUser?.role === "Admin" && <td style={tdStyle}><button onClick={e => { e.stopPropagation(); deleteSatsangType(t); }} style={{ border: "none", background: "none", color: "#ef4444", borderRadius: 5, padding: "3px 8px", cursor: "pointer", fontSize: 11, fontWeight: 600 }}>Remove</button></td>}
+                    </tr>
+                  ))}</tbody>
+                </table>
                 {satsangTypes.length === 0 && <div style={{ textAlign: "center", color: "#94a3b8", padding: 28 }}>No satsang types yet. Add one to get started.</div>}
               </div>}
               {settingsTab === "vendors" && <div style={{ background: "#fff", borderRadius: 12, padding: 22, boxShadow: "0 1px 4px rgba(0,0,0,0.06)" }}>
-                <h3 style={{ margin: "0 0 4px", fontSize: 15, fontWeight: 700 }}>🏭 Vendors ({vendors.length})</h3>
+                <h3 style={{ margin: "0 0 4px", fontSize: 15, fontWeight: 700 }}>Vendors ({vendors.length})</h3>
                 <p style={{ margin: "0 0 18px", fontSize: 12, color: "#64748b" }}>Manage vendors with contact information for sending tickets.</p>
                 {currentUser?.role === "Admin" ? (
                   <div style={{ marginBottom: 18, display: "flex", justifyContent: "flex-end" }}>
@@ -6901,7 +6949,7 @@ export default function HelpDesk() {
                   </tr></thead>
                   <tbody>{applySort(vendors, vendorSort).map(v => (
                     <tr key={v.id} className="rh">
-                      <td style={tdStyle}><span style={{ fontSize: 13, fontWeight: 700, color: "#ea580c" }}>🏭 {v.name}</span></td>
+                      <td style={tdStyle}><span style={{ fontSize: 13, color: "#1f2937" }}>{v.name}</span></td>
                       <td style={{ ...tdStyle, color: "#64748b", fontSize: 12 }}>{v.email || "—"}</td>
                       <td style={{ ...tdStyle, color: "#64748b", fontSize: 12 }}>{v.phone || "—"}</td>
                       <td style={{ ...tdStyle, color: "#64748b", fontSize: 12, maxWidth: 200 }}><div style={{ whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{v.address || "—"}</div></td>
@@ -6914,36 +6962,67 @@ export default function HelpDesk() {
 
               {settingsTab === "bin" && (
                 <div style={{ background: "#fff", borderRadius: 12, padding: 22, boxShadow: "0 1px 4px rgba(0,0,0,0.06)" }}>
-                  <h3 style={{ margin: "0 0 4px", fontSize: 15, fontWeight: 700 }}>🧹 Bin ({tickets.filter(t => t.status === "Bin").length})</h3>
-                  <p style={{ margin: "0 0 18px", fontSize: 12, color: "#64748b" }}>Manage deleted tickets. Auto-deleted after 30 days.</p>
-                  {tickets.filter(t => t.status === "Bin").length === 0 ? (
-                    <div style={{ textAlign: "center", color: "#94a3b8", padding: 40 }}>Bin is empty</div>
-                  ) : (
-                    <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-                      {tickets.filter(t => t.status === "Bin").map(t => {
-                        const deletedDate = new Date(t.updatedAt);
-                        const daysInBin = Math.floor((new Date() - deletedDate) / (1000 * 60 * 60 * 24));
-                        const daysLeft = Math.max(0, 30 - daysInBin);
-                        return (
-                          <div key={t.id} style={{ padding: 12, background: "#f8fafc", borderRadius: 8, border: "1px solid #e2e8f0", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                            <div style={{ flex: 1 }}>
-                              <div style={{ fontWeight: 600, color: "#0f172a" }}>{t.id}</div>
-                              <div style={{ fontSize: 12, color: "#64748b" }}>{t.summary}</div>
-                              <div style={{ fontSize: 11, color: daysLeft === 0 ? "#ef4444" : "#94a3b8", marginTop: 4 }}>
-                                {daysLeft === 0 ? "⚠️ Deleting today" : `🕐 Auto-delete in ${daysLeft} days`}
+                  <h3 style={{ margin: "0 0 4px", fontSize: 15, fontWeight: 700 }}>🧹 Bin</h3>
+                  <p style={{ margin: "0 0 18px", fontSize: 12, color: "#64748b" }}>Manage deleted tickets and projects. Auto-deleted after 30 days.</p>
+
+                  {/* Tickets bin */}
+                  <div style={{ marginBottom: 24 }}>
+                    <div style={{ fontSize: 13, fontWeight: 700, color: "#374151", marginBottom: 10 }}>🎫 Tickets ({tickets.filter(t => t.status === "Bin").length})</div>
+                    {tickets.filter(t => t.status === "Bin").length === 0 ? (
+                      <div style={{ textAlign: "center", color: "#94a3b8", padding: 20, background: "#f8fafc", borderRadius: 8 }}>No tickets in bin</div>
+                    ) : (
+                      <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+                        {tickets.filter(t => t.status === "Bin").map(t => {
+                          const deletedDate = new Date(t.updatedAt);
+                          const daysInBin = Math.floor((new Date() - deletedDate) / (1000 * 60 * 60 * 24));
+                          const daysLeft = Math.max(0, 30 - daysInBin);
+                          return (
+                            <div key={t.id} style={{ padding: 12, background: "#f8fafc", borderRadius: 8, border: "1px solid #e2e8f0", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                              <div style={{ flex: 1 }}>
+                                <div style={{ fontWeight: 600, color: "#0f172a" }}>{t.id}</div>
+                                <div style={{ fontSize: 12, color: "#64748b" }}>{t.summary}</div>
+                                <div style={{ fontSize: 11, color: daysLeft === 0 ? "#ef4444" : "#94a3b8", marginTop: 4 }}>
+                                  {daysLeft === 0 ? "⚠️ Deleting today" : `🕐 Auto-delete in ${daysLeft} days`}
+                                </div>
+                              </div>
+                              <button onClick={() => permanentlyDeleteTicket(t.id)} style={{ padding: "6px 12px", background: "#ef4444", border: "none", borderRadius: 4, color: "#fff", cursor: "pointer", fontSize: 11, fontWeight: 600, marginLeft: 12 }}>Delete Now</button>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Projects bin */}
+                  <div>
+                    <div style={{ fontSize: 13, fontWeight: 700, color: "#374151", marginBottom: 10 }}>📁 Projects ({projects.filter(p => p.status === "Bin").length})</div>
+                    {projects.filter(p => p.status === "Bin").length === 0 ? (
+                      <div style={{ textAlign: "center", color: "#94a3b8", padding: 20, background: "#f8fafc", borderRadius: 8 }}>No projects in bin</div>
+                    ) : (
+                      <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+                        {projects.filter(p => p.status === "Bin").map(p => {
+                          const deletedDate = new Date(p.updatedAt || p.updated);
+                          const daysInBin = Math.floor((new Date() - deletedDate) / (1000 * 60 * 60 * 24));
+                          const daysLeft = Math.max(0, 30 - daysInBin);
+                          return (
+                            <div key={p.id} style={{ padding: 12, background: "#f8fafc", borderRadius: 8, border: "1px solid #e2e8f0", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                              <div style={{ flex: 1 }}>
+                                <div style={{ fontWeight: 600, color: "#0f172a" }}>{p.id}</div>
+                                <div style={{ fontSize: 12, color: "#64748b" }}>{p.title}</div>
+                                <div style={{ fontSize: 11, color: daysLeft === 0 ? "#ef4444" : "#94a3b8", marginTop: 4 }}>
+                                  {daysLeft === 0 ? "⚠️ Deleting today" : `🕐 Auto-delete in ${daysLeft} days`}
+                                </div>
+                              </div>
+                              <div style={{ display: "flex", gap: 6, marginLeft: 12 }}>
+                                <button onClick={() => updateProjectStatus(p.id, "Open")} style={{ padding: "6px 12px", background: "#22c55e", border: "none", borderRadius: 4, color: "#fff", cursor: "pointer", fontSize: 11, fontWeight: 600 }}>Restore</button>
+                                <button onClick={() => { setConfirmModal({ show: true, title: "Delete Project Permanently", message: "This cannot be undone.", confirmLabel: "Delete", confirmDanger: true, onConfirm: async () => { try { await axios.delete(`${PROJECTS_API}/${p.id}`); setProjects(prev => prev.filter(x => x.id !== p.id)); setCustomAlert({ show: true, message: "✅ Project permanently deleted", type: "success" }); } catch(e) { setCustomAlert({ show: true, message: "Failed to delete", type: "error" }); } setConfirmModal({ show: false }); }, onCancel: () => setConfirmModal({ show: false }) }); }} style={{ padding: "6px 12px", background: "#ef4444", border: "none", borderRadius: 4, color: "#fff", cursor: "pointer", fontSize: 11, fontWeight: 600 }}>Delete Now</button>
                               </div>
                             </div>
-                            <button
-                              onClick={() => permanentlyDeleteTicket(t.id)}
-                              style={{ padding: "6px 12px", background: "#ef4444", border: "none", borderRadius: 4, color: "#fff", cursor: "pointer", fontSize: 11, fontWeight: 600, marginLeft: 12 }}
-                            >
-                              Delete Now
-                            </button>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  )}
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
                 </div>
               )}
 
