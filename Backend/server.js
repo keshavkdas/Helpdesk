@@ -986,7 +986,10 @@ app.post("/api/tickets", async (req, res) => {
 
 app.put("/api/tickets/:id", async (req, res) => {
     try {
-        const ticket = await Ticket.findByPk(req.params.id);
+        let ticket = await Ticket.findByPk(req.params.id);
+        if (!ticket && req.params.id.startsWith("WEB-")) {
+            ticket = await Webcast.findByPk(req.params.id);
+        }
         if (!ticket) return res.status(404).json({ error: "Ticket not found" });
         await ticket.update(req.body);
         res.json(fmt(ticket));
