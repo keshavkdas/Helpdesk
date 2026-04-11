@@ -48,6 +48,8 @@ const User = sequelize.define("User", {
     logoutReason: { type: DataTypes.STRING, defaultValue: null }, // Reason for last logout/status change
     requiresLogoutReason: { type: DataTypes.BOOLEAN, defaultValue: false }, // Flag if user needs to provide reason before logout
     forceLogout: { type: DataTypes.BOOLEAN, defaultValue: false }, // Set by admin to remotely eject an agent
+    loginTime: { type: DataTypes.DATE, defaultValue: null },
+    idleAt: { type: DataTypes.DATE, defaultValue: null },
 }, { timestamps: true });
 
 const Org = sequelize.define("Org", {
@@ -281,6 +283,8 @@ app.post("/api/auth/login", async (req, res) => {
             currentTicketId: null,
             currentLocation: null,
             forceLogout: false,
+            loginTime: new Date(),
+            idleAt: null,
             });
         res.json(fmt(user));
     } catch (err) { res.status(500).json({ error: err.message }); }
@@ -323,6 +327,25 @@ app.post("/api/users", async (req, res) => {
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+app.post("/api/users/:id/force-logout", async (req, res) => {
+    try {
+        const user = await User.findByPk(req.params.id);
+        if (!user) return res.status(404).json({ error: "User not found" });
+        const finalStatus = req.body.finalStatus || "Off Duty";
+        const isLunchForce = (req.body.logoutReason || "").toLowerCase().includes("lunch");
+        await user.update({
+            forceLogout: true,
+            status: finalStatus,
+            logoutReason: req.body.logoutReason || "Force logged out by admin",
+            lunchStatus: isLunchForce,
+            currentTicketId: req.body.currentTicketId || null,
+            currentLocation: req.body.currentLocation || user.currentLocation,
+            idleAt: null,
+        });
+        res.json(fmt(user));
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 app.put("/api/users/:id", async (req, res) => {
     try {
         const user = await User.findByPk(req.params.id);
@@ -336,8 +359,7 @@ app.put("/api/users/:id", async (req, res) => {
         // If status is being changed
         if (newStatus && newStatus !== currentStatus) {
             // Check if attempting to logout (change to Off Duty)
-            if (newStatus === "Off Duty" && currentStatus !== "Off Duty") {
-                // Logout reason is REQUIRED for Off Duty transition from any other status
+            if (newStatus === "Off Duty" && currentStatus !== "Off Duty" && !req.body.forceLogout && !req.body._isSystemUpdate) {
                 if (!logoutReason || logoutReason.trim() === "") {
                     return res.status(400).json({
                         error: "Logout reason is required",
@@ -376,23 +398,19 @@ app.put("/api/users/:id", async (req, res) => {
         // Hash password if provided
         if (req.body.password) req.body.password = await bcrypt.hash(req.body.password, 10);
 
-        // Update user
-        await user.update(req.body);
-        res.json(fmt(user));
-    } catch (err) { res.status(500).json({ error: err.message }); }
-});
+        // Strip non-column keys to prevent Sequelize errors
+        const { _isSystemUpdate, forceLogout: incomingForceLogout, ...updateData } = req.body;
 
-app.post("/api/users/:id/force-logout", async (req, res) => {
-    try {
-        const user = await User.findByPk(req.params.id);
-        if (!user) return res.status(404).json({ error: "User not found" });
-        await user.update({
-            forceLogout: true,
-            status: "Off Duty",
-            logoutReason: req.body.logoutReason || "Force logged out by admin",
-            lunchStatus: false,
-            currentTicketId: null,
-        });
+        // Only allow forceLogout changes if explicitly passed as true (admin setting it)
+        // or if this is the agent's own poll clearing it (forceLogout: false with _isSystemUpdate)
+        if (incomingForceLogout === true) {
+            updateData.forceLogout = true;
+        } else if (incomingForceLogout === false && _isSystemUpdate) {
+            updateData.forceLogout = false;
+        }
+        // If forceLogout not passed or passed as false without _isSystemUpdate, don't touch it
+        // Update user
+        await user.update(updateData);
         res.json(fmt(user));
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
@@ -483,9 +501,19 @@ app.post("/api/orgs", async (req, res) => {
 app.delete("/api/orgs/:id", async (req, res) => {
     try {
         const org = await Org.findByPk(req.params.id);
-        if (org) await org.destroy();
+        if (org) {
+            console.log(`[deleteOrg] Deleting org: "${org.name}" (id=${org.id})`);
+            const depts = await Department.findAll({ where: { orgName: org.name } });
+            console.log(`[deleteOrg] Found ${depts.length} departments:`, depts.map(d => ({ id: d.id, name: d.name, orgName: d.orgName })));
+            for (const dept of depts) await dept.destroy();
+            await org.destroy();
+            console.log(`[deleteOrg] Done`);
+        }
         res.json({ success: true });
-    } catch (err) { res.status(500).json({ error: err.message }); }
+    } catch (err) {
+        console.error(`[deleteOrg] ERROR:`, err.message);
+        res.status(500).json({ error: err.message });
+    }
 });
 
 // ✅ NEW: Vendor Endpoints
@@ -656,7 +684,10 @@ app.put("/api/departments/reorder", async (req, res) => {
     try {
         const { orders } = req.body; // [{ id, sortOrder }, ...]
         if (!Array.isArray(orders)) return res.status(400).json({ error: "orders array required" });
-        await Promise.all(orders.map(o => Department.update({ sortOrder: o.sortOrder }, { where: { id: o.id } })));
+        await Promise.all(orders.map(o => Department.update(
+            { sortOrder: o.sortOrder, ...(o.orgName ? { orgName: o.orgName } : {}) },
+            { where: { id: o.id } }
+        )));
         res.json({ success: true });
     } catch (err) {
         res.status(500).json({ error: err.message });

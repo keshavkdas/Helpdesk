@@ -1082,6 +1082,10 @@ export default function HelpDesk() {
       return "dashboard";
     }
   });
+
+  const mainContentRef = useRef(null);
+  const switchView = (v) => { setView(v); setTimeout(() => mainContentRef.current?.scrollTo(0, 0), 0); };
+
   const [settingsTab, setSettingsTab] = useState("ticketviews");
   const [activeQuickFilters, setActiveQuickFilters] = useState([]);
   const [showQuickFilterDD, setShowQuickFilterDD] = useState(false);
@@ -1153,7 +1157,9 @@ export default function HelpDesk() {
 
   const [ticketsExpanded, setTicketsExpanded] = useState(false);
 
-
+  useEffect(() => {
+    mainContentRef.current?.scrollTo(0, 0);
+  }, [tvFilter]);
   // ✅ NEW: Save current view and filters to localStorage
   useEffect(() => {
     try {
@@ -1374,8 +1380,9 @@ export default function HelpDesk() {
   const [showAdminForwardApprovals, setShowAdminForwardApprovals] = useState(false);  // Admin approval modal
 
   // ✅ NEW: Timeline View
-  const [showTimelineView, setShowTimelineView] = useState(false);  // Show full timeline in modal
-  const [timelineTab, setTimelineTab] = useState("external");       // "internal" | "external"
+  const [showTimelineView, setShowTimelineView] = useState(false);
+  const [timelineTab, setTimelineTab] = useState("external");
+  const [showProjTimelineView, setShowProjTimelineView] = useState(false);
   const [commentVisibility, setCommentVisibility] = useState("external"); // "internal" | "external"
 
   // ── Notification Center ──
@@ -1480,10 +1487,10 @@ export default function HelpDesk() {
   const [selectedTickets, setSelectedTickets] = useState(new Set());
   const [ticketsPerPage, setTicketsPerPage] = useState(10);
   const [sortOrder, setSortOrder] = useState("desc"); // "desc" = newest first, "asc" = oldest first
-  const ALL_TICKET_COLS = ["id","summary","org","department","vendor","reportedBy","assignees","priority","category","status","created"];
+  const ALL_TICKET_COLS = ["id","created","summary","org","department","vendor","reportedBy","assignees","priority","category","status"];
   const [visibleTicketCols, setVisibleTicketCols] = useState(new Set(ALL_TICKET_COLS));
   const [showTicketColPicker, setShowTicketColPicker] = useState(false);
-  const ALL_PROJ_COLS = ["id","title","org","department","assignees","priority","category","status","progress","dueDate"];
+  const ALL_PROJ_COLS = ["id","created","title","org","department","assignees","priority","category","status","progress","dueDate"];
   const [visibleProjCols, setVisibleProjCols] = useState(new Set(ALL_PROJ_COLS));
   const [showProjColPicker, setShowProjColPicker] = useState(false);
   const [ticketColDDPos, setTicketColDDPos] = useState({ top: 0, right: 0 });
@@ -1496,23 +1503,31 @@ export default function HelpDesk() {
   const projColPickerRef = useRef(null);
 
   useEffect(() => {
-      if (!showTicketColPicker) return;
-      const handler = () => setShowTicketColPicker(false);
-      window.addEventListener("scroll", handler, true);
-      window.addEventListener("mousedown", handler, true);
-      return () => {
-        window.removeEventListener("scroll", handler, true);
-        window.removeEventListener("mousedown", handler, true);
-      };
-    }, [showTicketColPicker]);
+    if (!showTicketColPicker) return;
+    const handler = (e) => {
+      if (ticketColBtnRef.current?.contains(e.target)) return;
+      if (e.target.closest('[data-col-picker="ticket"]')) return;
+      setShowTicketColPicker(false);
+    };
+    window.addEventListener("scroll", () => setShowTicketColPicker(false), true);
+    window.addEventListener("mousedown", handler, true);
+    return () => {
+      window.removeEventListener("scroll", () => setShowTicketColPicker(false), true);
+      window.removeEventListener("mousedown", handler, true);
+    };
+  }, [showTicketColPicker]);
 
     useEffect(() => {
       if (!showProjColPicker) return;
-      const handler = () => setShowProjColPicker(false);
-      window.addEventListener("scroll", handler, true);
+      const handler = (e) => {
+        if (projColBtnRef.current?.contains(e.target)) return;
+        if (e.target.closest('[data-col-picker="proj"]')) return;
+        setShowProjColPicker(false);
+      };
+      window.addEventListener("scroll", () => setShowProjColPicker(false), true);
       window.addEventListener("mousedown", handler, true);
       return () => {
-        window.removeEventListener("scroll", handler, true);
+        window.removeEventListener("scroll", () => setShowProjColPicker(false), true);
         window.removeEventListener("mousedown", handler, true);
       };
   }, [showProjColPicker]);
@@ -1743,7 +1758,7 @@ export default function HelpDesk() {
           return;
         }
 
-        if (!user.active) {
+        if (!user.active && !user.forceLogout) {
           clearSession();
           setCurrentUser(null);
           setAuthForm({ email: "", password: "", firstName: "", middleName: "", lastName: "", countryCode: "+1", phone: "", confirm: "" });
@@ -1759,12 +1774,27 @@ export default function HelpDesk() {
         }
 
         if (user.forceLogout) {
+          try {
+            await axios.put(`${USERS_API}/${user.id}`, { forceLogout: false, _isSystemUpdate: true });
+          } catch (_) {}
           clearSession();
           setCurrentUser(null);
           setAuthForm({ email: "", password: "", firstName: "", middleName: "", lastName: "", countryCode: "+1", phone: "", confirm: "" });
           setCustomAlert({ show: true, message: "🚪 You have been logged out by an administrator.", type: "error" });
           return;
         }
+        if (
+          (currentUser.status === "On Duty" || currentUser.status === "On Ticket" || currentUser.status === "On Lunch" || currentUser.status === "Idle") &&
+          (user.status === "Off Duty" || user.status === "On Ticket") &&
+          user.status !== currentUser.status
+        ) {
+          clearSession();
+          setCurrentUser(null);
+          setAuthForm({ email: "", password: "", firstName: "", middleName: "", lastName: "", countryCode: "+1", phone: "", confirm: "" });
+          setCustomAlert({ show: true, message: "🚪 You have been logged out by an administrator.", type: "error" });
+          return;
+        }
+
       } catch (e) {
         console.error("Failed to check user status:", e);
       }
@@ -3187,8 +3217,14 @@ export default function HelpDesk() {
       message: "Are you sure you want to delete this organization? All associated data will be permanently removed. This action cannot be undone.",
       onConfirm: async () => {
         try {
+          const orgToDelete = orgs.find(o => o.id === id);
+          const deptsToDelete = orgToDelete ? departments.filter(d => d.orgName === orgToDelete.name) : [];
+          for (const dept of deptsToDelete) {
+            await axios.delete(`${BASE_URL}/departments/${dept.id}`);
+          }
           await axios.delete(`${ORGS_API}/${id}`);
           setOrgs(prev => prev.filter(o => o.id !== id));
+          if (orgToDelete) setDepartments(prev => prev.filter(d => d.orgName !== orgToDelete.name));
           setCustomAlert({ show: true, message: "Organization deleted successfully", type: "success" });
           setConfirmModal({ show: false, title: "", message: "", onConfirm: null, onCancel: null });
         } catch (err) {
@@ -3426,13 +3462,12 @@ export default function HelpDesk() {
 
     const newP = {
       ...projForm,
-      // ✅ Don't send ID - server will generate PRJ-1001, PRJ-1002, etc.
-      // ✅ Don't send created/updated - Sequelize timestamps handle these
       status: projForm.status || "Open",
       dueDate: projForm.dueDate || null,
       comments: [],
       progress: projForm.progress || 0,
-      tasks: projForm.tasks || []
+      tasks: projForm.tasks || [],
+      timeline: [{ action: "Created", by: currentUser.name, date: new Date().toISOString(), note: "Project opened." }]
     };
 
     // ✅ NEW: If webcast, create separate entry and send to /api/webcasts
@@ -3492,14 +3527,28 @@ export default function HelpDesk() {
     }
   };
   const addProjCC = () => { if (projCcInput && !projForm.cc.includes(projCcInput)) { setProjForm({ ...projForm, cc: [...projForm.cc, projCcInput] }); setProjCcInput(""); } };
-  const updateProjectStatus = async (id, status) => {
+  const updateProjectStatus = async (id, status, closedByName) => {
     const p = projects.find(x => x.id === id); if (!p) return;
-    try {
+    if (status === "Closed" && !closedByName) {
+      setConfirmModal({
+        show: true, title: "Close Project", message: "Who is closing this project?",
+        fields: [{ name: "closedBy", label: "Closed By", type: "select", options: [...users].sort((a,b) => a.name.localeCompare(b.name)).map(u => ({ value: u.name, label: `${u.name} (${u.role})` })) }],
+        confirmLabel: "Close Project", confirmDanger: false,
+        onConfirm: async (data) => {
+          setConfirmModal({ show: false });
+          await updateProjectStatus(id, "Closed", data.closedBy || currentUser.name);
+        },
+        onCancel: () => setConfirmModal({ show: false })
+      });
+      return;
+    }
+     try {
       const nowISO = new Date().toISOString();
-      const updated = { ...p, status, updated: nowISO };
+      const timelineEvent = { action: `Status changed to ${status}`, by: currentUser.name, date: nowISO, note: status === "Closed" ? `Closed by: ${closedByName}` : "" };
+      const updated = { ...p, status, updated: nowISO, ...(status === "Closed" ? { closedBy: closedByName } : {}), timeline: [...(p.timeline || []), timelineEvent] };
       await axios.put(`${PROJECTS_API}/${id}`, updated);
       setProjects(prev => prev.map(x => x.id === id ? { ...updated, updated: new Date(nowISO) } : x));
-      if (selProject?.id === id) setSelProject(s => ({ ...s, status, updated: new Date(nowISO) }));
+      if (selProject?.id === id) setSelProject(s => ({ ...updated, updated: new Date(nowISO) }));
     } catch (e) { setCustomAlert({ show: true, message: "Failed to update project status", type: "error" }); }
   };
 
@@ -3818,9 +3867,9 @@ export default function HelpDesk() {
 
       const { canLogout, requiresReason, currentStatus } = checkRes.data;
 
-      // ✅ ENHANCED: Off Duty status goes straight to logout
-      // User is already Off Duty, no need for dialog
-      if (currentStatus === "Off Duty") {
+      // Off Duty or Idle: go straight to logout (no dialog needed)
+      if (currentStatus === "Off Duty" || currentStatus === "Idle") {
+        await axios.put(`${USERS_API}/${currentUser.id}`, { status: "Off Duty", idleAt: null, _isSystemUpdate: true });
         clearSession();
         setCurrentUser(null);
         setProfileOpen(false);
@@ -4154,49 +4203,32 @@ export default function HelpDesk() {
   useEffect(() => {
     const interval = setInterval(async () => {
       const u = currentUserRef.current;
-      if (!u || u.status !== "On Duty" || u.role === "Admin" || u.role === "Manager") return;
+      if (!u || u.role === "Admin" || u.role === "Manager") return;
+
       const loginTime = u.loginTime ? new Date(u.loginTime) : null;
       if (!loginTime) return;
       const minutesElapsed = (new Date() - loginTime) / 60000;
-      if (minutesElapsed >= 15) {
-        const up = { ...u, status: "Idle", idleAt: new Date().toISOString() };
+
+      // Step 1: Set Idle after 15 min of On Duty — only once
+      if (u.status === "On Duty" && minutesElapsed >= 1) {
+        const idleUp = { ...u, status: "Idle", idleAt: new Date().toISOString(), _isSystemUpdate: true };
         try {
-          await axios.put(`${USERS_API}/${u.id}`, up);
-          saveSession(up);
-          setCurrentUser(up);
-          setUsers(prev => prev.map(x => x.id === u.id ? up : x));
-        } catch (e) { console.error("Failed to set Idle", e); }
+          await axios.put(`${USERS_API}/${u.id}`, idleUp);
+          saveSession(idleUp);
+          setCurrentUser(idleUp);
+          setUsers(prev => prev.map(x => x.id === u.id ? idleUp : x));
+          // Immediately auto-logout but keep status as Idle — admin/manager will set Off Duty later
+          await axios.put(`${USERS_API}/${u.id}`, { forceLogout: true, _isSystemUpdate: true });
+          clearSession();
+          setCurrentUser(null);
+          setCustomAlert({ show: true, message: "You have been logged out due to inactivity.", type: "error" });
+        } catch (e) { console.error("Failed to set Idle / auto-logout", e); }
+        return;
       }
     }, 30000);
     return () => clearInterval(interval);
   }, []);
 
- /*  // Auto-logout Idle agents after 15 min (admin/manager poll)
-  useEffect(() => {
-    if (!currentUser) return;
-    if (currentUser.role !== "Admin" && currentUser.role !== "Manager") return;
-    const interval = setInterval(async () => {
-    const idleUsers = users.filter(u => u.status === "Idle");
-    for (const u of idleUsers) {
-      try {
-        // deactivate — agent's poll sees active=false and logs them out
-        await axios.put(`${USERS_API}/${u.id}`, { ...u, active: false, status: "Off Duty", logoutReason: "Auto-logout: idle timeout", lunchStatus: false, currentTicketId: null });
-        setUsers(prev => prev.map(x => x.id === u.id ? { ...x, active: false, status: "Off Duty" } : x));
-        // reactivate after 6s so account stays usable
-        setTimeout(async () => {
-          try {
-            await axios.put(`${USERS_API}/${u.id}`, { ...u, active: true, status: "Off Duty", logoutReason: "Auto-logout: idle timeout", lunchStatus: false, currentTicketId: null });
-            setUsers(prev => prev.map(x => x.id === u.id ? { ...x, active: true, status: "Off Duty" } : x));
-          } catch (_) {}
-        }, 6000);
-      } catch (e) { console.error("Failed to auto-logout idle agent", e); }
-    }
-  }, 60000);
-    return () => clearInterval(interval);
-  }, [currentUser, users]); */
-
-  // ✅ REMOVED: Idle detection useEffect - no longer auto-detecting
-  // Idle status is now only set when user manually updates status
 
   // ─── NAVIGATION HELPERS ────────────────────────────────────────────────────
 
@@ -4234,7 +4266,7 @@ export default function HelpDesk() {
             if (!ticket) ticket = tickets.find(t => t.id === notification.ticketId);
             if (ticket) {
               setSelTicket(ticket);
-              setView("tickets");
+              switchView("tickets");
             } else {
               setCustomAlert({ show: true, message: "Ticket not found", type: "error" });
             }
@@ -4255,7 +4287,7 @@ export default function HelpDesk() {
             }
             if (ticket) {
               setSelTicket(ticket);
-              setView("tickets");
+              switchView("tickets");
             } else {
               setCustomAlert({ show: true, message: "Ticket not found", type: "error" });
             }
@@ -4264,37 +4296,37 @@ export default function HelpDesk() {
 
         // ── PROJECT EVENTS ──
         case "project_created":
-          setView("projects");
+          switchView("projects");
           break;
 
         // ── SETTINGS EVENTS (Department, Category, Organization, Location, Vendor, User) ──
         case "dept_added":
-          setView("settings");
+          switchView("settings");
           setSettingsTab("departments");
           break;
 
         case "category_added":
-          setView("settings");
+          switchView("settings");
           setSettingsTab("categories");
           break;
 
         case "org_added":
-          setView("settings");
+          switchView("settings");
           setSettingsTab("organizations");
           break;
 
         case "location_added":
-          setView("settings");
+          switchView("settings");
           setSettingsTab("locations");
           break;
 
         case "vendor_added":
-          setView("settings");
+          switchView("settings");
           setSettingsTab("vendors");
           break;
 
         case "user_added":
-          setView("settings");
+          switchView("settings");
           setSettingsTab("users");
           break;
 
@@ -4397,9 +4429,8 @@ export default function HelpDesk() {
   const stabs = currentUser?.role === "Admin" ? [
     { id: "ticketviews", label: "Ticket Views", icon: "👁" },
     { id: "projectviews", label: "Project Views", icon: "📂" },
-    { id: "organisations", label: "Organisations", icon: "🏢" },
+    { id: "organisations", label: "Orgs & Departments", icon: "🏢" },
     { id: "categories", label: "Categories", icon: "🏷" },
-    { id: "departments", label: "Departments", icon: "🏛" },
     { id: "locations", label: "Locations", icon: "📍" },
     { id: "satsangtypes", label: "Satsang Types", icon: "📡" },
     { id: "vendors", label: "Vendors", icon: "🏭" },
@@ -4410,9 +4441,8 @@ export default function HelpDesk() {
   ] : currentUser?.role === "Manager" ? [
     { id: "ticketviews", label: "Ticket Views", icon: "👁" },
     { id: "projectviews", label: "Project Views", icon: "📂" },
-    { id: "organisations", label: "Organisations", icon: "🏢" },
+    { id: "organisations", label: "Orgs & Departments", icon: "🏢" },
     { id: "categories", label: "Categories", icon: "🏷" },
-    { id: "departments", label: "Departments", icon: "🏛" },
     { id: "locations", label: "Locations", icon: "📍" },
     { id: "satsangtypes", label: "Satsang Types", icon: "📡" },
     { id: "vendors", label: "Vendors", icon: "🏭" },
@@ -4433,8 +4463,8 @@ export default function HelpDesk() {
     return "Settings";
   };
 
-  const thStyle = { padding: "9px 11px", textAlign: "left", fontSize: 10, fontWeight: 600, color: "#64748b", textTransform: "uppercase", letterSpacing: "0.05em", borderBottom: "1px solid #f1f5f9", whiteSpace: "nowrap" };
-  const tdStyle = { padding: "10px 11px", borderBottom: "1px solid #f8fafc", fontSize: 13 };
+  const thStyle = { padding: "9px 11px", textAlign: "left", fontSize: 10, fontWeight: 600, color: "#64748b", textTransform: "uppercase", letterSpacing: "0.05em", borderBottom: "1px solid #94a3b8", border: "1px solid #94a3b8", whiteSpace: "nowrap", background: "#f8fafc" };
+  const tdStyle = { padding: "10px 11px", borderBottom: "1px solid #94a3b8", borderLeft: "1px solid #cbd5e1", borderRight: "1px solid #cbd5e1", fontSize: 13 };
 
   // Webcast fields shared component
   const WebcastFields = ({ f, setF, isProject = false }) => {
@@ -4838,7 +4868,7 @@ export default function HelpDesk() {
           {sideNav.map(n => (
             <React.Fragment key={n.id}>
               <button onClick={() => {
-                setView(n.id);
+                switchView(n.id);
                 if (n.id === "tickets") {
                   setTvFilter("all");
                   setTicketsExpanded(prev => !prev);
@@ -5087,7 +5117,7 @@ export default function HelpDesk() {
                     try {
                       const updates = { name: userEditModal.editName.trim(), email: userEditModal.editEmail.trim(), phone: userEditModal.editPhone?.trim() || userEditModal.user.phone };
                       if (userEditModal.editPassword) updates.password = userEditModal.editPassword;
-                      const updated = { ...userEditModal.user, ...updates };
+                      const updated = { ...userEditModal.user, ...updates, active: userEditModal.user.active, forceLogout: false };
                       await axios.put(`${USERS_API}/${userEditModal.user.id}`, updated);
                       setUsers(users.map(u => u.id === userEditModal.user.id ? updated : u));
                       setCustomAlert({ show: true, message: `✅ ${updates.name}'s details updated`, type: "success" });
@@ -5114,47 +5144,58 @@ export default function HelpDesk() {
 
             {/* ── Force Logout — only for On Duty agents (not Idle, not Off Duty, not self) ── */}
             {/* ── Force Logout — for any active/logged-in agent ── */}
-            {userEditModal.user.id !== currentUser?.id && (currentUser?.role === "Admin" || currentUser?.role === "Manager") && (userEditModal.user.status === "On Duty" || userEditModal.user.status === "On Ticket" || userEditModal.user.status === "Idle") && (
+              {userEditModal.user.id !== currentUser?.id && (currentUser?.role === "Admin" || currentUser?.role === "Manager") &&
+              ((userEditModal.user.role === "Agent" && userEditModal.user.status === "On Duty") ||
+              ((userEditModal.user.role === "Admin" || userEditModal.user.role === "Manager") && (userEditModal.user.status === "On Duty" || userEditModal.user.status === "On Lunch"))) && (
               <div style={{ marginBottom: 20, padding: "14px 16px", background: "#fff7ed", borderRadius: 10, border: "1px solid #fed7aa" }}>
                 <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
                   <div>
-                    <div style={{ fontSize: 13, fontWeight: 700, color: "#9a3412", marginBottom: 3 }}>🚪 Force Logout Agent</div>
-                    <div style={{ fontSize: 12, color: "#64748b" }}>Agent is currently <strong>{userEditModal.user.status}</strong>. They will be logged out immediately.</div>
+                    <div style={{ fontSize: 13, fontWeight: 700, color: "#9a3412", marginBottom: 3 }}>🚪 Force Logout</div>
+                    <div style={{ fontSize: 12, color: "#64748b" }}>Currently <strong>{userEditModal.user.status}</strong>. They will be logged out and set to Off Duty.</div>
                   </div>
                   <button
                     onClick={() => {
                       const agentUser = userEditModal.user;
-                      const agentTickets = (Array.isArray(tickets) ? tickets : [])
+                      const canBeOnTicket = agentUser.role === "Agent" || agentUser.role === "Admin" || agentUser.role === "Manager";
+                      const agentTickets = canBeOnTicket ? (Array.isArray(tickets) ? tickets : [])
                         .filter(t => (t.status === "Open" || t.status === "In Progress") && t.assignees?.some(a => String(a.id) === String(agentUser.id)))
-                        .map(t => ({ value: t.id, label: `${t.id} — ${t.summary}` }));
+                        .map(t => ({ value: t.id, label: `${t.id} — ${t.summary}` })) : [];
+                      const fields = [
+                        { name: "logoutReason", label: "📝 Reason for logout", type: "select", options: [{ value: "End of shift", label: "End of shift" }, { value: "Going for ticket", label: "Going for ticket" }, { value: "Going for lunch", label: "Going for lunch" }], value: "", required: true },
+                        { name: "ticketId", label: "🎫 Select Ticket", type: "searchable-select", options: agentTickets, value: "", required: false },
+                        { name: "location", label: "📍 Location", type: "select", options: locations.map(loc => ({ value: loc.name, label: loc.name })), value: agentUser.currentLocation || "", required: false }
+                      ];
                       setUserEditModal({ show: false, user: null, newRole: null, editName: "", editEmail: "", editPhone: "", editPassword: "" });
                       setConfirmModal({
                         show: true,
                         title: `Force Logout: ${agentUser.name}`,
-                        confirmLabel: "Mark Off Duty & Logout",
-                        message: `Agent is On Duty. Set ${agentUser.name} as Off Duty and log them out.`,
-                        fields: [
-                          { name: "logoutReason", label: "📝 Reason for logout", type: "select", options: [{ value: "End of shift", label: "End of shift" }, { value: "Going for ticket", label: "Going for ticket" }, { value: "Going for lunch", label: "Going for lunch" }], value: "", required: true },
-                          { name: "ticketId", label: "🎫 Select Ticket", type: "searchable-select", options: agentTickets, value: "", required: false },
-                          { name: "location", label: "📍 Location", type: "select", options: locations.map(loc => ({ value: loc.name, label: loc.name })), value: agentUser.currentLocation || "", required: false }
-                        ],
+                        confirmLabel: "Force Logout & Set Off Duty",
+                        message: `Set ${agentUser.name} as Off Duty and log them out.`,
+                        fields,
                         onConfirm: async (data) => {
                           try {
                             if (!data.logoutReason || data.logoutReason.trim() === "") {
                               setCustomAlert({ show: true, message: "Please provide a reason for logout", type: "error" }); return;
                             }
                             const isGoingForTicket = data.logoutReason === "Going for ticket";
-                            const finalStatus = isGoingForTicket ? "On Ticket" : "Off Duty";
-                            const finalTicketId = isGoingForTicket ? (data.ticketId || "field") : null;
-                            const finalLocation = data.location || agentUser.currentLocation;
-                            await axios.put(`${USERS_API}/${agentUser.id}`, { ...agentUser, active: false, status: finalStatus, logoutReason: data.logoutReason, lunchStatus: false, currentTicketId: finalTicketId, currentLocation: finalLocation });
-                            setUsers(users.map(u => u.id === agentUser.id ? { ...u, active: false, status: finalStatus } : u));
-                            setTimeout(async () => {
-                              try {
-                                await axios.put(`${USERS_API}/${agentUser.id}`, { ...agentUser, active: true, status: finalStatus, logoutReason: data.logoutReason, lunchStatus: false, currentTicketId: finalTicketId, currentLocation: finalLocation });
-                                setUsers(prev => prev.map(u => u.id === agentUser.id ? { ...u, active: true, status: finalStatus } : u));
-                              } catch (_) {}
-                            }, 6000);
+                            if (isGoingForTicket && (!data.ticketId || data.ticketId.trim() === "")) {
+                              setCustomAlert({ show: true, message: "Please select a ticket", type: "error" }); return;
+                            }
+                            if (isGoingForTicket && (!data.location || data.location.trim() === "")) {
+                              setCustomAlert({ show: true, message: "Please select a location", type: "error" }); return;
+                            }
+                            const isGoingForLunch = data.logoutReason === "Going for lunch";
+                            const finalStatus = isGoingForTicket ? "On Ticket" : isGoingForLunch ? "On Lunch" : "Off Duty";
+                            const finalTicketId = isGoingForTicket ? data.ticketId : null;
+                            const finalLocation = isGoingForTicket ? data.location : (agentUser.currentLocation || null);
+                            // If agent is already On Ticket, they are already logged out — just update status, no session logout needed
+                            if (agentUser.status === "On Ticket") {
+                              await axios.put(`${USERS_API}/${agentUser.id}`, { logoutReason: data.logoutReason, status: "Off Duty", currentTicketId: null, currentLocation: finalLocation, lunchStatus: false, forceLogout: false, _isSystemUpdate: true });
+                            } else {
+                              // Agent is On Duty/On Lunch/Idle — set forceLogout:true with final status in one atomic update
+                              await axios.put(`${USERS_API}/${agentUser.id}`, { logoutReason: data.logoutReason, status: finalStatus, currentTicketId: finalTicketId, currentLocation: finalLocation, forceLogout: true, lunchStatus: false, _isSystemUpdate: true });
+                            }
+                            setUsers(prev => prev.map(u => u.id === agentUser.id ? { ...u, forceLogout: true, status: finalStatus, currentTicketId: finalTicketId, currentLocation: finalLocation } : u));
                             setConfirmModal({ show: false });
                             setCustomAlert({ show: true, message: `✅ ${agentUser.name} has been logged out`, type: "success" });
                           } catch (err) { setCustomAlert({ show: true, message: "Failed to force logout agent", type: "error" }); }
@@ -5164,6 +5205,74 @@ export default function HelpDesk() {
                     }}
                     style={{ padding: "6px 12px", background: "#fff7ed", border: "1px solid #fed7aa", borderRadius: 6, color: "#c2410c", fontWeight: 600, cursor: "pointer", fontSize: 12, whiteSpace: "nowrap" }}
                   >Force Logout</button>
+                </div>
+              </div>
+            )}
+
+            {/* ── Set Off Duty for Idle agents ── */}
+            {userEditModal.user.id !== currentUser?.id && (currentUser?.role === "Admin" || currentUser?.role === "Manager") && userEditModal.user.status === "Idle" && (
+              <div style={{ marginBottom: 20, padding: "14px 16px", background: "#f0fdf4", borderRadius: 10, border: "1px solid #86efac" }}>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                  <div>
+                    <div style={{ fontSize: 13, fontWeight: 700, color: "#15803d", marginBottom: 3 }}>✅ Set Off Duty</div>
+                    <div style={{ fontSize: 12, color: "#64748b" }}>Agent is <strong>Idle</strong>. Mark them as Off Duty without a session logout.</div>
+                  </div>
+                  <button
+                    onClick={async () => {
+                      try {
+                        await axios.put(`${USERS_API}/${userEditModal.user.id}`, { status: "Off Duty", logoutReason: "Set Off Duty by admin", idleAt: null, _isSystemUpdate: true });
+                        setUsers(prev => prev.map(u => u.id === userEditModal.user.id ? { ...u, status: "Off Duty", idleAt: null } : u));
+                        setUserEditModal({ show: false, user: null, newRole: null, editName: "", editEmail: "", editPhone: "", editPassword: "" });
+                        setCustomAlert({ show: true, message: "✅ Agent set to Off Duty", type: "success" });
+                      } catch (err) { setCustomAlert({ show: true, message: "Failed to update status", type: "error" }); }
+                    }}
+                    style={{ padding: "6px 12px", background: "#f0fdf4", border: "1px solid #86efac", borderRadius: 6, color: "#15803d", fontWeight: 600, cursor: "pointer", fontSize: 12, whiteSpace: "nowrap" }}
+                  >Set Off Duty</button>
+                </div>
+              </div>
+            )}
+            {/* ── Set Off Duty for On Ticket agents (status only, no logout) ── */}
+            {userEditModal.user.id !== currentUser?.id && (currentUser?.role === "Admin" || currentUser?.role === "Manager") && userEditModal.user.status === "On Ticket" && (
+              <div style={{ marginBottom: 20, padding: "14px 16px", background: "#f0fdf4", borderRadius: 10, border: "1px solid #86efac" }}>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                  <div>
+                    <div style={{ fontSize: 13, fontWeight: 700, color: "#15803d", marginBottom: 3 }}>✅ Mark Off Duty</div>
+                    <div style={{ fontSize: 12, color: "#64748b" }}>Agent is <strong>On Ticket</strong>. Mark as Off Duty (status change only).</div>
+                  </div>
+                  <button
+                    onClick={async () => {
+                      try {
+                        await axios.put(`${USERS_API}/${userEditModal.user.id}`, { status: "Off Duty", logoutReason: "Set Off Duty by admin", currentTicketId: null, _isSystemUpdate: true });
+                        setUsers(prev => prev.map(u => u.id === userEditModal.user.id ? { ...u, status: "Off Duty", currentTicketId: null } : u));
+                        setUserEditModal({ show: false, user: null, newRole: null, editName: "", editEmail: "", editPhone: "", editPassword: "" });
+                        setCustomAlert({ show: true, message: "✅ Agent set to Off Duty", type: "success" });
+                      } catch (err) { setCustomAlert({ show: true, message: "Failed to update status", type: "error" }); }
+                    }}
+                    style={{ padding: "6px 12px", background: "#f0fdf4", border: "1px solid #86efac", borderRadius: 6, color: "#15803d", fontWeight: 600, cursor: "pointer", fontSize: 12, whiteSpace: "nowrap" }}
+                  >Mark Off Duty</button>
+                </div>
+              </div>
+            )}
+
+            {/* ── Set Off Duty for On Lunch agents (status only, no logout) ── */}
+            {userEditModal.user.id !== currentUser?.id && (currentUser?.role === "Admin" || currentUser?.role === "Manager") && userEditModal.user.status === "On Lunch" && (
+              <div style={{ marginBottom: 20, padding: "14px 16px", background: "#f0fdf4", borderRadius: 10, border: "1px solid #86efac" }}>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                  <div>
+                    <div style={{ fontSize: 13, fontWeight: 700, color: "#15803d", marginBottom: 3 }}>✅ Set Off Duty</div>
+                    <div style={{ fontSize: 12, color: "#64748b" }}>Agent is <strong>On Lunch</strong>. Mark as Off Duty (status change only).</div>
+                  </div>
+                  <button
+                    onClick={async () => {
+                      try {
+                        await axios.put(`${USERS_API}/${userEditModal.user.id}`, { status: "Off Duty", logoutReason: "Set Off Duty by admin", lunchStatus: false, _isSystemUpdate: true });
+                        setUsers(prev => prev.map(u => u.id === userEditModal.user.id ? { ...u, status: "Off Duty", lunchStatus: false } : u));
+                        setUserEditModal({ show: false, user: null, newRole: null, editName: "", editEmail: "", editPhone: "", editPassword: "" });
+                        setCustomAlert({ show: true, message: "✅ Agent set to Off Duty", type: "success" });
+                      } catch (err) { setCustomAlert({ show: true, message: "Failed to update status", type: "error" }); }
+                    }}
+                    style={{ padding: "6px 12px", background: "#f0fdf4", border: "1px solid #86efac", borderRadius: 6, color: "#15803d", fontWeight: 600, cursor: "pointer", fontSize: 12, whiteSpace: "nowrap" }}
+                  >Set Off Duty</button>
                 </div>
               </div>
             )}
@@ -5437,7 +5546,7 @@ export default function HelpDesk() {
                       ))}
                     </div>
                     <div style={{ padding: "10px 16px", borderTop: "1px solid #f1f5f9" }}>
-                      <button onClick={() => { setView("tickets"); setTvFilter("alerts"); setShowBellPanel(false); }} style={{ width: "100%", padding: "7px", borderRadius: 8, border: "none", background: "#f8fafc", color: "#3b82f6", fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: "'DM Sans',sans-serif" }}>View All Alerts →</button>
+                      <button onClick={() => { switchView("tickets"); setTvFilter("alerts"); setShowBellPanel(false); }} style={{ width: "100%", padding: "7px", borderRadius: 8, border: "none", background: "#f8fafc", color: "#3b82f6", fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: "'DM Sans',sans-serif" }}>View All Alerts →</button>
                     </div>
                   </div>
                 </>}
@@ -5484,7 +5593,7 @@ export default function HelpDesk() {
                       ))}
                     </div>
                     <div style={{ padding: "10px 16px", borderTop: "1px solid #f1f5f9" }}>
-                      <button onClick={() => { setView("tickets"); setTvFilter("alerts"); setShowInboxPanel(false); }} style={{ width: "100%", padding: "7px", borderRadius: 8, border: "none", background: "#f8fafc", color: "#3b82f6", fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: "'DM Sans',sans-serif" }}>View All Alerts →</button>
+                      <button onClick={() => { switchView("tickets"); setTvFilter("alerts"); setShowInboxPanel(false); }} style={{ width: "100%", padding: "7px", borderRadius: 8, border: "none", background: "#f8fafc", color: "#3b82f6", fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: "'DM Sans',sans-serif" }}>View All Alerts →</button>
                     </div>
                   </div>
                 </>}
@@ -5493,7 +5602,7 @@ export default function HelpDesk() {
           </div>
         </div>
 
-        <div style={{ flex: 1, padding: 20, overflow: "auto", position: "relative" }}>
+        <div ref={mainContentRef} style={{ flex: 1, padding: 20, overflow: "auto", position: "relative" }}>
           {/* ── DASHBOARD (v2 layout + SmartCharts) ── */}
           {view === "dashboard" && <>
             {/* Background Image with Clear Display for Dashboard */}
@@ -5515,12 +5624,12 @@ export default function HelpDesk() {
               </div>
               <div style={{ display: "grid", gridTemplateColumns: "repeat(6,1fr)", gap: 9, marginBottom: 20 }}>
                 {[
-                  { label: "Open", value: dashboardStats.open, bg: "#fef3c7", accent: "#f59e0b", icon: "📬", action: () => { setView("tickets"); setTvFilter("open"); setStatusF("All"); setPriorityF("All"); } },
-                  ...((currentUser?.role === "Admin" || currentUser?.role === "Manager") ? [{ label: "Unassigned", value: dashboardData.filter(t => (!t.assignees || t.assignees.length === 0) && t.status !== "Closed" && t.status !== "Bin").length, bg: "#f3e8ff", accent: "#a855f7", icon: "🔸", action: () => { setView("tickets"); setTvFilter("unassigned"); } }] : []),
-                  { label: "In Progress", value: dashboardStats.inProgress, bg: "#ede9fe", accent: "#6366f1", icon: "⚙️",  action: () => { setView("tickets"); setTvFilter("inprogress"); setStatusF("All"); setPriorityF("All"); } },
-                  { label: "Critical", value: dashboardStats.critical, bg: "#fee2e2", accent: "#ef4444", icon: "🔥", action: () => { setView("tickets"); setTvFilter("all"); setStatusF("All"); setPriorityF("Critical"); } },
-                  { label: "Closed", value: dashboardStats.closed, bg: "#dcfce7", accent: "#22c55e", icon: "✅", action: () => { setView("tickets"); setTvFilter("closed"); setStatusF("All"); setPriorityF("All"); } },
-                  { label: "Total", value: dashboardStats.total, bg: "#dbeafe", accent: "#3b82f6", icon: "🎫", action: () => { setView("tickets"); setTvFilter("all"); setStatusF("All"); setPriorityF("All"); } },
+                  { label: "Open", value: dashboardStats.open, bg: "#fef3c7", accent: "#f59e0b", icon: "📬", action: () => { switchView("tickets"); setTvFilter("open"); setStatusF("All"); setPriorityF("All"); } },
+                  ...((currentUser?.role === "Admin" || currentUser?.role === "Manager") ? [{ label: "Unassigned", value: dashboardData.filter(t => (!t.assignees || t.assignees.length === 0) && t.status !== "Closed" && t.status !== "Bin").length, bg: "#f3e8ff", accent: "#a855f7", icon: "🔸", action: () => { switchView("tickets"); setTvFilter("unassigned"); } }] : []),
+                  { label: "In Progress", value: dashboardStats.inProgress, bg: "#ede9fe", accent: "#6366f1", icon: "⚙️",  action: () => { switchView("tickets"); setTvFilter("inprogress"); setStatusF("All"); setPriorityF("All"); } },
+                  { label: "Critical", value: dashboardStats.critical, bg: "#fee2e2", accent: "#ef4444", icon: "🔥", action: () => { switchView("tickets"); setTvFilter("all"); setStatusF("All"); setPriorityF("Critical"); } },
+                  { label: "Closed", value: dashboardStats.closed, bg: "#dcfce7", accent: "#22c55e", icon: "✅", action: () => { switchView("tickets"); setTvFilter("closed"); setStatusF("All"); setPriorityF("All"); } },
+                  { label: "Total", value: dashboardStats.total, bg: "#dbeafe", accent: "#3b82f6", icon: "🎫", action: () => { switchView("tickets"); setTvFilter("all"); setStatusF("All"); setPriorityF("All"); } },
                 ].map(s => (
                   <div key={s.label} onClick={s.action} style={{ background: s.bg, borderRadius: 12, padding: "16px 16px", boxShadow: "0 2px 6px rgba(0,0,0,0.1)", borderLeft: `5px solid ${s.accent}`, cursor: "pointer", transition: "all 0.2s ease" }}
                     onMouseEnter={e => { e.currentTarget.style.boxShadow = "0 6px 20px rgba(0,0,0,0.15)"; e.currentTarget.style.transform = "translateY(-2px)"; }}
@@ -5662,7 +5771,7 @@ export default function HelpDesk() {
                   <button ref={ticketColBtnRef} onClick={() => { const r = ticketColBtnRef.current?.getBoundingClientRect(); if (r) setTicketColDDPos({ top: r.bottom + 4, right: window.innerWidth - r.right }); setShowTicketColPicker(v => !v); }} style={{ ...bG, padding: "5px 11px", fontSize: 12 }}>⚙ Columns</button>
                   {showTicketColPicker && <>
                     <div style={{ position: "fixed", inset: 0, zIndex: 499, pointerEvents: "none" }} onClick={() => setShowTicketColPicker(false)} />                    
-                      <div style={{ position: "fixed", top: ticketColDDPos.top, right: ticketColDDPos.right, background: "#fff", border: "1.5px solid #e2e8f0", borderRadius: 10, boxShadow: "0 8px 28px rgba(0,0,0,0.13)", zIndex: 500, padding: 10, minWidth: 180, maxHeight: "60vh", overflowY: "auto" }}>
+                      <div data-col-picker="ticket" style={{ position: "fixed", top: ticketColDDPos.top, right: ticketColDDPos.right, background: "#fff", border: "1.5px solid #e2e8f0", borderRadius: 10, boxShadow: "0 8px 28px rgba(0,0,0,0.13)", zIndex: 500, padding: 10, minWidth: 180, maxHeight: "60vh", overflowY: "auto" }}>
                       <div style={{ fontSize: 11, fontWeight: 700, color: "#64748b", textTransform: "uppercase", marginBottom: 7 }}>Show / Hide Columns</div>
                       {ALL_TICKET_COLS.map(col => (
                         <label key={col} style={{ display: "flex", alignItems: "center", gap: 8, padding: "5px 4px", cursor: "pointer", fontSize: 13 }}>
@@ -5813,6 +5922,7 @@ export default function HelpDesk() {
                     );
                   })()}
                   {visibleTicketCols.has("id") && <FilterableHeader label="ID" field="id" data={filtered} filters={ticketSort} onFilter={setTicketSort} style={thStyle} />}
+                  {visibleTicketCols.has("created") && <FilterableHeader label="Created" field="created" data={filtered} filters={ticketSort} onFilter={setTicketSort} style={thStyle} />}
                   {visibleTicketCols.has("summary") && <FilterableHeader label="Summary" field="summary" data={filtered} filters={ticketSort} onFilter={setTicketSort} style={thStyle} />}
                   {visibleTicketCols.has("org") && <FilterableHeader label="Org" field="org" data={filtered} filters={ticketSort} onFilter={setTicketSort} style={thStyle} />}
                   {visibleTicketCols.has("department") && <FilterableHeader label="Dept" field="department" data={filtered} filters={ticketSort} onFilter={setTicketSort} style={thStyle} />}
@@ -5822,7 +5932,6 @@ export default function HelpDesk() {
                   {visibleTicketCols.has("priority") && <FilterableHeader label="Priority" field="priority" data={filtered} filters={ticketSort} onFilter={setTicketSort} style={thStyle} />}
                   {visibleTicketCols.has("category") && <FilterableHeader label="Category" field="category" data={filtered} filters={ticketSort} onFilter={setTicketSort} style={thStyle} />}
                   {visibleTicketCols.has("status") && <FilterableHeader label="Status" field="status" data={filtered} filters={ticketSort} onFilter={setTicketSort} style={thStyle} />}
-                  {visibleTicketCols.has("created") && <FilterableHeader label="Created" field="created" data={filtered} filters={ticketSort} onFilter={setTicketSort} style={thStyle} />}
                   <th style={thStyle}>Action</th>
                 </tr></thead>
                 <tbody>{currentTickets.map(t => (
@@ -5832,6 +5941,7 @@ export default function HelpDesk() {
                       <td style={tdStyle} onClick={e => e.stopPropagation()}><input type="checkbox" checked={selectedIds.has(t.id)} onChange={() => toggleSel(t.id)} style={{ cursor: "pointer" }} /></td>
                     )}
                     {visibleTicketCols.has("id") && <td style={tdStyle} onClick={() => setSelTicket(t)}><span style={{ fontFamily: "'DM Mono',monospace", fontSize: 11.5, color: "#3b82f6", fontWeight: 500 }}>{t.id}</span>{t.category === "Webcast" && <span style={{ marginLeft: 5, fontSize: 10, background: "#fff7ed", color: "#f97316", padding: "1px 5px", borderRadius: 4, fontWeight: 600 }}>📡</span>}</td>}
+                    {visibleTicketCols.has("created") && <td style={tdStyle} onClick={() => setSelTicket(t)}><span style={{ fontSize: 11, color: "#94a3b8" }}>{t.created ? new Date(String(t.created)).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' }) : "—"}</span></td>}
                     {visibleTicketCols.has("summary") && <td style={{ ...tdStyle, maxWidth: 180 }} onClick={() => setSelTicket(t)}><div style={{ fontWeight: 500, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{t.summary}</div></td>}
                     {visibleTicketCols.has("org") && <td style={tdStyle} onClick={() => setSelTicket(t)}><div style={{ fontSize: 12, fontWeight: 500 }}>{t.org}</div></td>}
                     {visibleTicketCols.has("department") && <td style={tdStyle} onClick={() => setSelTicket(t)}><div style={{ fontSize: 12, color: "#64748b" }}>{t.department || "—"}</div></td>}
@@ -5851,7 +5961,6 @@ export default function HelpDesk() {
                     {visibleTicketCols.has("priority") && <td style={tdStyle} onClick={() => setSelTicket(t)}><div style={{ display: "flex", alignItems: "center", gap: 4 }}><span style={{ width: 7, height: 7, borderRadius: "50%", background: PRIORITY_COLOR[t.priority], display: "inline-block" }} /><span style={{ fontSize: 12 }}>{t.priority}</span></div></td>}
                     {visibleTicketCols.has("category") && <td style={tdStyle} onClick={() => setSelTicket(t)}><span style={{ fontSize: 12, color: "#64748b" }}>{t.category || "—"}</span></td>}
                     {visibleTicketCols.has("status") && <td style={tdStyle} onClick={() => setSelTicket(t)}><Badge label={t.status} style={{ ...STATUS_COLOR[t.status] }} /></td>}
-                    {visibleTicketCols.has("created") && <td style={tdStyle} onClick={() => setSelTicket(t)}><span style={{ fontSize: 11, color: "#94a3b8" }}>{t.created ? new Date(String(t.created)).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' }) : "—"}</span></td>}
                     <td style={tdStyle} onClick={e => e.stopPropagation()}>
                       {t.status === "Closed" ? (
                         <button
@@ -5993,7 +6102,7 @@ export default function HelpDesk() {
                 <div style={{ position: "relative" }}>
                   <button ref={projColBtnRef} onClick={() => { const r = projColBtnRef.current?.getBoundingClientRect(); if (r) setProjColDDPos({ top: r.bottom + 4, right: window.innerWidth - r.right }); setShowProjColPicker(v => !v); }} style={{ ...bG, padding: "5px 11px", fontSize: 12 }}>⚙ Columns</button>
                   {showProjColPicker && <>
-                    <div style={{ position: "fixed", top: projColDDPos.top, right: projColDDPos.right, background: "#fff", border: "1.5px solid #e2e8f0", borderRadius: 10, boxShadow: "0 8px 28px rgba(0,0,0,0.13)", zIndex: 500, padding: 10, minWidth: 180, maxHeight: "60vh", overflowY: "auto" }}>
+                    <div data-col-picker="proj" style={{ position: "fixed", top: projColDDPos.top, right: projColDDPos.right, background: "#fff", border: "1.5px solid #e2e8f0", borderRadius: 10, boxShadow: "0 8px 28px rgba(0,0,0,0.13)", zIndex: 500, padding: 10, minWidth: 180, maxHeight: "60vh", overflowY: "auto" }}>
                       <div style={{ fontSize: 11, fontWeight: 700, color: "#64748b", textTransform: "uppercase", marginBottom: 7 }}>Show / Hide Columns</div>
                       {ALL_PROJ_COLS.map(col => (
                         <label key={col} style={{ display: "flex", alignItems: "center", gap: 8, padding: "5px 4px", cursor: "pointer", fontSize: 13 }}>
@@ -6008,9 +6117,10 @@ export default function HelpDesk() {
                 {(currentUser?.role === "Admin" || currentUser?.role === "Manager") && <button onClick={() => setShowNewProject(true)} style={{ ...bP, padding: "7px 13px", fontSize: 13, background: "linear-gradient(135deg,#8b5cf6,#6366f1)" }}>+ New Project</button>}
               </div>
             </div>
-            <div style={{ overflowX: "auto" }}>
+            <div style={{ overflowX: "auto", border: "1.5px solid #e2e8f0", borderRadius: 10, overflow: "hidden" }}>
               <table style={{ width: "100%", borderCollapse: "collapse" }}>
                 <thead><tr style={{ background: "#f8fafc" }}>
+                  <th style={thStyle}></th>
                   {visibleProjCols.has("id") && <FilterableHeader label="ID" field="id" data={filteredProjects} filters={projSort} onFilter={setProjSort} style={thStyle} />}
                   {visibleProjCols.has("title") && <FilterableHeader label="Title" field="title" data={filteredProjects} filters={projSort} onFilter={setProjSort} style={thStyle} />}
                   {visibleProjCols.has("org") && <FilterableHeader label="Org" field="org" data={filteredProjects} filters={projSort} onFilter={setProjSort} style={thStyle} />}
@@ -6065,7 +6175,7 @@ export default function HelpDesk() {
                           if (newStatus === "Bin") {
                             updateProjectStatus(p.id, "Bin");
                           } else if (newStatus === "Closed") {
-                            setConfirmModal({ show: true, title: "Close Project", message: "Who is closing this project?", fields: [{ name: "closedBy", label: "Closed By", type: "select", options: [...users].sort((a,b) => a.name.localeCompare(b.name)).map(u => ({ value: u.name, label: `${u.name} (${u.role})` })) }], confirmLabel: "Close Project", confirmDanger: false, onConfirm: async (data) => { const nowISO = new Date().toISOString(); const updated = { ...p, status: "Closed", closedBy: data.closedBy || currentUser.name, updated: nowISO, timeline: [...(p.timeline || []), { action: "Status changed to Closed", by: currentUser.name, date: nowISO, note: `Closed by: ${data.closedBy || currentUser.name}` }] }; try { await axios.put(`${PROJECTS_API}/${p.id}`, updated); setProjects(prev => prev.map(x => x.id === p.id ? { ...updated, updated: new Date(nowISO) } : x)); setCustomAlert({ show: true, message: "✅ Project closed!", type: "success" }); } catch(e) { setCustomAlert({ show: true, message: "Failed to close", type: "error" }); } setConfirmModal({ show: false }); }, onCancel: () => setConfirmModal({ show: false }) });
+                            updateProjectStatus(p.id, "Closed");
                           } else {
                             updateProjectStatus(p.id, newStatus);
                           }
@@ -6187,6 +6297,7 @@ export default function HelpDesk() {
               if (reportFilters.assignee) result = result.filter(r => (r.assignees || []).some(a => a.name?.toLowerCase().includes(reportFilters.assignee.toLowerCase())));
               if (reportFilters.dateFrom) result = result.filter(r => new Date(r.createdAt) >= new Date(reportFilters.dateFrom));
               if (reportFilters.dateTo) result = result.filter(r => new Date(r.createdAt) <= new Date(reportFilters.dateTo + "T23:59:59"));
+              if (reportFilters.org) result = result.filter(r => r.org === reportFilters.org);
               return result;
             };
 
@@ -6281,7 +6392,7 @@ export default function HelpDesk() {
                   {btn("＋ New Report", () => {
                     setReportPreview([]);
                     setReportName("");
-                    setReportFilters({ dataSource: "tickets", status: [], priority: [], category: [], assignee: "", dateFrom: "", dateTo: "", columns: ALL_COLUMNS.tickets.map(c => c.key) });
+                    setReportFilters({ dataSource: "tickets", status: [], priority: [], category: [], assignee: "", org: "", dateFrom: "", dateTo: "", columns: ALL_COLUMNS.tickets.map(c => c.key) });
                     setReportBuilderOpen(true);
                   })}
                 </div>
@@ -6329,7 +6440,7 @@ export default function HelpDesk() {
                       <div>
                         <label style={{ fontSize: 12, fontWeight: 600, color: "#475569", display: "block", marginBottom: 6 }}>DATA SOURCE</label>
                         <div style={{ display: "flex", gap: 8 }}>
-                          {["tickets", "projects"].map(s => chip(s.charAt(0).toUpperCase() + s.slice(1), reportFilters.dataSource === s, () => setReportFilters(f => ({ ...f, dataSource: s, status: [], priority: [], category: [], columns: ALL_COLUMNS[s].map(c => c.key) }))))}
+                          {["tickets", "projects"].map(s => chip(s.charAt(0).toUpperCase() + s.slice(1), reportFilters.dataSource === s, () => setReportFilters(f => ({ ...f, dataSource: s, status: [], priority: [], category: [], org: "", columns: ALL_COLUMNS[s].map(c => c.key) }))))}
                         </div>
                       </div>
                       {/* Date Range */}
@@ -6343,7 +6454,7 @@ export default function HelpDesk() {
                     </div>
 
                     {/* Filters Row */}
-                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 16, marginBottom: 20 }}>
+                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr 1fr", gap: 16, marginBottom: 20 }}>
                       <div>
                         <label style={{ fontSize: 12, fontWeight: 600, color: "#475569", display: "block", marginBottom: 6 }}>STATUS</label>
                         <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
@@ -6369,6 +6480,13 @@ export default function HelpDesk() {
                         <select value={reportFilters.assignee} onChange={e => setReportFilters(f => ({ ...f, assignee: e.target.value }))} style={{ width: "100%", padding: "7px 10px", border: "1px solid #e2e8f0", borderRadius: 7, fontSize: 13, background: "#fff", color: "#334155" }}>
                           <option value="">All Assignees</option>
                           {users.filter(u => u.active).map(u => <option key={u.id} value={u.name}>{u.name}</option>)}
+                        </select>
+                      </div>
+                      <div>
+                        <label style={{ fontSize: 12, fontWeight: 600, color: "#475569", display: "block", marginBottom: 6 }}>ORGANISATION</label>
+                        <select value={reportFilters.org} onChange={e => setReportFilters(f => ({ ...f, org: e.target.value }))} style={{ width: "100%", padding: "7px 10px", border: "1px solid #e2e8f0", borderRadius: 7, fontSize: 13, background: "#fff", color: "#334155" }}>
+                          <option value="">All Organisations</option>
+                          {orgs.map(o => <option key={o.id} value={o.name}>{o.name}</option>)}
                         </select>
                       </div>
                     </div>
@@ -6454,15 +6572,15 @@ export default function HelpDesk() {
               <div style={{ background: "#fff", borderRadius: 10, border: "1.5px solid #e2e8f0", overflow: "hidden" }}>
                 <table style={{ width: "100%", borderCollapse: "collapse" }}>
                   <thead>
-                    <tr style={{ background: "#f8fafc" }}>
-                      <th style={thStyle}>Agent</th>
-                      <th style={thStyle}>Role</th>
-                      <th style={thStyle}>Status</th>
-                      <th style={thStyle}>Email</th>
-                      <th style={thStyle}>Assigned</th>
-                      <th style={thStyle}>Closed</th>
-                      <th style={thStyle}>Open</th>
-                      <th style={thStyle}>Rate</th>
+                    <tr style={{ background: "#f8fafc", borderBottom: "2px solid #e2e8f0" }}>
+                      <th style={{ ...thStyle, borderRight: "1px solid #94a3b8" }}>Agent</th>
+                      <th style={{ ...thStyle, borderRight: "1px solid #94a3b8" }}>Role</th>
+                      <th style={{ ...thStyle, borderRight: "1px solid #94a3b8" }}>Status</th>
+                      <th style={{ ...thStyle, borderRight: "1px solid #94a3b8" }}>Email</th>
+                      <th style={{ ...thStyle, borderRight: "1px solid #94a3b8" }}>Assigned</th>
+                      <th style={{ ...thStyle, borderRight: "1px solid #94a3b8" }}>Closed</th>
+                      <th style={{ ...thStyle, borderRight: "1px solid #94a3b8" }}>Open</th>
+                      <th style={{ ...thStyle, borderRight: "1px solid #94a3b8" }}>Rate</th>
                       <th style={thStyle}>Actions</th>
                     </tr>
                   </thead>
@@ -6484,22 +6602,16 @@ export default function HelpDesk() {
                       const barColor = rate > 70 ? "#22c55e" : rate > 40 ? "#f59e0b" : "#ef4444";
                       const openCount = tickets.filter(t => t.assignees?.some(x => x.id === a.id) && (t.status === "Open" || t.status === "In Progress") && t.status !== "Bin").length;
                       return (
-                        <tr key={a.id} className="rh" style={{ background: "#fff" }}>
-                          <td style={tdStyle}><span style={{ fontSize: 13, fontWeight: 500, color: "#0f172a" }}>{a.name}</span></td>
-                          <td style={{ ...tdStyle, color: "#64748b", fontSize: 12 }}>{a.role}</td>
-                          <td style={{ ...tdStyle, fontSize: 12, color: statusStyle ? statusStyle.c : "#94a3b8" }}>{statusValue}</td>
-                          <td style={{ ...tdStyle, fontSize: 12, color: "#64748b" }}>{a.email}</td>
-                          <td style={{ ...tdStyle, textAlign: "center", fontSize: 13, color: "#334155" }}>{a.assigned}</td>
-                          <td style={{ ...tdStyle, textAlign: "center", fontSize: 13, color: "#334155" }}>{a.closed}</td>
-                          <td style={{ ...tdStyle, textAlign: "center", fontSize: 13, color: "#334155" }}>{openCount}</td>
-                          <td style={{ ...tdStyle, fontSize: 12, color: rate > 70 ? "#15803d" : rate > 40 ? "#b45309" : "#b91c1c" }}>{rate}%</td>
-                          <td style={tdStyle}>
-                            <div style={{ display: "flex", gap: 5 }}>
-                              <button onClick={() => setSelAgent(a)} style={{ padding: "4px 10px", background: "none", color: "#3b82f6", border: "1px solid #bfdbfe", borderRadius: 5, cursor: "pointer", fontSize: 11, fontWeight: 600 }}>View</button>
-                              {(currentUser?.role === "Admin" || currentUser?.role === "Manager") && (
-                                <button onClick={() => { setUserEditModal({ show: true, user: userInfo, newRole: userInfo?.role, editName: userInfo?.name || "", editEmail: userInfo?.email || "", editPhone: userInfo?.phone || "", editPassword: "" }); }} style={{ padding: "4px 10px", background: "none", color: "#64748b", border: "1px solid #e2e8f0", borderRadius: 5, cursor: "pointer", fontSize: 11, fontWeight: 600 }}>Edit</button>
-                              )}
-                            </div>
+                        <tr key={a.id} className="rh" style={{ background: "#fff", borderBottom: "1px solid #f1f5f9" }}>
+                            <td style={{ ...tdStyle, borderRight: "1px solid #94a3b8" }}><span style={{ fontSize: 13, fontWeight: 500, color: "#0f172a" }}>{a.name}</span></td>
+                            <td style={{ ...tdStyle, borderRight: "1px solid #94a3b8", color: "#64748b", fontSize: 12 }}>{a.role}</td>
+                            <td style={{ ...tdStyle, borderRight: "1px solid #94a3b8", fontSize: 12, color: statusStyle ? statusStyle.c : "#94a3b8" }}>{statusValue}</td>
+                            <td style={{ ...tdStyle, borderRight: "1px solid #94a3b8", fontSize: 12, color: "#64748b" }}>{a.email}</td>
+                            <td style={{ ...tdStyle, borderRight: "1px solid #94a3b8", textAlign: "center", fontSize: 13, color: "#334155" }}>{a.assigned}</td>
+                            <td style={{ ...tdStyle, borderRight: "1px solid #94a3b8", textAlign: "center", fontSize: 13, color: "#334155" }}>{a.closed}</td>
+                            <td style={{ ...tdStyle, borderRight: "1px solid #94a3b8", textAlign: "center", fontSize: 13, color: "#334155" }}>{openCount}</td>
+                            <td style={{ ...tdStyle, borderRight: "1px solid #94a3b8", fontSize: 12, color: rate > 70 ? "#15803d" : rate > 40 ? "#b45309" : "#b91c1c" }}>{rate}%</td>                          <td style={tdStyle}>
+                            <button onClick={() => setSelAgent(a)} style={{ padding: "4px 10px", background: "none", color: "#3b82f6", border: "1px solid #bfdbfe", borderRadius: 5, cursor: "pointer", fontSize: 11, fontWeight: 600 }}>View</button>
                           </td>
                         </tr>
                       );
@@ -6509,7 +6621,12 @@ export default function HelpDesk() {
               </div>
             </>
           ) : view === "users" && selAgent ? <div>
-            <button onClick={() => setSelAgent(null)} style={{ ...bG, padding: "7px 14px", marginBottom: 14, fontSize: 12 }}>← Back to Agents</button>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
+              <button onClick={() => setSelAgent(null)} style={{ ...bG, padding: "7px 14px", fontSize: 12 }}>← Back to Agents</button>
+              {(currentUser?.role === "Admin" || currentUser?.role === "Manager") && (() => { const userInfo = users.find(u => u.id === selAgent.id); return (
+                <button onClick={() => { setUserEditModal({ show: true, user: userInfo, newRole: userInfo?.role, editName: userInfo?.name || "", editEmail: userInfo?.email || "", editPhone: userInfo?.phone || "", editPassword: "" }); }} style={{ padding: "7px 16px", background: "#f1f5f9", color: "#374151", border: "1px solid #e2e8f0", borderRadius: 7, cursor: "pointer", fontSize: 12, fontWeight: 600 }}>✏️ Edit Agent</button>
+              ); })()}
+            </div>
             <div style={{ background: "#fff", borderRadius: 12, padding: 18, boxShadow: "0 1px 4px rgba(0,0,0,0.06)", marginBottom: 16 }}>
               <div style={{ display: "flex", alignItems: "flex-start", gap: 14, marginBottom: 16, justifyContent: "space-between" }}>
                 <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
@@ -6625,7 +6742,7 @@ export default function HelpDesk() {
                     return true;
                   }).map(t => {
                     return (
-                      <div key={t.id} onClick={() => { setSelTicket(t); setSelAgent(null); }} style={{ display: "flex", alignItems: "center", gap: 10, padding: "12px", borderRadius: 9, border: "1px solid #f1f5f9", cursor: "pointer", transition: "all 0.2s", background: "#fff" }}
+                      <div key={t.id} onClick={() => { setSelTicket(t); }} style={{ display: "flex", alignItems: "center", gap: 10, padding: "12px", borderRadius: 9, border: "1px solid #f1f5f9", cursor: "pointer", transition: "all 0.2s", background: "#fff" }}
                         onMouseEnter={e => { e.currentTarget.style.background = "#f8fafc"; e.currentTarget.style.borderColor = "#3b82f6"; e.currentTarget.style.transform = "translateX(4px)"; }}
                         onMouseLeave={e => { e.currentTarget.style.background = "#fff"; e.currentTarget.style.borderColor = "#f1f5f9"; e.currentTarget.style.transform = "translateX(0)"; }}>
                         <div style={{ flex: 1, minWidth: 0 }}>
@@ -6661,7 +6778,7 @@ export default function HelpDesk() {
                     <div style={{ fontSize: 20, width: 32, textAlign: "center" }}>{v.icon}</div>
                     <div style={{ flex: 1 }}><div style={{ fontSize: 13, fontWeight: 600 }}>{v.label}</div><div style={{ fontSize: 11, color: "#94a3b8" }}>{v.desc}</div></div>
                     <span style={{ fontSize: 11, color: "#64748b", background: "#f1f5f9", padding: "3px 9px", borderRadius: 99, fontWeight: 600 }}>{tickets.filter(t => v.filter(t, currentUser) && (currentUser?.role === "Admin" || currentUser?.role === "Manager" || t.reportedBy === currentUser?.name || (t.assignees || []).some(a => a.id === currentUser?.id))).length}</span>
-                    <button onClick={() => { setView("tickets"); setTvFilter(v.id); }} style={{ ...bP, padding: "5px 12px", fontSize: 12 }}>View</button>
+                    <button onClick={() => { switchView("tickets"); setTvFilter(v.id); }} style={{ ...bP, padding: "5px 12px", fontSize: 12 }}>View</button>
                   </div>
                 ))}
               </div>}
@@ -6672,204 +6789,160 @@ export default function HelpDesk() {
                   <div key={v.id} style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px 14px", borderRadius: 10, border: "1.5px solid #f1f5f9", marginBottom: 7, background: "#fafafa" }}>
                     <div style={{ fontSize: 20, width: 32, textAlign: "center" }}>{v.icon}</div>
                     <div style={{ flex: 1 }}><div style={{ fontSize: 13, fontWeight: 600 }}>{v.label}</div><div style={{ fontSize: 11, color: "#94a3b8" }}>{v.desc}</div></div>
-                    <span style={{ fontSize: 11, color: "#64748b", background: "#f1f5f9", padding: "3px 9px", borderRadius: 99, fontWeight: 600 }}>{projects.filter(p => v.filter(p, currentUser) && (currentUser?.role === "Admin" || currentUser?.role === "Manager" || (p.assignees || []).some(a => a.id === currentUser?.id))).length}</span>                    <button onClick={() => { setView("projects"); setPvFilter(v.id); }} style={{ ...bP, padding: "5px 12px", fontSize: 12, background: "linear-gradient(135deg,#8b5cf6,#6366f1)" }}>View</button>
+                    <span style={{ fontSize: 11, color: "#64748b", background: "#f1f5f9", padding: "3px 9px", borderRadius: 99, fontWeight: 600 }}>{projects.filter(p => v.filter(p, currentUser) && (currentUser?.role === "Admin" || currentUser?.role === "Manager" || (p.assignees || []).some(a => a.id === currentUser?.id))).length}</span>                    
+                    <button onClick={() => { switchView("projects"); setPvFilter(v.id); }} style={{ ...bP, padding: "5px 12px", fontSize: 12, background: "linear-gradient(135deg,#8b5cf6,#6366f1)" }}>View</button>
                   </div>
                 ))}
               </div>}
-              {settingsTab === "organisations" && <div style={{ background: "#fff", borderRadius: 12, padding: 22, boxShadow: "0 1px 4px rgba(0,0,0,0.06)" }}>
-                <h3 style={{ margin: "0 0 14px", fontSize: 15, fontWeight: 700 }}>Organisations ({orgs.length})</h3>
+              {(settingsTab === "organisations" || settingsTab === "departments") && <div style={{ background: "#fff", borderRadius: 12, padding: 22, boxShadow: "0 1px 4px rgba(0,0,0,0.06)" }}>
+                <h3 style={{ margin: "0 0 2px", fontSize: 15, fontWeight: 700 }}>Organisations & Departments</h3>
+                <p style={{ margin: "0 0 18px", fontSize: 12, color: "#64748b" }}>Each organisation expands to show its departments. Drag departments to reorder.</p>
+
                 {currentUser?.role === "Admin" ? (
-                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr auto", gap: 9, marginBottom: 18, padding: 14, background: "#f8fafc", borderRadius: 9 }}>
-                    <input style={iS} placeholder="Name *" value={newOrg.name || ""} onChange={e => setNewOrg({ ...newOrg, name: e.target.value })} />
-                    <input style={iS} placeholder="Domain" value={newOrg.domain} onChange={e => setNewOrg({ ...newOrg, domain: e.target.value })} />
-                    <input style={iS} placeholder="Phone" value={newOrg.phone} onChange={e => setNewOrg({ ...newOrg, phone: e.target.value })} />
-                    <button onClick={addOrg} style={bP}>Add</button>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 10, marginBottom: 18, padding: 14, background: "#f8fafc", borderRadius: 9 }}>
+                    {/* Add Org row */}
+                    <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                      <span style={{ fontSize: 11, fontWeight: 600, color: "#64748b", minWidth: 80 }}>Add Org</span>
+                      <input style={{ ...iS, flex: 1 }} placeholder="Name *" value={newOrg.name || ""} onChange={e => setNewOrg({ ...newOrg, name: e.target.value })} />
+                      <input style={{ ...iS, flex: 1 }} placeholder="Domain" value={newOrg.domain} onChange={e => setNewOrg({ ...newOrg, domain: e.target.value })} />
+                      <input style={{ ...iS, flex: 1 }} placeholder="Phone" value={newOrg.phone} onChange={e => setNewOrg({ ...newOrg, phone: e.target.value })} />
+                      <button onClick={addOrg} style={bP}>Add</button>
+                    </div>
+                    {/* Add Dept row */}
+                    <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                      <span style={{ fontSize: 11, fontWeight: 600, color: "#64748b", minWidth: 80 }}>Add Dept</span>
+                      <input style={{ ...iS, flex: 2 }} placeholder="Department name *" value={newDept?.name || ""} onChange={e => setNewDept({ ...newDept, name: e.target.value })} />
+                      <select style={{ ...sS, flex: 1 }} value={newDept?.orgName || ""} onChange={e => setNewDept({ ...newDept, orgName: e.target.value })}>
+                        <option value="">Select organisation *</option>
+                        {[...orgs].sort((a, b) => a.name.localeCompare(b.name)).map(o => <option key={o.id} value={o.name}>{o.name}</option>)}
+                      </select>
+                      <button onClick={addDept} style={bP}>Add</button>
+                    </div>
                   </div>
-                ) : <div style={{ marginBottom: 18, padding: "10px 14px", background: "#fef3c7", color: "#92400e", borderRadius: 8, fontSize: 13, fontWeight: 500 }}>Read Only: Organisation management is restricted to Admins.</div>}
-                <table style={{ width: "100%", borderCollapse: "collapse" }}>
-                  <thead><tr>
-                    <FilterableHeader label="Name" field="name" data={orgs} filters={orgSort} onFilter={setOrgSort} style={thStyle} />
-                    <FilterableHeader label="Domain" field="domain" data={orgs} filters={orgSort} onFilter={setOrgSort} style={thStyle} />
-                    <FilterableHeader label="Phone" field="phone" data={orgs} filters={orgSort} onFilter={setOrgSort} style={thStyle} />
-                    {currentUser?.role === "Admin" && <th style={thStyle}></th>}
-                  </tr></thead>
-                  <tbody>{applySort(orgs, orgSort).map(o => <tr key={o.id} className="rh">
-                    <td style={{ ...tdStyle, fontWeight: 600 }}>{o.name}</td>
-                    <td style={{ ...tdStyle, color: "#64748b" }}>{o.domain || "—"}</td>
-                    <td style={{ ...tdStyle, color: "#64748b" }}>{o.phone || "—"}</td>
-                    {currentUser?.role === "Admin" && <td style={tdStyle}><button onClick={() => {
-                      setConfirmModal({
-                        show: true, title: "Delete Organisation",
-                        confirmLabel: "Delete", confirmDanger: true, message: `Are you sure you want to delete "${o.name}"?`, onConfirm: async () => { try { await axios.delete(`${ORGS_API}/${o.id}`); setOrgs(orgs.filter(x => x.id !== o.id)); setCustomAlert({ show: true, message: "✅ Organisation deleted!", type: "success" }); } catch (err) { setCustomAlert({ show: true, message: "Failed to delete organisation", type: "error" }); } setConfirmModal({ show: false, title: "", message: "", onConfirm: null, onCancel: null }); }, onCancel: () => setConfirmModal({ show: false, title: "", message: "", onConfirm: null, onCancel: null })
-                      });
-                    }} style={{ border: "none", background: "#fee2e2", color: "#ef4444", borderRadius: 6, padding: "4px 10px", cursor: "pointer", fontSize: 12, fontWeight: 600 }}>Delete</button></td>}
-                  </tr>)}</tbody>
-                </table>
+                ) : <div style={{ marginBottom: 18, padding: "10px 14px", background: "#fef3c7", color: "#92400e", borderRadius: 8, fontSize: 13, fontWeight: 500 }}>Read Only: Management is restricted to Admins.</div>}
+
+                {pendingDepartments.length > 0 && (
+                  <div style={{ display: "flex", gap: 8, marginBottom: 14 }}>
+                    <button onClick={async () => {
+                      try {
+                        const orders = [];
+                        const g2 = {};
+                        pendingDepartments.forEach(d => { const org = d.orgName || "General"; if (!g2[org]) g2[org] = []; g2[org].push(d); });
+                        Object.keys(g2).forEach(org => { g2[org].sort((a, b) => (a.sortOrder || 0) - (b.sortOrder || 0)); g2[org].forEach((d, i) => orders.push({ id: d.id, orgName: d.orgName, sortOrder: i + 1 })); });
+                        await axios.put(`${BASE_URL}/departments/reorder`, { orders });
+                        setDepartments(pendingDepartments);
+                        setPendingDepartments([]);
+                        setCustomAlert({ show: true, message: "Departments updated", type: "success" });
+                      } catch { setCustomAlert({ show: true, message: "Failed to save", type: "error" }); }
+                    }} style={{ padding: "6px 14px", borderRadius: 6, border: "none", background: "#22c55e", color: "#fff", cursor: "pointer", fontSize: 12, fontWeight: 600, fontFamily: "'DM Sans',sans-serif" }}>Save Changes</button>
+                    <button onClick={() => setPendingDepartments([])} style={{ padding: "6px 14px", borderRadius: 6, border: "1px solid #e2e8f0", background: "#fff", color: "#64748b", cursor: "pointer", fontSize: 12, fontWeight: 600, fontFamily: "'DM Sans',sans-serif" }}>Cancel</button>
+                  </div>
+                )}
+
+                {/* Unified table */}
+                {(() => {
+                  const deptSource = pendingDepartments.length > 0 ? pendingDepartments : departments;
+                  const grouped = {};
+                  deptSource.forEach(d => { const org = d.orgName || "General"; if (!grouped[org]) grouped[org] = []; grouped[org].push(d); });
+                  Object.keys(grouped).forEach(org => grouped[org].sort((a, b) => (a.sortOrder || 0) - (b.sortOrder || 0)));
+                  return (
+                    <table style={{ width: "100%", borderCollapse: "collapse" }}>
+                      <thead>
+                        <tr style={{ background: "#f8fafc" }}>
+                          <th style={thStyle}>Organisation</th>
+                          <th style={thStyle}>Domain</th>
+                          <th style={thStyle}>Phone</th>
+                          <th style={thStyle}>Departments</th>
+                          {currentUser?.role === "Admin" && <th style={thStyle}></th>}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {applySort(orgs, orgSort).map(o => {
+                          const depts = grouped[o.name] || [];
+                          return (
+                            <tr key={o.id} className="rh" style={{ verticalAlign: "top" }}
+                              onDragOver={e => e.preventDefault()}
+                              onDrop={e => {
+                                e.preventDefault();
+                                const raw = e.dataTransfer.getData("text/plain");
+                                if (!raw) return;
+                                const src = JSON.parse(raw);
+                                if (src.orgName === o.name) return;
+                                const updated = (pendingDepartments.length > 0 ? pendingDepartments : departments).map(d => d.id === src.id ? { ...d, orgName: o.name } : d);
+                                setPendingDepartments(updated);
+                              }}>
+                              <td style={{ ...tdStyle, fontWeight: 600, whiteSpace: "nowrap" }}>{o.name}</td>
+                              <td style={{ ...tdStyle, color: "#64748b", fontSize: 12 }}>{o.domain || "—"}</td>
+                              <td style={{ ...tdStyle, color: "#64748b", fontSize: 12 }}>{o.phone || "—"}</td>
+                              <td style={{ ...tdStyle }}>
+                                {depts.length === 0
+                                  ? <span style={{ fontSize: 12, color: "#cbd5e1" }}>No departments</span>
+                                  : <div style={{ display: "flex", flexWrap: "wrap", gap: 5 }}>
+                                      {depts.map((d, idx) => (
+                                        <span key={d.id}
+                                          draggable={currentUser?.role === "Admin"}
+                                          onDragStart={e => { e.stopPropagation(); e.dataTransfer.setData("text/plain", JSON.stringify({ id: d.id, orgName: o.name, idx })); }}
+                                          onDragOver={e => e.preventDefault()}
+                                          onDrop={e => {
+                                            e.preventDefault(); e.stopPropagation();
+                                            const raw = e.dataTransfer.getData("text/plain");
+                                            if (!raw) return;
+                                            const src = JSON.parse(raw);
+                                            if (src.orgName !== o.name || src.id === d.id) return;
+                                            const grp = [...depts];
+                                            const fromIdx = grp.findIndex(x => x.id === src.id);
+                                            if (fromIdx === idx) return;
+                                            const moved = grp.splice(fromIdx, 1)[0];
+                                            grp.splice(idx, 0, moved);
+                                            const orders = grp.map((x, i) => ({ id: x.id, sortOrder: i + 1 }));
+                                            const updated = (pendingDepartments.length > 0 ? pendingDepartments : departments).map(dep => { const ord = orders.find(x => x.id === dep.id); return ord && dep.orgName === o.name ? { ...dep, sortOrder: ord.sortOrder } : dep; });
+                                            setPendingDepartments(updated);
+                                          }}
+                                          style={{ display: "inline-flex", alignItems: "center", gap: 5, fontSize: 12, color: "#374151", background: "#f1f5f9", border: "1px solid #e2e8f0", borderRadius: 5, padding: "2px 8px", cursor: currentUser?.role === "Admin" ? "grab" : "default", userSelect: "none" }}>
+                                          {d.name}
+                                          {currentUser?.role === "Admin" && <span onClick={e => { e.stopPropagation(); deleteDept(d.id); }} style={{ color: "#ef4444", cursor: "pointer", fontWeight: 700, fontSize: 11, marginLeft: 2 }}>×</span>}
+                                        </span>
+                                      ))}
+                                    </div>
+                                }
+                              </td>
+                              {currentUser?.role === "Admin" && <td style={{ ...tdStyle, whiteSpace: "nowrap" }}>
+                                <button onClick={() => deleteOrg(o.id)} style={{ border: "none", background: "none", color: "#ef4444", borderRadius: 5, padding: "3px 8px", cursor: "pointer", fontSize: 11, fontWeight: 600 }}>Delete</button>
+                              </td>}
+                            </tr>
+                          );
+                        })}
+                        {orgs.length === 0 && <tr><td colSpan={5} style={{ textAlign: "center", color: "#94a3b8", padding: 28, fontSize: 13 }}>No organisations yet. Add one above.</td></tr>}
+                      </tbody>
+                    </table>
+                  );
+                })()}
               </div>}
               {settingsTab === "categories" && <div style={{ background: "#fff", borderRadius: 12, padding: 22, boxShadow: "0 1px 4px rgba(0,0,0,0.06)" }}>
                 <h3 style={{ margin: "0 0 14px", fontSize: 15, fontWeight: 700 }}>Ticket Categories ({categories.length})</h3>
                 {currentUser?.role === "Admin" ? (
-                  <div style={{ display: "grid", gridTemplateColumns: "1fr auto auto", gap: 9, marginBottom: 18, padding: 14, background: "#f8fafc", borderRadius: 9, alignItems: "center" }}>
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: 9, marginBottom: 18, padding: 14, background: "#f8fafc", borderRadius: 9, alignItems: "center" }}>
                     <input style={iS} placeholder="Category name *" value={newCat.name || ""} onChange={e => setNewCat({ ...newCat, name: e.target.value })} />
-                    <div style={{ display: "flex", alignItems: "center", gap: 7 }}><label style={{ fontSize: 13, fontWeight: 600, color: "#374151" }}>Color</label><input type="color" value={newCat.color} onChange={e => setNewCat({ ...newCat, color: e.target.value })} style={{ width: 34, height: 34, border: "none", borderRadius: 7, cursor: "pointer", padding: 2 }} /></div>
                     <button onClick={addCat} style={bP}>Add</button>
                   </div>
                 ) : <div style={{ marginBottom: 18, padding: "10px 14px", background: "#fef3c7", color: "#92400e", borderRadius: 8, fontSize: 13, fontWeight: 500 }}>Read Only: Category management is restricted to Admins.</div>}
-                <table style={{ width: "100%", borderCollapse: "collapse" }}>
-                  <thead><tr style={{ background: "#f8fafc" }}>
+                <div style={{ border: "1px solid #e2e8f0", borderRadius: 8, overflow: "hidden" }}><table style={{ width: "100%", borderCollapse: "collapse" }}>
+                  <thead><tr>
                     <th style={thStyle}>Name</th>
-                    <th style={thStyle}>Color</th>
                     <th style={thStyle}>Tickets</th>
                     {currentUser?.role === "Admin" && <th style={thStyle}></th>}
                   </tr></thead>
                   <tbody>{[...categories].sort((a, b) => (a.name || "").localeCompare(b.name || "")).map(c => (
                     <tr key={c.id} className="rh">
                       <td style={tdStyle}><span style={{ fontSize: 13, color: "#1f2937" }}>{c.name}</span></td>
-                      <td style={tdStyle}><div style={{ width: 14, height: 14, borderRadius: 3, background: c.color }} /></td>
                       <td style={{ ...tdStyle, color: "#64748b", fontSize: 12 }}>{tickets.filter(t => t.category === c.name).length}</td>
                       {currentUser?.role === "Admin" && <td style={tdStyle}><button onClick={e => { e.stopPropagation(); deleteCat(c.id); }} style={{ border: "none", background: "none", color: "#ef4444", borderRadius: 5, padding: "3px 8px", cursor: "pointer", fontSize: 11, fontWeight: 600 }}>Delete</button></td>}
                     </tr>
                   ))}</tbody>
                 </table>
+                </div>
               </div>}
-              {/* ✅ Departments Management — org-grouped */}
-              {settingsTab === "departments" && <div style={{ background: "#fff", borderRadius: 12, padding: 22, boxShadow: "0 1px 4px rgba(0,0,0,0.06)" }}>
-                <h3 style={{ margin: "0 0 4px", fontSize: 15, fontWeight: 700 }}>Departments ({departments.length})</h3>
-                <p style={{ margin: "0 0 18px", fontSize: 12, color: "#64748b" }}>Departments are organised per organisation. Same name is allowed under different orgs. Drag a department to reorder within an org, or drop it onto a different org header to move it.</p>
-                {currentUser?.role === "Admin" ? (
-                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr auto", gap: 9, marginBottom: 18, padding: 14, background: "#f8fafc", borderRadius: 9 }}>
-                    <input
-                      style={iS}
-                      placeholder="Department name *"
-                      value={newDept?.name || ""}
-                      onChange={e => setNewDept({ ...newDept, name: e.target.value })}
-                    />
-                    <select
-                      style={{ ...sS }}
-                      value={newDept?.orgName || ""}
-                      onChange={e => setNewDept({ ...newDept, orgName: e.target.value })}
-                    >
-                      <option value="">Select organisation *</option>
-                      {[...orgs].sort((a, b) => a.name.localeCompare(b.name)).map(o => (
-                        <option key={o.id} value={o.name}>{o.name}</option>
-                      ))}
-                    </select>
-                    <button onClick={addDept} style={bP}>Add</button>
-                  </div>
-                ) : <div style={{ marginBottom: 18, padding: "10px 14px", background: "#fef3c7", color: "#92400e", borderRadius: 8, fontSize: 13, fontWeight: 500 }}>Read Only: Department management is restricted to Admins.</div>}
 
-                {/* Group departments by org */}
-                {(() => {
-                  const grouped = {};
-                  const deptSource = pendingDepartments.length > 0 ? pendingDepartments : departments;
-                  [...deptSource].forEach(d => {
-                    const org = d.orgName || "General";
-                    if (!grouped[org]) grouped[org] = [];
-                    grouped[org].push(d);
-                  });
-                  Object.keys(grouped).forEach(org => grouped[org].sort((a, b) => (a.sortOrder || 0) - (b.sortOrder || 0)));
-                  // Also show orgs that have no departments yet (so you can drag into them)
-                  orgs.forEach(o => { if (!grouped[o.name]) grouped[o.name] = []; });
-                  const orgNames = Object.keys(grouped).sort();
-
-                  return (
-                    <>
-                      {/* Save Changes Button - Top */}
-                      {pendingDepartments.length > 0 && (
-                        <div style={{ display: "flex", gap: 8, marginBottom: 20 }}>
-                          <button onClick={async () => {
-                            try {
-                              const orders = [];
-                              const grouped = {};
-                              pendingDepartments.forEach(d => {
-                                const org = d.orgName || "General";
-                                if (!grouped[org]) grouped[org] = [];
-                                grouped[org].push(d);
-                              });
-                              Object.keys(grouped).forEach(org => {
-                                grouped[org].sort((a, b) => (a.sortOrder || 0) - (b.sortOrder || 0));
-                                grouped[org].forEach((d, i) => {
-                                  orders.push({ id: d.id, orgName: d.orgName, sortOrder: i + 1 });
-                                });
-                              });
-                              await axios.put(`${BASE_URL}/departments/reorder`, { orders });
-                              setDepartments(pendingDepartments);
-                              setPendingDepartments([]);
-                              setCustomAlert({ show: true, message: "✅ Departments updated successfully", type: "success" });
-                            } catch {
-                              setCustomAlert({ show: true, message: "Failed to save changes", type: "error" });
-                            }
-                          }} style={{ padding: "8px 16px", borderRadius: 6, border: "none", background: "#22c55e", color: "#fff", cursor: "pointer", fontSize: 12, fontWeight: 600, fontFamily: "'DM Sans',sans-serif" }}>💾 Save Changes</button>
-                          <button onClick={() => setPendingDepartments([])} style={{ padding: "8px 16px", borderRadius: 6, border: "1px solid #e2e8f0", background: "#fff", color: "#64748b", cursor: "pointer", fontSize: 12, fontWeight: 600, fontFamily: "'DM Sans',sans-serif" }}>Cancel</button>
-                        </div>
-                      )}
-                      {orgNames.map(orgName => (
-                        <div key={orgName} style={{ marginBottom: 20 }}
-                          onDragOver={e => e.preventDefault()}
-                          onDrop={e => {
-                            e.preventDefault();
-                            const raw = e.dataTransfer.getData("text/plain");
-                            if (!raw) return;
-                            const src = JSON.parse(raw);
-                            if (src.orgName === orgName) return; // same org, skip
-                            // Move department to this org (in pending state)
-                            const updated = (pendingDepartments.length > 0 ? pendingDepartments : departments).map(d => d.id === src.id ? { ...d, orgName } : d);
-                            setPendingDepartments(updated);
-                          }}
-                        >
-                          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6, padding: "5px 8px", borderBottom: "1.5px solid #e2e8f0" }}>
-                            <span style={{ fontSize: 12, fontWeight: 700, color: "#1e293b" }}>{orgName}</span>
-                            <span style={{ fontSize: 11, color: "#94a3b8" }}>({grouped[orgName].length})</span>
-                            {currentUser?.role === "Admin" && <span style={{ fontSize: 10, color: "#cbd5e1", marginLeft: "auto" }}>drag to reorder or move</span>}
-                          </div>
-                          <div style={{ display: "flex", flexDirection: "column", gap: 5, minHeight: 36 }}>
-                            {grouped[orgName].length === 0 && <span style={{ fontSize: 11, color: "#cbd5e1", padding: "6px 4px" }}>No departments — drag one here</span>}
-                            {grouped[orgName].map((d, idx) => {
-                              const color = getItemColor(d);
-                              return (
-                                <div
-                                  key={d.id}
-                                  draggable={currentUser?.role === "Admin"}
-                                  onDragStart={e => { e.stopPropagation(); e.dataTransfer.setData("text/plain", JSON.stringify({ id: d.id, orgName, idx })); }}
-                                  onDragOver={e => e.preventDefault()}
-                                  onDrop={e => {
-                                    e.preventDefault();
-                                    e.stopPropagation();
-                                    const raw = e.dataTransfer.getData("text/plain");
-                                    if (!raw) return;
-                                    const src = JSON.parse(raw);
-                                    if (src.orgName !== orgName || src.id === d.id) return;
-                                    const grp = [...grouped[orgName]];
-                                    const fromIdx = grp.findIndex(x => x.id === src.id);
-                                    const toIdx = idx;
-                                    if (fromIdx === toIdx) return;
-                                    const moved = grp.splice(fromIdx, 1)[0];
-                                    grp.splice(toIdx, 0, moved);
-                                    const orders = grp.map((x, i) => ({ id: x.id, sortOrder: i + 1 }));
-                                    const deptSource = pendingDepartments.length > 0 ? pendingDepartments : departments;
-                                    const updated = deptSource.map(dep => {
-                                      const o = orders.find(x => x.id === dep.id);
-                                      return o && dep.orgName === orgName ? { ...dep, sortOrder: o.sortOrder } : dep;
-                                    });
-                                    setPendingDepartments(updated);
-                                  }}
-                                  style={{ display: "flex", alignItems: "center", gap: 10, padding: "6px 10px", borderBottom: "1px solid #f1f5f9", cursor: currentUser?.role === "Admin" ? "grab" : "default", userSelect: "none" }}
-                                >
-                                  <span style={{ fontSize: 13, color: "#1f2937", flex: 1 }}>{d.name}</span>
-                                  {currentUser?.role === "Admin" && (
-                                    <button onClick={e => { e.stopPropagation(); deleteDept(d.id); }} style={{ border: "none", background: "none", color: "#ef4444", borderRadius: 5, padding: "3px 8px", cursor: "pointer", fontSize: 11, fontWeight: 600 }}>Delete</button>
-                                  )}
-                                </div>
-                              );
-                            })}
-                          </div>  
-                        </div>
-                      ))}
-                    </>
-                  );
-                })()}
-                {departments.length === 0 && orgs.length === 0 && <div style={{ textAlign: "center", color: "#94a3b8", padding: 28 }}>No organisations yet. Add an organisation first, then add departments.</div>}
-              </div>}
               {/* ✅ NEW: Locations Management */}
               {settingsTab === "locations" && <div style={{ background: "#fff", borderRadius: 12, padding: 22, boxShadow: "0 1px 4px rgba(0,0,0,0.06)" }}>
                 <h3 style={{ margin: "0 0 4px", fontSize: 15, fontWeight: 700 }}>Locations ({locations.length})</h3>
@@ -7037,44 +7110,35 @@ export default function HelpDesk() {
                 ) : (
                   <div style={{ marginBottom: 18, padding: "10px 14px", background: "#fef3c7", color: "#92400e", borderRadius: 8, fontSize: 13, fontWeight: 500 }}>Read Only: User management is restricted to Admins.</div>
                 )}
-                <table style={{ width: "100%", borderCollapse: "collapse" }}>
+                <div style={{ border: "1px solid #e2e8f0", borderRadius: 8, overflow: "hidden" }}><table style={{ width: "100%", borderCollapse: "collapse" }}>
                   <thead><tr>
-                    <FilterableHeader label="User" field="name" data={users} filters={userSort} onFilter={setUserSort} style={thStyle} />
+                    <FilterableHeader label="Name" field="name" data={users} filters={userSort} onFilter={setUserSort} style={thStyle} />
                     <FilterableHeader label="Email" field="email" data={users} filters={userSort} onFilter={setUserSort} style={thStyle} />
                     <FilterableHeader label="Role" field="role" data={users} filters={userSort} onFilter={setUserSort} style={thStyle} />
                     <FilterableHeader label="Status" field="status" data={users} filters={userSort} onFilter={setUserSort} style={thStyle} />
-                    <FilterableHeader label="Account Status" field="active" data={users} filters={userSort} onFilter={setUserSort} style={thStyle} getVal={(row, f) => row.active ? "Activated" : "Deactivated"} />
+                    <FilterableHeader label="Account" field="active" data={users} filters={userSort} onFilter={setUserSort} style={thStyle} getVal={(row, f) => row.active ? "Activated" : "Deactivated"} />
                     {(currentUser?.role === "Admin") && <th style={thStyle}>Actions</th>}
                   </tr></thead>
                   <tbody>{applySort(users, userSort).map(u => (
                     <tr key={u.id} className="rh">
-                      <td style={tdStyle}><div style={{ display: "flex", alignItems: "center", gap: 8 }}><Avatar name={u.name} size={28} /><span style={{ fontSize: 13, fontWeight: 600 }}>{u.name}</span></div></td>
+                      <td style={tdStyle}><span style={{ fontSize: 13, fontWeight: 600 }}>{u.name}</span></td>
                       <td style={{ ...tdStyle, color: "#64748b", fontSize: 12 }}>{u.email}</td>
-                      <td style={tdStyle}><Badge label={u.role} style={{ background: "#ede9fe", color: "#6d28d9" }} /></td>
+                      <td style={tdStyle}><span style={{ fontSize: 13, color: "#6d28d9", fontWeight: 500 }}>{u.role}</span></td>
                       <td style={tdStyle}>{(() => {
-                        // Check DB status field which is updated on login/logout
                         const statusValue = u.status || "Off Duty";
                         const sStyle = statusOpts.find(s => s.l === statusValue);
-                        // ✅ Always show a badge - default to Off Duty if not found
-                        if (sStyle) {
-                          return <Badge label={sStyle.l} style={{ background: sStyle.bg, color: sStyle.c }} />;
-                        }
-                        // If no matching status, show Off Duty as fallback
-                        return <Badge label="Off Duty" style={{ background: "#fef3c7", color: "#f59e0b" }} />;
+                        return <span style={{ fontSize: 12, color: sStyle?.c || "#f59e0b" }}>{sStyle?.l || "Off Duty"}</span>;
                       })()}</td>
-                      <td style={tdStyle}><Badge label={u.active ? "Activated" : "Deactivated"} style={{ background: u.active ? "#dcfce7" : "#fee2e2", color: u.active ? "#15803d" : "#ef4444" }} /></td>
-                      {(currentUser?.role === "Admin") && (() => {
-                        // Admins can edit users via the Manage modal
-                        return (
-                          <td style={tdStyle}><div style={{ display: "flex", gap: 6, alignItems: "center" }}>
-                            <button onClick={() => { setUserEditModal({ show: true, user: u, newRole: u.role }); }} style={{ border: "none", background: "#dbeafe", color: "#1e40af", borderRadius: 6, padding: "6px 14px", cursor: "pointer", fontSize: 12, fontWeight: 600 }}>⚙️ Manage</button>
-                          </div></td>
-                        );
-                      })()}
+                      <td style={tdStyle}><span style={{ fontSize: 12, color: u.active ? "#15803d" : "#ef4444", fontWeight: 500 }}>{u.active ? "Activated" : "Deactivated"}</span></td>
+                      {(currentUser?.role === "Admin") && (
+                        <td style={tdStyle}>
+                          <button onClick={() => { setUserEditModal({ show: true, user: u, newRole: u.role }); }} style={{ border: "none", background: "#dbeafe", color: "#1e40af", borderRadius: 6, padding: "6px 14px", cursor: "pointer", fontSize: 12, fontWeight: 600 }}>Manage</button>
+                        </td>
+                      )}
                     </tr>
                   ))}</tbody>
                 </table>
-              </div>}
+              </div></div>} 
               {settingsTab === "customattrs" && <div style={{ background: "#fff", borderRadius: 12, padding: 22, boxShadow: "0 1px 4px rgba(0,0,0,0.06)" }}>
                 <h3 style={{ margin: "0 0 4px", fontSize: 15, fontWeight: 700 }}>Custom Attributes</h3>
                 <p style={{ margin: "0 0 14px", fontSize: 12, color: "#64748b" }}>Add custom fields to the New Ticket form. After adding, configure placement in the layout designer.</p>
@@ -7243,7 +7307,6 @@ export default function HelpDesk() {
               </div>}
             </div>
           </div>}
-
         </div>
       </div>
 
@@ -8130,7 +8193,11 @@ export default function HelpDesk() {
                   <button onClick={() => { setEditProjMode(false); setEditProject(null); }} style={{ padding: "6px 14px", fontSize: 12, fontWeight: 600, borderRadius: 7, border: "1.5px solid #e2e8f0", cursor: "pointer", background: "#fff", color: "#64748b" }}>Cancel</button>
                   <button onClick={async () => {
                     try {
-                      const updated = { ...editProject, updated: new Date().toISOString() };
+                      const nowISO = new Date().toISOString();
+                      const fields = ["title","description","org","department","priority","category","reportedBy","dueDate","location"];
+                      const changes = fields.filter(f => String(editProject[f]||"") !== String(selProject[f]||"")).map(f => `${f}: "${selProject[f]||""}" → "${editProject[f]||""}"`);
+                      const timelineEvent = { action: "Project edited", by: currentUser.name, date: nowISO, note: changes.length ? changes.join(", ") : "No field changes" };
+                      const updated = { ...editProject, updated: nowISO, timeline: [...(selProject.timeline || []), timelineEvent] };
                       await axios.put(`${PROJECTS_API}/${selProject.id}`, updated);
                       setProjects(p => p.map(x => x.id === selProject.id ? { ...updated, updated: new Date(updated.updated), created: selProject.created } : x));
                       setSelProject({ ...updated, updated: new Date(updated.updated), created: selProject.created });
@@ -8141,6 +8208,7 @@ export default function HelpDesk() {
                   }} style={{ padding: "6px 14px", fontSize: 12, fontWeight: 600, borderRadius: 7, border: "none", cursor: "pointer", background: "#22c55e", color: "#fff" }}>💾 Save Changes</button>
                 </>
               )}
+              <button onClick={() => setShowProjTimelineView(true)} style={{ ...bG, padding: "6px 14px", fontSize: 12, background: "#f3e8ff", color: "#7c3aed" }}>📜 View Timeline</button>
             </div>
           </div>
 
@@ -8195,7 +8263,7 @@ export default function HelpDesk() {
             {(currentUser?.role === "Admin" || currentUser?.role === "Manager") ? (
               <div>
                 <div style={{ display: "flex", flexWrap: "wrap", gap: 7, marginBottom: 10 }}>
-                  {(selProject.assignees || []).map(a => <div key={a.id} style={{ display: "flex", alignItems: "center", gap: 7, background: "#dbeafe", padding: "5px 9px", borderRadius: 7, border: "1px solid #bfdbfe" }}><Avatar name={a.name} size={24} /><div><div style={{ fontSize: 12, fontWeight: 600 }}>{a.name}</div><div style={{ fontSize: 10, color: "#64748b" }}>{a.role}</div></div><span onClick={async () => { const updated = { ...selProject, assignees: selProject.assignees.filter(x => x.id !== a.id), updated: new Date().toISOString() }; try { await axios.put(`${PROJECTS_API}/${selProject.id}`, updated); setProjects(p => p.map(x => x.id === selProject.id ? { ...updated, updated: new Date(updated.updated) } : x)); setSelProject(updated); } catch (e) { setCustomAlert({ show: true, message: "Failed to remove assignee", type: "error" }); } }} style={{ cursor: "pointer", fontWeight: 700, marginLeft: 4, color: "#ef4444" }}>×</span></div>)}
+                  {(selProject.assignees || []).map(a => <div key={a.id} style={{ display: "flex", alignItems: "center", gap: 7, background: "#dbeafe", padding: "5px 9px", borderRadius: 7, border: "1px solid #bfdbfe" }}><Avatar name={a.name} size={24} /><div><div style={{ fontSize: 12, fontWeight: 600 }}>{a.name}</div><div style={{ fontSize: 10, color: "#64748b" }}>{a.role}</div></div><span onClick={async () => { const nowISO = new Date().toISOString(); const timelineEvent = { action: `Assignee removed: ${a.name}`, by: currentUser.name, date: nowISO, note: "" }; const updated = { ...selProject, assignees: selProject.assignees.filter(x => x.id !== a.id), updated: nowISO, timeline: [...(selProject.timeline || []), timelineEvent] }; try { await axios.put(`${PROJECTS_API}/${selProject.id}`, updated); setProjects(p => p.map(x => x.id === selProject.id ? { ...updated, updated: new Date(nowISO) } : x)); setSelProject(updated); } catch (e) { setCustomAlert({ show: true, message: "Failed to remove assignee", type: "error" }); } }} style={{ cursor: "pointer", fontWeight: 700, marginLeft: 4, color: "#ef4444" }}>×</span></div>)}
                   {!selProject.assignees?.length && <span style={{ fontSize: 13, color: "#94a3b8" }}>Unassigned</span>}
                 </div>
                 <div style={{ position: "relative" }}>
@@ -8206,7 +8274,7 @@ export default function HelpDesk() {
                         <input type="text" placeholder="Search assignees..." value={assigneeSearch} onChange={e => setAssigneeSearch(e.target.value)} onClick={e => e.stopPropagation()} autoFocus style={{ ...iS, width: "100%", fontSize: 12 }} />
                       </div>
                       {users.filter(u => u.active && (assigneeSearch === "" || u.name.toLowerCase().includes(assigneeSearch.toLowerCase())) && !selProject.assignees?.find(a => a.id === u.id)).map(u => (
-                        <div key={u.id} onClick={async () => { const updated = { ...selProject, assignees: [...(selProject.assignees || []), u], updated: new Date().toISOString() }; try { await axios.put(`${PROJECTS_API}/${selProject.id}`, updated); setProjects(p => p.map(x => x.id === selProject.id ? { ...updated, updated: new Date(updated.updated) } : x)); setSelProject(updated); setAssigneeSearch(""); setShowProjAssigneeDD(false); } catch (e) { setCustomAlert({ show: true, message: "Failed to add assignee", type: "error" }); } }} style={{ display: "flex", alignItems: "center", gap: 9, padding: "8px 12px", cursor: "pointer", borderBottom: "1px solid #f1f5f9" }}>
+                        <div key={u.id} onClick={async () => { const nowISO = new Date().toISOString(); const timelineEvent = { action: `Assignee added: ${u.name}`, by: currentUser.name, date: nowISO, note: "" }; const updated = { ...selProject, assignees: [...(selProject.assignees || []), u], updated: nowISO, timeline: [...(selProject.timeline || []), timelineEvent] }; try { await axios.put(`${PROJECTS_API}/${selProject.id}`, updated); setProjects(p => p.map(x => x.id === selProject.id ? { ...updated, updated: new Date(nowISO) } : x)); setSelProject(updated); setAssigneeSearch(""); setShowProjAssigneeDD(false); } catch (e) { setCustomAlert({ show: true, message: "Failed to add assignee", type: "error" }); } }} style={{ display: "flex", alignItems: "center", gap: 9, padding: "8px 12px", cursor: "pointer", borderBottom: "1px solid #f1f5f9" }}>
                           <Avatar name={u.name} size={24} /><div><div style={{ fontSize: 12, fontWeight: 600 }}>{u.name}</div><div style={{ fontSize: 11, color: "#94a3b8" }}>{u.role}</div></div>
                         </div>
                       ))}
@@ -8233,7 +8301,8 @@ export default function HelpDesk() {
               if (!newProjComment.trim()) return;
               const nowISO = new Date().toISOString();
               const comment = { by: currentUser.name, date: nowISO, text: newProjComment.trim() };
-              const updatedP = { ...selProject, updated: nowISO, comments: [...(selProject.comments || []), comment] };
+              const timelineEvent = { action: "Comment added", by: currentUser.name, date: nowISO, note: newProjComment.trim() };
+              const updatedP = { ...selProject, updated: nowISO, comments: [...(selProject.comments || []), comment], timeline: [...(selProject.timeline || []), timelineEvent] };
               try {
                 await axios.put(`${PROJECTS_API}/${selProject.id}`, updatedP);
                 setProjects(p => p.map(x => x.id === selProject.id ? { ...updatedP, updated: new Date(nowISO) } : x));
@@ -8242,7 +8311,30 @@ export default function HelpDesk() {
               } catch (e) { setCustomAlert({ show: true, message: "Failed to post comment", type: "error" }); }
             }} style={{ ...bP, marginTop: 7, padding: "7px 15px", fontSize: 13, background: "linear-gradient(135deg,#8b5cf6,#6366f1)" }}>Post Comment</button>
           </div>
+
         </div>}
+      </Modal>
+      
+      <Modal open={showProjTimelineView} onClose={() => setShowProjTimelineView(false)} title={`📜 Project Timeline - ${selProject?.id || ""}`} width={640}>
+        {selProject && (() => {
+          const events = selProject.timeline || [];
+          return events.length === 0
+            ? <div style={{ textAlign: "center", color: "#94a3b8", padding: 40 }}>No timeline events yet.</div>
+            : <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                {[...events].reverse().map((ev, i) => (
+                  <div key={i} style={{ padding: "10px 14px", background: "#f8fafc", borderRadius: 8, border: "1px solid #e2e8f0" }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
+                      <span style={{ fontWeight: 600, color: "#0f172a", fontSize: 13 }}>{ev.action}</span>
+                      <span style={{ fontSize: 11, color: "#94a3b8" }}>{new Date(ev.date).toLocaleString()}</span>
+                    </div>
+                    <div style={{ fontSize: 12, color: "#475569" }}>
+                      <span style={{ fontWeight: 600 }}>{ev.by}</span>
+                      {ev.note && <span> · {ev.note}</span>}
+                    </div>
+                  </div>
+                ))}
+              </div>;
+        })()}
       </Modal>
 
       {/* ── Floating 30-sec Action Alerts (forward requests / responses) ── */}
