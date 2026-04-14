@@ -1151,6 +1151,9 @@ export default function HelpDesk() {
   const [vendors, setVendors] = useState([]);
   const [newVendor, setNewVendor] = useState({ name: "", email: "", phone: "", address: "" });
   const [showAddVendorModal, setShowAddVendorModal] = useState(false);
+  const [editingVendorId, setEditingVendorId] = useState(null);
+  const [editingVendorData, setEditingVendorData] = useState({ name: "", email: "", phone: "", address: "" });
+
 
   // ✅ NEW: User Add Modal
   const [showAddUserModal, setShowAddUserModal] = useState(false);
@@ -3093,6 +3096,8 @@ export default function HelpDesk() {
   };
 
   // ─── SETTINGS HANDLERS (v1 API) ────────────────────────────────────────────
+  const [editingOrgId, setEditingOrgId] = useState(null);
+  const [editingOrgData, setEditingOrgData] = useState({ domain: "", phone: "" });
   const addOrg = async () => {
     if (!newOrg.name) return;
     if (orgs.some(o => o.name.trim().toLowerCase() === newOrg.name.trim().toLowerCase())) {
@@ -3615,6 +3620,8 @@ export default function HelpDesk() {
     });
   };
 
+  const [editingLocationId, setEditingLocationId] = useState(null);
+  const [editingLocationName, setEditingLocationName] = useState("");
   // ── LOCATION MANAGEMENT ──
   const addLocation = async () => {
     if (!newLocation?.name?.trim()) {
@@ -6873,8 +6880,17 @@ export default function HelpDesk() {
                                 setPendingDepartments(updated);
                               }}>
                               <td style={{ ...tdStyle, fontWeight: 600, whiteSpace: "nowrap" }}>{o.name}</td>
-                              <td style={{ ...tdStyle, color: "#64748b", fontSize: 12 }}>{o.domain || "—"}</td>
-                              <td style={{ ...tdStyle, color: "#64748b", fontSize: 12 }}>{o.phone || "—"}</td>
+                                {editingOrgId === o.id ? (
+                                  <>
+                                    <td style={tdStyle}><input style={{ ...iS, fontSize: 12, padding: "4px 8px" }} value={editingOrgData.domain} onChange={e => setEditingOrgData({ ...editingOrgData, domain: e.target.value })} placeholder="Domain" /></td>
+                                    <td style={tdStyle}><input style={{ ...iS, fontSize: 12, padding: "4px 8px" }} value={editingOrgData.phone} onChange={e => setEditingOrgData({ ...editingOrgData, phone: e.target.value })} placeholder="Phone" /></td>
+                                  </>
+                                ) : (
+                                  <>
+                                    <td style={{ ...tdStyle, color: "#64748b", fontSize: 12 }}>{o.domain || "—"}</td>
+                                    <td style={{ ...tdStyle, color: "#64748b", fontSize: 12 }}>{o.phone || "—"}</td>
+                                  </>
+                                )}
                               <td style={{ ...tdStyle }}>
                                 {depts.length === 0
                                   ? <span style={{ fontSize: 12, color: "#cbd5e1" }}>No departments</span>
@@ -6908,7 +6924,24 @@ export default function HelpDesk() {
                                 }
                               </td>
                               {currentUser?.role === "Admin" && <td style={{ ...tdStyle, whiteSpace: "nowrap" }}>
-                                <button onClick={() => deleteOrg(o.id)} style={{ border: "none", background: "none", color: "#ef4444", borderRadius: 5, padding: "3px 8px", cursor: "pointer", fontSize: 11, fontWeight: 600 }}>Delete</button>
+                                {editingOrgId === o.id ? (
+                                  <>
+                                    <button onClick={() => setEditingOrgId(null)} style={{ border: "1.5px solid #e2e8f0", background: "#fff", color: "#64748b", borderRadius: 6, padding: "4px 10px", cursor: "pointer", fontSize: 12, fontWeight: 600, marginRight: 6 }}>Cancel</button>
+                                    <button onClick={async () => {
+                                      try {
+                                        const res = await axios.put(`${ORGS_API}/${o.id}`, editingOrgData);
+                                        setOrgs(orgs.map(x => x.id === o.id ? { ...x, ...res.data } : x));
+                                        setEditingOrgId(null);
+                                        setCustomAlert({ show: true, message: "✅ Organisation updated!", type: "success" });
+                                      } catch (err) { setCustomAlert({ show: true, message: err.response?.data?.error || "Failed to update organisation", type: "error" }); }
+                                    }} style={{ border: "none", background: "#22c55e", color: "#fff", borderRadius: 6, padding: "4px 10px", cursor: "pointer", fontSize: 12, fontWeight: 600 }}>Save</button>
+                                  </>
+                                ) : (
+                                  <>
+                                    <button onClick={() => { setEditingOrgId(o.id); setEditingOrgData({ domain: o.domain || "", phone: o.phone || "" }); }} style={{ border: "none", background: "#dbeafe", color: "#2563eb", borderRadius: 6, padding: "4px 10px", cursor: "pointer", fontSize: 12, fontWeight: 600, marginRight: 6 }}>✏️ Edit</button>
+                                    <button onClick={() => deleteOrg(o.id)} style={{ border: "none", background: "none", color: "#ef4444", borderRadius: 5, padding: "3px 8px", cursor: "pointer", fontSize: 11, fontWeight: 600 }}>Delete</button>
+                                  </>
+                                )}
                               </td>}
                             </tr>
                           );
@@ -6966,8 +6999,31 @@ export default function HelpDesk() {
                   </tr></thead>
                   <tbody>{[...locations].sort((a, b) => (a.name || "").localeCompare(b.name || "")).map(l => (
                     <tr key={l.id} className="rh">
-                      <td style={tdStyle}><span style={{ fontSize: 13, color: "#1f2937" }}>{l.name}</span></td>
-                      {currentUser?.role === "Admin" && <td style={tdStyle}><button onClick={e => { e.stopPropagation(); deleteLocation(l.id); }} style={{ border: "none", background: "none", color: "#ef4444", borderRadius: 5, padding: "3px 8px", cursor: "pointer", fontSize: 11, fontWeight: 600 }}>Delete</button></td>}
+                      {editingLocationId === l.id ? (
+                        <>
+                          <td style={tdStyle}><input style={{ ...iS, fontSize: 12, padding: "4px 8px" }} value={editingLocationName} onChange={e => setEditingLocationName(e.target.value)} /></td>
+                          <td style={tdStyle}>
+                            <button onClick={() => setEditingLocationId(null)} style={{ border: "1.5px solid #e2e8f0", background: "#fff", color: "#64748b", borderRadius: 6, padding: "4px 10px", cursor: "pointer", fontSize: 12, fontWeight: 600, marginRight: 6 }}>Cancel</button>
+                            <button onClick={async () => {
+                              if (!editingLocationName.trim()) { setCustomAlert({ show: true, message: "Location name is required", type: "error" }); return; }
+                              try {
+                                const res = await axios.put(`${LOCATIONS_API}/${l.id}`, { name: editingLocationName.trim() });
+                                setLocations(locations.map(x => x.id === l.id ? res.data : x));
+                                setEditingLocationId(null);
+                                setCustomAlert({ show: true, message: "✅ Location updated!", type: "success" });
+                              } catch (err) { setCustomAlert({ show: true, message: err.response?.data?.error || "Failed to update location", type: "error" }); }
+                            }} style={{ border: "none", background: "#22c55e", color: "#fff", borderRadius: 6, padding: "4px 10px", cursor: "pointer", fontSize: 12, fontWeight: 600 }}>Save</button>
+                          </td>
+                        </>
+                      ) : (
+                        <>
+                          <td style={tdStyle}><span style={{ fontSize: 13, color: "#1f2937" }}>{l.name}</span></td>
+                          {currentUser?.role === "Admin" && <td style={tdStyle}>
+                            <button onClick={e => { e.stopPropagation(); setEditingLocationId(l.id); setEditingLocationName(l.name); }} style={{ border: "none", background: "#dbeafe", color: "#2563eb", borderRadius: 6, padding: "4px 10px", cursor: "pointer", fontSize: 12, fontWeight: 600, marginRight: 6 }}>✏️ Edit</button>
+                            <button onClick={e => { e.stopPropagation(); deleteLocation(l.id); }} style={{ border: "none", background: "none", color: "#ef4444", borderRadius: 5, padding: "3px 8px", cursor: "pointer", fontSize: 11, fontWeight: 600 }}>Delete</button>
+                          </td>}
+                        </>
+                      )}
                     </tr>
                   ))}</tbody>
                 </table>
@@ -7023,11 +7079,37 @@ export default function HelpDesk() {
                   </tr></thead>
                   <tbody>{applySort(vendors, vendorSort).map(v => (
                     <tr key={v.id} className="rh">
-                      <td style={tdStyle}><span style={{ fontSize: 13, color: "#1f2937" }}>{v.name}</span></td>
-                      <td style={{ ...tdStyle, color: "#64748b", fontSize: 12 }}>{v.email || "—"}</td>
-                      <td style={{ ...tdStyle, color: "#64748b", fontSize: 12 }}>{v.phone || "—"}</td>
-                      <td style={{ ...tdStyle, color: "#64748b", fontSize: 12, maxWidth: 200 }}><div style={{ whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{v.address || "—"}</div></td>
-                      {currentUser?.role === "Admin" && <td style={tdStyle}><button onClick={() => deleteVendor(v.id)} style={{ border: "none", background: "#fee2e2", color: "#ef4444", borderRadius: 6, padding: "4px 10px", cursor: "pointer", fontSize: 12, fontWeight: 600 }}>Delete</button></td>}
+                      {editingVendorId === v.id ? (
+                        <>
+                          <td style={tdStyle}><input style={{ ...iS, fontSize: 12, padding: "4px 8px" }} value={editingVendorData.name} onChange={e => setEditingVendorData({ ...editingVendorData, name: e.target.value })} /></td>
+                          <td style={tdStyle}><input style={{ ...iS, fontSize: 12, padding: "4px 8px" }} value={editingVendorData.email} onChange={e => setEditingVendorData({ ...editingVendorData, email: e.target.value })} /></td>
+                          <td style={tdStyle}><input style={{ ...iS, fontSize: 12, padding: "4px 8px" }} value={editingVendorData.phone} onChange={e => setEditingVendorData({ ...editingVendorData, phone: e.target.value })} /></td>
+                          <td style={tdStyle}><input style={{ ...iS, fontSize: 12, padding: "4px 8px" }} value={editingVendorData.address} onChange={e => setEditingVendorData({ ...editingVendorData, address: e.target.value })} /></td>
+                          <td style={tdStyle}>
+                            <button onClick={() => { setEditingVendorId(null); }} style={{ border: "1.5px solid #e2e8f0", background: "#fff", color: "#64748b", borderRadius: 6, padding: "4px 10px", cursor: "pointer", fontSize: 12, fontWeight: 600, marginRight: 6 }}>Cancel</button>
+                            <button onClick={async () => {
+                              if (!editingVendorData.name?.trim()) { setCustomAlert({ show: true, message: "Vendor name is required", type: "error" }); return; }
+                              try {
+                                const res = await axios.put(`${VENDORS_API}/${v.id}`, editingVendorData);
+                                setVendors(vendors.map(x => x.id === v.id ? res.data : x));
+                                setEditingVendorId(null);
+                                setCustomAlert({ show: true, message: "✅ Vendor updated!", type: "success" });
+                              } catch (err) { setCustomAlert({ show: true, message: err.response?.data?.error || "Failed to update vendor", type: "error" }); }
+                            }} style={{ border: "none", background: "#22c55e", color: "#fff", borderRadius: 6, padding: "4px 10px", cursor: "pointer", fontSize: 12, fontWeight: 600 }}>Save</button>
+                          </td>
+                        </>
+                      ) : (
+                        <>
+                          <td style={tdStyle}><span style={{ fontSize: 13, color: "#1f2937" }}>{v.name}</span></td>
+                          <td style={{ ...tdStyle, color: "#64748b", fontSize: 12 }}>{v.email || "—"}</td>
+                          <td style={{ ...tdStyle, color: "#64748b", fontSize: 12 }}>{v.phone || "—"}</td>
+                          <td style={{ ...tdStyle, color: "#64748b", fontSize: 12, maxWidth: 200 }}><div style={{ whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{v.address || "—"}</div></td>
+                          {currentUser?.role === "Admin" && <td style={tdStyle}>
+                            <button onClick={() => { setEditingVendorId(v.id); setEditingVendorData({ name: v.name, email: v.email || "", phone: v.phone || "", address: v.address || "" }); }} style={{ border: "none", background: "#dbeafe", color: "#2563eb", borderRadius: 6, padding: "4px 10px", cursor: "pointer", fontSize: 12, fontWeight: 600, marginRight: 6 }}>✏️ Edit</button>
+                            <button onClick={() => deleteVendor(v.id)} style={{ border: "none", background: "#fee2e2", color: "#ef4444", borderRadius: 6, padding: "4px 10px", cursor: "pointer", fontSize: 12, fontWeight: 600 }}>Delete</button>
+                          </td>}
+                        </>
+                      )}
                     </tr>
                   ))}</tbody>
                 </table>

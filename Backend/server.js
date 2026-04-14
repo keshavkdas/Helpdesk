@@ -501,6 +501,19 @@ app.post("/api/orgs", async (req, res) => {
     try { res.status(201).json(await Org.create(req.body)); }
     catch (err) { res.status(500).json({ error: err.message }); }
 });
+
+app.put("/api/orgs/:id", async (req, res) => {
+    try {
+        const org = await Org.findByPk(req.params.id);
+        if (!org) return res.status(404).json({ error: "Org not found" });
+        await org.update({
+            domain: req.body.domain ?? org.domain,
+            phone: req.body.phone ?? org.phone,
+        });
+        res.json(org);
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 app.delete("/api/orgs/:id", async (req, res) => {
     try {
         const org = await Org.findByPk(req.params.id);
@@ -541,6 +554,20 @@ app.post("/api/vendors", async (req, res) => {
         }));
     }
     catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.put("/api/vendors/:id", async (req, res) => {
+    try {
+        const vendor = await Vendor.findByPk(req.params.id);
+        if (!vendor) return res.status(404).json({ error: "Vendor not found" });
+        await vendor.update({
+            name: req.body.name?.trim() || vendor.name,
+            email: req.body.email ?? vendor.email,
+            phone: req.body.phone ?? vendor.phone,
+            address: req.body.address ?? vendor.address,
+        });
+        res.json(vendor);
+    } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
 app.delete("/api/vendors/:id", async (req, res) => {
@@ -753,6 +780,15 @@ app.post("/api/locations", async (req, res) => {
     } catch (err) {
         res.status(500).json({ error: err.message });
     }
+});
+
+app.put("/api/locations/:id", async (req, res) => {
+    try {
+        const location = await Location.findByPk(req.params.id);
+        if (!location) return res.status(404).json({ error: "Location not found" });
+        await location.update({ name: req.body.name?.trim() || location.name });
+        res.json(location);
+    } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
 app.delete("/api/locations/:id", async (req, res) => {
