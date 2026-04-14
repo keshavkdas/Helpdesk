@@ -1331,7 +1331,7 @@ export default function HelpDesk() {
   // ── Auth ──
   const [isLogin, setIsLogin] = useState(true);
   const [slideIndex, setSlideIndex] = useState(0);
-  const [authForm, setAuthForm] = useState({ email: "", password: "", firstName: "", middleName: "", lastName: "", countryCode: "+1", phone: "", confirm: "" });
+  const [authForm, setAuthForm] = useState({ email: "", password: "", firstName: "", middleName: "", lastName: "", countryCode: "+91", phone: "", confirm: "" });
   const [authError, setAuthError] = useState("");
   const [authMessage, setAuthMessage] = useState("");
 
@@ -1761,7 +1761,7 @@ export default function HelpDesk() {
         if (!user.active && !user.forceLogout) {
           clearSession();
           setCurrentUser(null);
-          setAuthForm({ email: "", password: "", firstName: "", middleName: "", lastName: "", countryCode: "+1", phone: "", confirm: "" });
+          setAuthForm({ email: "", password: "", firstName: "", middleName: "", lastName: "", countryCode: "+91", phone: "", confirm: "" });
           setCustomAlert({ show: true, message: "🚪 You have been logged out by an administrator.", type: "error" });
           return;
         }
@@ -1779,7 +1779,7 @@ export default function HelpDesk() {
           } catch (_) {}
           clearSession();
           setCurrentUser(null);
-          setAuthForm({ email: "", password: "", firstName: "", middleName: "", lastName: "", countryCode: "+1", phone: "", confirm: "" });
+          setAuthForm({ email: "", password: "", firstName: "", middleName: "", lastName: "", countryCode: "+91", phone: "", confirm: "" });
           setCustomAlert({ show: true, message: "🚪 You have been logged out by an administrator.", type: "error" });
           return;
         }
@@ -1790,7 +1790,7 @@ export default function HelpDesk() {
         ) {
           clearSession();
           setCurrentUser(null);
-          setAuthForm({ email: "", password: "", firstName: "", middleName: "", lastName: "", countryCode: "+1", phone: "", confirm: "" });
+          setAuthForm({ email: "", password: "", firstName: "", middleName: "", lastName: "", countryCode: "+91", phone: "", confirm: "" });
           setCustomAlert({ show: true, message: "🚪 You have been logged out by an administrator.", type: "error" });
           return;
         }
@@ -7133,7 +7133,7 @@ export default function HelpDesk() {
                       <td style={tdStyle}><span style={{ fontSize: 12, color: u.active ? "#15803d" : "#ef4444", fontWeight: 500 }}>{u.active ? "Activated" : "Deactivated"}</span></td>
                       {(currentUser?.role === "Admin") && (
                         <td style={tdStyle}>
-                          <button onClick={() => { setUserEditModal({ show: true, user: u, newRole: u.role }); }} style={{ border: "none", background: "#dbeafe", color: "#1e40af", borderRadius: 6, padding: "6px 14px", cursor: "pointer", fontSize: 12, fontWeight: 600 }}>Manage</button>
+                          <button onClick={() => { setUserEditModal({ show: true, user: u, newRole: u.role, editName: u.name || "", editEmail: u.email || "", editPhone: u.phone || "", editPassword: "" }); }} style={{ border: "none", background: "#dbeafe", color: "#1e40af", borderRadius: 6, padding: "6px 14px", cursor: "pointer", fontSize: 12, fontWeight: 600 }}>Manage</button>
                         </td>
                       )}
                     </tr>
