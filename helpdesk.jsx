@@ -114,7 +114,7 @@ function exportCSV(items, type = "tickets") {
       c.color || ""
     ]);
   } else if (type === "projects") {
-    headers = ["ID", "Title", "Organisation", "Department", "Reported By", "Assignees", "Priority", "Category", "Status", "Progress", "Due Date", "Created"];
+    headers = ["ID", "Title", "Organization", "Department", "Reported By", "Assignees", "Priority", "Category", "Status", "Progress", "Due Date", "Created"];
     rows = items.map(t => [
       t.id,
       `"${t.title || ""}"`,
@@ -131,7 +131,7 @@ function exportCSV(items, type = "tickets") {
     ]);
   } else {
     // Default: tickets
-    headers = ["ID", "Summary", "Organisation", "Department", "Contact", "Reported By", "Assignees", "Priority", "Category", "Status", "Created", "Updated"];
+    headers = ["ID", "Summary", "Organization", "Department", "Contact", "Reported By", "Assignees", "Priority", "Category", "Status", "Created", "Updated"];
     rows = items.map(t => [
       t.id,
       `"${t.summary || ""}"`,
@@ -2591,7 +2591,7 @@ export default function HelpDesk() {
   };
 
   const handleSubmit = async () => {
-    if (!form.summary || !form.org || !form.priority || !form.category || !form.description?.trim()) return setCustomAlert({ show: true, message: "Organisation, Summary, Priority, Category and Description are required", type: "error" });
+    if (!form.summary || !form.org || !form.priority || !form.category || !form.description?.trim()) return setCustomAlert({ show: true, message: "Organization, Summary, Priority, Category and Description are required", type: "error" });
 
     // ✅ NEW: Validate webcast fields if category is Webcast
     if (form.category === "Webcast") {
@@ -3096,7 +3096,7 @@ export default function HelpDesk() {
   const addOrg = async () => {
     if (!newOrg.name) return;
     if (orgs.some(o => o.name.trim().toLowerCase() === newOrg.name.trim().toLowerCase())) {
-      setCustomAlert({ show: true, message: `⚠️ Organisation "${newOrg.name.trim()}" already exists`, type: "error" });
+      setCustomAlert({ show: true, message: `⚠️ Organization "${newOrg.name.trim()}" already exists`, type: "error" });
       return;
     }
     try {
@@ -3104,8 +3104,8 @@ export default function HelpDesk() {
       const created = res.data; // ✅ Extract the actual data
       setOrgs([...orgs, created]);
       setNewOrg({ name: "", domain: "", phone: "" });
-      addDailyNotif({ type: "org_added", icon: "🏢", text: `${currentUser.name} added organisation "${created.name}"`, by: currentUser.name });
-    } catch (err) { setCustomAlert({ show: true, message: "Failed to add organisation", type: "error" }); }
+      addDailyNotif({ type: "org_added", icon: "🏢", text: `${currentUser.name} added organization "${created.name}"`, by: currentUser.name });
+    } catch (err) { setCustomAlert({ show: true, message: "Failed to add organization", type: "error" }); }
   };
 
   const addCat = async () => {
@@ -3452,7 +3452,7 @@ export default function HelpDesk() {
 
   // ─── PROJECT HANDLERS (v1 API) ────────────────────────────────────────────
   const handleProjectSubmit = async () => {
-    if (!projForm.title || !projForm.org) return setCustomAlert({ show: true, message: "Organisation and Title are required", type: "error" });
+    if (!projForm.title || !projForm.org) return setCustomAlert({ show: true, message: "Organization and Title are required", type: "error" });
 
     // ✅ NEW: Validate webcast fields if category is Webcast
     if (projForm.category === "Webcast") {
@@ -3579,7 +3579,7 @@ export default function HelpDesk() {
       return;
     }
     if (!newDept?.orgName?.trim()) {
-      setCustomAlert({ show: true, message: "Please select an organisation for this department", type: "error" });
+      setCustomAlert({ show: true, message: "Please select an organization for this department", type: "error" });
       return;
     }
     if (departments.some(d => d.name.trim().toLowerCase() === newDept.name.trim().toLowerCase() && d.orgName === newDept.orgName.trim())) {
@@ -6270,7 +6270,7 @@ export default function HelpDesk() {
               tickets: [
                 { key: "id", label: "ID" }, { key: "summary", label: "Summary" },
                 { key: "status", label: "Status" }, { key: "priority", label: "Priority" },
-                { key: "category", label: "Category" }, { key: "org", label: "Organisation" },
+                { key: "category", label: "Category" }, { key: "org", label: "Organization" },
                 { key: "department", label: "Department" }, { key: "contact", label: "Contact" },
                 { key: "reportedBy", label: "Reported By" },
                 { key: "assignees", label: "Assignees" }, { key: "location", label: "Location" },
@@ -6280,7 +6280,7 @@ export default function HelpDesk() {
               projects: [
                 { key: "id", label: "ID" }, { key: "title", label: "Title" },
                 { key: "status", label: "Status" }, { key: "priority", label: "Priority" },
-                { key: "category", label: "Category" }, { key: "org", label: "Organisation" },
+                { key: "category", label: "Category" }, { key: "org", label: "Organization" },
                 { key: "department", label: "Department" }, { key: "reportedBy", label: "Reported By" },
                 { key: "assignees", label: "Assignees" }, { key: "progress", label: "Progress" },
                 { key: "dueDate", label: "Due Date" }, { key: "createdAt", label: "Created" },
@@ -6484,9 +6484,9 @@ export default function HelpDesk() {
                         </select>
                       </div>
                       <div>
-                        <label style={{ fontSize: 12, fontWeight: 600, color: "#475569", display: "block", marginBottom: 6 }}>ORGANISATION</label>
+                        <label style={{ fontSize: 12, fontWeight: 600, color: "#475569", display: "block", marginBottom: 6 }}>ORGANIZATION</label>
                         <select value={reportFilters.org} onChange={e => setReportFilters(f => ({ ...f, org: e.target.value }))} style={{ width: "100%", padding: "7px 10px", border: "1px solid #e2e8f0", borderRadius: 7, fontSize: 13, background: "#fff", color: "#334155" }}>
-                          <option value="">All Organisations</option>
+                          <option value="">All Organizations</option>
                           {orgs.map(o => <option key={o.id} value={o.name}>{o.name}</option>)}
                         </select>
                       </div>
@@ -6796,8 +6796,8 @@ export default function HelpDesk() {
                 ))}
               </div>}
               {(settingsTab === "organisations" || settingsTab === "departments") && <div style={{ background: "#fff", borderRadius: 12, padding: 22, boxShadow: "0 1px 4px rgba(0,0,0,0.06)" }}>
-                <h3 style={{ margin: "0 0 2px", fontSize: 15, fontWeight: 700 }}>Organisations & Departments</h3>
-                <p style={{ margin: "0 0 18px", fontSize: 12, color: "#64748b" }}>Each organisation expands to show its departments. Drag departments to reorder.</p>
+                <h3 style={{ margin: "0 0 2px", fontSize: 15, fontWeight: 700 }}>Organizations & Departments</h3>
+                <p style={{ margin: "0 0 18px", fontSize: 12, color: "#64748b" }}>Each organization expands to show its departments. Drag departments to reorder.</p>
 
                 {currentUser?.role === "Admin" ? (
                   <div style={{ display: "flex", flexDirection: "column", gap: 10, marginBottom: 18, padding: 14, background: "#f8fafc", borderRadius: 9 }}>
@@ -6814,7 +6814,7 @@ export default function HelpDesk() {
                       <span style={{ fontSize: 11, fontWeight: 600, color: "#64748b", minWidth: 80 }}>Add Dept</span>
                       <input style={{ ...iS, flex: 2 }} placeholder="Department name *" value={newDept?.name || ""} onChange={e => setNewDept({ ...newDept, name: e.target.value })} />
                       <select style={{ ...sS, flex: 1 }} value={newDept?.orgName || ""} onChange={e => setNewDept({ ...newDept, orgName: e.target.value })}>
-                        <option value="">Select organisation *</option>
+                        <option value="">Select organization *</option>
                         {[...orgs].sort((a, b) => a.name.localeCompare(b.name)).map(o => <option key={o.id} value={o.name}>{o.name}</option>)}
                       </select>
                       <button onClick={addDept} style={bP}>Add</button>
@@ -6850,7 +6850,7 @@ export default function HelpDesk() {
                     <table style={{ width: "100%", borderCollapse: "collapse" }}>
                       <thead>
                         <tr style={{ background: "#f8fafc" }}>
-                          <th style={thStyle}>Organisation</th>
+                          <th style={thStyle}>Organization</th>
                           <th style={thStyle}>Domain</th>
                           <th style={thStyle}>Phone</th>
                           <th style={thStyle}>Departments</th>
@@ -6913,7 +6913,7 @@ export default function HelpDesk() {
                             </tr>
                           );
                         })}
-                        {orgs.length === 0 && <tr><td colSpan={5} style={{ textAlign: "center", color: "#94a3b8", padding: 28, fontSize: 13 }}>No organisations yet. Add one above.</td></tr>}
+                        {orgs.length === 0 && <tr><td colSpan={5} style={{ textAlign: "center", color: "#94a3b8", padding: 28, fontSize: 13 }}>No organizations yet. Add one above.</td></tr>}
                       </tbody>
                     </table>
                   );
@@ -7250,7 +7250,7 @@ export default function HelpDesk() {
                       {targetTable === "users" && <option value="role">By Role</option>}
                       {targetTable === "orgs" && <option value="domain">By Domain</option>}
                       {targetTable === "categories" && <option value="color">By Color</option>}
-                      {targetTable === "departments" && <option value="org">By Organisation</option>}
+                      {targetTable === "departments" && <option value="org">By Organization</option>}
                     </select>
 
                     {exportFilterType !== "all" && (
@@ -7314,7 +7314,7 @@ export default function HelpDesk() {
       {/* ── NEW TICKET MODAL (v1 form + webcast fields) ── */}
       <Modal open={showNewTicket} onClose={() => { setShowNewTicket(false); setShowAssigneeDD(false); }} title="Create New Ticket" width={700}>
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0 18px" }}>
-          <FF label="Organisation" required><select style={sS} value={form.org} onChange={e => setForm({ ...form, org: e.target.value, department: "" })}><option value="">Select…</option>{orgs.map(o => <option key={o.id}>{o.name}</option>)}</select></FF>
+          <FF label="Organization" required><select style={sS} value={form.org} onChange={e => setForm({ ...form, org: e.target.value, department: "" })}><option value="">Select…</option>{orgs.map(o => <option key={o.id}>{o.name}</option>)}</select></FF>
           <FF label="Department">
             <div style={{ position: "relative" }}>
               <input type="text" placeholder={form.org ? "Search department..." : "Select org first..."} value={departmentSearch ? departmentSearch : (form.department || "")} onChange={e => setDepartmentSearch(e.target.value)} onFocus={() => { setDepartmentSearch(""); setShowDepartmentDD(true); }} style={{ ...iS, width: "100%", fontSize: 12 }} />
@@ -7495,7 +7495,7 @@ export default function HelpDesk() {
       {/* ── NEW PROJECT MODAL ── */}
       <Modal open={showNewProject} onClose={() => setShowNewProject(false)} title="Create New Project" width={700}>
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0 18px" }}>
-          <FF label="Organisation" required><select style={sS} value={projForm.org} onChange={e => setProjForm({ ...projForm, org: e.target.value, department: "" })}><option value="">Select…</option>{orgs.map(o => <option key={o.id}>{o.name}</option>)}</select></FF>
+          <FF label="Organization" required><select style={sS} value={projForm.org} onChange={e => setProjForm({ ...projForm, org: e.target.value, department: "" })}><option value="">Select…</option>{orgs.map(o => <option key={o.id}>{o.name}</option>)}</select></FF>
           <FF label="Department">
             <div style={{ position: "relative" }}>
               <input type="text" placeholder={projForm.org ? "Search department..." : "Select org first..."} value={departmentSearch ? departmentSearch : (projForm.department || "")} onChange={e => setDepartmentSearch(e.target.value)} onFocus={() => { setDepartmentSearch(""); setShowDepartmentDD(true); }} style={{ ...iS, width: "100%", fontSize: 12 }} />
@@ -7628,7 +7628,7 @@ export default function HelpDesk() {
 
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 9, marginBottom: 14 }}>
                 <div>
-                  <label style={{ fontSize: 11, fontWeight: 600, color: "#94a3b8", textTransform: "uppercase", display: "block", marginBottom: 5 }}>Organisation *</label>
+                  <label style={{ fontSize: 11, fontWeight: 600, color: "#94a3b8", textTransform: "uppercase", display: "block", marginBottom: 5 }}>Organization *</label>
                   <select value={editTicket.org} onChange={e => setEditTicket({ ...editTicket, org: e.target.value })} style={{ ...iS, width: "100%", fontSize: 13 }}>
                     <option value="">Select…</option>
                     {orgs.map(o => <option key={o.id}>{o.name}</option>)}
@@ -7704,7 +7704,7 @@ export default function HelpDesk() {
               )}
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 9, marginBottom: 14 }}>
                 {[
-                  { l: "Organisation", v: selTicket.org },
+                  { l: "Organization", v: selTicket.org },
                   { l: "Department", v: selTicket.department || "—" },
                   { l: "POC (Point of Contact)", v: selTicket.contact || "—" },
                   { l: "Reported By", v: selTicket.reportedBy || "—" },
@@ -8220,7 +8220,7 @@ export default function HelpDesk() {
               <div><label style={{ fontSize: 11, fontWeight: 600, color: "#374151", display: "block", marginBottom: 4 }}>Description</label>
                 <textarea value={editProject.description || ""} onChange={e => setEditProject({ ...editProject, description: e.target.value })} style={{ ...iS, width: "100%", fontSize: 13, height: 80, resize: "vertical" }} /></div>
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-                <div><label style={{ fontSize: 11, fontWeight: 600, color: "#374151", display: "block", marginBottom: 4 }}>Organisation</label>
+                <div><label style={{ fontSize: 11, fontWeight: 600, color: "#374151", display: "block", marginBottom: 4 }}>Organization</label>
                   <select value={editProject.org} onChange={e => setEditProject({ ...editProject, org: e.target.value })} style={{ ...iS, width: "100%", fontSize: 13 }}>
                     {orgs.map(o => <option key={o.id}>{o.name}</option>)}
                   </select></div>
@@ -8253,7 +8253,7 @@ export default function HelpDesk() {
               </div>
               <p style={{ margin: "0 0 16px", color: "#64748b", fontSize: 14, lineHeight: 1.6 }}>{selProject.description}</p>
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 9, marginBottom: 14 }}>
-                {[{ l: "Organisation", v: selProject.org }, { l: "Department", v: selProject.department }, { l: "Reported By", v: selProject.reportedBy }, { l: "Category", v: selProject.category }, { l: "Location", v: selProject.location }, { l: "Due Date", v: selProject.dueDate?.toLocaleDateString() || "-" }].map(f => (
+                {[{ l: "Organization", v: selProject.org }, { l: "Department", v: selProject.department }, { l: "Reported By", v: selProject.reportedBy }, { l: "Category", v: selProject.category }, { l: "Location", v: selProject.location }, { l: "Due Date", v: selProject.dueDate?.toLocaleDateString() || "-" }].map(f => (
                   <div key={f.l} style={{ background: "#f8fafc", padding: "9px 13px", borderRadius: 9 }}><div style={{ fontSize: 10, fontWeight: 600, color: "#94a3b8", textTransform: "uppercase", marginBottom: 3 }}>{f.l}</div><div style={{ fontSize: 13, fontWeight: 500 }}>{f.v || "-"}</div></div>
                 ))}
               </div>
@@ -8628,7 +8628,7 @@ export default function HelpDesk() {
                   <div style={{ padding: 12, display: "flex", flexDirection: "column", gap: 4 }}>
                     {/* Fixed grid fields */}
                     <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 4 }}>
-                      {["Organisation *", "Department", "POC", "Reported By", "Priority", "Category", "Location", "Due Date"].map(f => (
+                      {["Organization *", "Department", "POC", "Reported By", "Priority", "Category", "Location", "Due Date"].map(f => (
                         <div key={f} style={{ padding: "5px 8px", background: "#fff", border: "1.5px solid #e2e8f0", borderRadius: 5, fontSize: 10, color: "#94a3b8", fontWeight: 500 }}>{f}</div>
                       ))}
                       {/* Grid section custom fields */}
