@@ -3156,7 +3156,8 @@ export default function HelpDesk() {
       // Auto-hide success alert after 3 seconds
     } catch (err) {
       console.error("Error adding user:", err);
-      setCustomAlert({ show: true, message: err.message || "Failed to add user", type: "error" });
+      const msg = err.response?.data?.error || err.message || "Failed to add user";
+      setCustomAlert({ show: true, message: msg, type: "error" });
     }
   };
 

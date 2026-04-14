@@ -321,6 +321,9 @@ app.get("/api/users/:id", async (req, res) => {
 app.post("/api/users", async (req, res) => {
     try {
         const { email, password, ...rest } = req.body;
+        if (!email || !password) return res.status(400).json({ error: "Email and password are required" });
+        const exists = await User.findOne({ where: { email: email.toLowerCase() } });
+        if (exists) return res.status(409).json({ error: "Email already exists" });
         const hashed = await bcrypt.hash(password, 10);
         const user = await User.create({ ...rest, email: email.toLowerCase(), password: hashed });
         res.status(201).json(fmt(user));
