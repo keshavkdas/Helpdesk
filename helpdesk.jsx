@@ -571,16 +571,15 @@ const FilterableHeader = ({ label, field, data, filters, onFilter, style = {} })
           boxShadow: "0 8px 28px rgba(0,0,0,0.13)", zIndex: 500, overflow: "hidden"
         }}>
           {[
-            { id: "all", label: "All", icon: "◈" },
             { id: "asc", label: "Sort Ascending", icon: "↑" },
             { id: "desc", label: "Sort Descending", icon: "↓" },
           ].map(opt => (
             <div key={opt.id} onClick={() => choose(opt.id)}
               style={{
                 padding: "8px 13px", fontSize: 12, cursor: "pointer", display: "flex", alignItems: "center", gap: 8,
-                background: (opt.id === "all" && !active) || (opt.id === dir) ? "#eff6ff" : "#fff",
-                color: (opt.id === "all" && !active) || (opt.id === dir) ? "#3b82f6" : "#1e293b",
-                fontWeight: (opt.id === "all" && !active) || (opt.id === dir) ? 600 : 400,
+                background: (opt.id === dir) ? "#eff6ff" : "#fff",
+                color: (opt.id === dir) ? "#3b82f6" : "#1e293b",
+                fontWeight: (opt.id === dir) ? 600 : 400,                
                 borderBottom: "1px solid #f8fafc"
               }}
             >
@@ -6440,7 +6439,7 @@ export default function HelpDesk() {
                   <div style={{ background: "#fff", border: "1px solid #e2e8f0", borderRadius: 12, padding: 24, boxShadow: "0 2px 12px rgba(0,0,0,0.06)" }}>
                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
                       <h3 style={{ margin: 0, fontSize: 16, fontWeight: 700, color: "#0f172a" }}>🔧 Report Builder</h3>
-                      {btn("← Back to History", () => setReportBuilderOpen(false), "#64748b", true)}
+                      {btn("← Back to Reports", () => setReportBuilderOpen(false), "#64748b", true)}
                     </div>
 
                     <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20, marginBottom: 20 }}>
@@ -6597,7 +6596,7 @@ export default function HelpDesk() {
                       if (agentStatusFilter === "all") return true;
                       const userStatus = users.find(u => u.id === a.id)?.status || "Off Duty";
                       if (agentStatusFilter === "On Duty") return userStatus === "On Duty" || userStatus === "On Ticket";
-                      if (agentStatusFilter === "Idle") { const u = users.find(x => x.id === a.id); return userStatus === "Idle" || (userStatus === "On Duty" && u?.loginTime && (new Date() - new Date(u.loginTime)) / 60000 >= 15); }
+                      if (agentStatusFilter === "Idle") { return userStatus === "Idle"; };
                       if (agentStatusFilter === "On Ticket") return userStatus === "On Ticket";
                       if (agentStatusFilter === "off") return userStatus !== "On Duty" && userStatus !== "On Ticket" && userStatus !== "Idle" && userStatus !== "On Lunch";
                       return userStatus === agentStatusFilter;
