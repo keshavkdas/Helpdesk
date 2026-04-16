@@ -6299,6 +6299,11 @@ export default function HelpDesk() {
             const availableCols = ALL_COLUMNS[reportFilters.dataSource] || ALL_COLUMNS.tickets;
             const sourceData = reportFilters.dataSource === "projects" ? projects : tickets;
 
+            const getClosedDate = (row) => {
+              const e = (row.timeline || []).slice().reverse().find(e => e.action?.includes("Status changed to Closed"));
+              return e?.date ? new Date(e.date) : null;
+            };
+
             const applyFilters = (data) => {
               let result = data.filter(r => r.status !== "Bin");
               if (reportFilters.status.length) result = result.filter(r => reportFilters.status.includes(r.status));
@@ -6308,6 +6313,9 @@ export default function HelpDesk() {
               if (reportFilters.dateFrom) result = result.filter(r => new Date(r.createdAt) >= new Date(reportFilters.dateFrom));
               if (reportFilters.dateTo) result = result.filter(r => new Date(r.createdAt) <= new Date(reportFilters.dateTo + "T23:59:59"));
               if (reportFilters.org) result = result.filter(r => r.org === reportFilters.org);
+              const onlyClosed = reportFilters.status.length === 1 && reportFilters.status[0] === "Closed";
+              if (onlyClosed && reportFilters.closedFrom) result = result.filter(r => { const d = getClosedDate(r); return d && d >= new Date(reportFilters.closedFrom); });
+              if (onlyClosed && reportFilters.closedTo) result = result.filter(r => { const d = getClosedDate(r); return d && d <= new Date(reportFilters.closedTo + "T23:59:59"); });
               return result;
             };
 
@@ -6472,7 +6480,7 @@ export default function HelpDesk() {
                       <div>
                         <label style={{ fontSize: 12, fontWeight: 600, color: "#475569", display: "block", marginBottom: 6 }}>DATE RANGE (Created)</label>
                         <div style={{ display: "flex", gap: 8 }}>
-                          <input type="date" value={reportFilters.dateFrom} onChange={e => setReportFilters(f => ({ ...f, dateFrom: e.target.value }))} style={{ flex: 1, padding: "7px 10px", border: "1px solid #e2e8f0", borderRadius: 7, fontSize: 13 }} />
+                          <input type="date" value={reportFilters.dateFrom} max={new Date().toISOString().split("T")[0]} onChange={e => setReportFilters(f => ({ ...f, dateFrom: e.target.value }))} style={{ flex: 1, padding: "7px 10px", border: "1px solid #e2e8f0", borderRadius: 7, fontSize: 13 }} />
                           <input type="date" value={reportFilters.dateTo} max={new Date().toISOString().split("T")[0]} onChange={e => setReportFilters(f => ({ ...f, dateTo: e.target.value }))} style={{ flex: 1, padding: "7px 10px", border: "1px solid #e2e8f0", borderRadius: 7, fontSize: 13 }} />
                         </div>
                       </div>
@@ -6515,6 +6523,16 @@ export default function HelpDesk() {
                         </select>
                       </div>
                     </div>
+
+                    {reportFilters.status.length === 1 && reportFilters.status[0] === "Closed" && (
+                      <div style={{ marginBottom: 20 }}>
+                        <label style={{ fontSize: 12, fontWeight: 600, color: "#475569", display: "block", marginBottom: 6 }}>DATE RANGE (Closed)</label>
+                        <div style={{ display: "flex", gap: 8, maxWidth: 400 }}>
+                          <input type="date" value={reportFilters.closedFrom || ""} max={new Date().toISOString().split("T")[0]} onChange={e => setReportFilters(f => ({ ...f, closedFrom: e.target.value }))} style={{ flex: 1, padding: "7px 10px", border: "1px solid #e2e8f0", borderRadius: 7, fontSize: 13 }} />
+                          <input type="date" value={reportFilters.closedTo || ""} max={new Date().toISOString().split("T")[0]} onChange={e => setReportFilters(f => ({ ...f, closedTo: e.target.value }))} style={{ flex: 1, padding: "7px 10px", border: "1px solid #e2e8f0", borderRadius: 7, fontSize: 13 }} />
+                        </div>
+                      </div>
+                    )}
 
                     {/* Columns */}
                     <div style={{ marginBottom: 20 }}>
