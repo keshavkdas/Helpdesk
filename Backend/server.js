@@ -131,6 +131,7 @@ const Ticket = sequelize.define("Ticket", {
     dueDate: { type: DataTypes.DATE, defaultValue: null },
     image: { type: DataTypes.TEXT("long"), defaultValue: null },
     satsangId: { type: DataTypes.INTEGER, defaultValue: null },
+    closedAt: { type: DataTypes.DATE, defaultValue: null },
 }, { timestamps: true });
 
 const Webcast = sequelize.define("Webcast", {
@@ -256,6 +257,13 @@ const Notification = sequelize.define("Notification", {
     broadcastType: { type: DataTypes.STRING, defaultValue: null },
     read: { type: DataTypes.BOOLEAN, defaultValue: false },
     alerted: { type: DataTypes.BOOLEAN, defaultValue: false },
+}, { timestamps: true });
+
+const SavedReport = sequelize.define("SavedReport", {
+  name: { type: DataTypes.STRING, allowNull: false },
+  filters: { type: DataTypes.JSON, defaultValue: {} },
+  rowCount: { type: DataTypes.INTEGER, defaultValue: 0 },
+  savedBy: { type: DataTypes.STRING, defaultValue: "" },
 }, { timestamps: true });
 
 // ─── SERIALIZER (Matches your original fmt) ──────────────────────────────────
@@ -919,6 +927,23 @@ app.delete("/api/notifications/:id", async (req, res) => {
     }
 });
 
+app.get("/api/saved-reports", async (req, res) => {
+  try { res.json(await SavedReport.findAll({ order: [["createdAt", "DESC"]] })); }
+  catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.post("/api/saved-reports", async (req, res) => {
+  try { res.status(201).json(await SavedReport.create(req.body)); }
+  catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.delete("/api/saved-reports/:id", async (req, res) => {
+  try {
+    const r = await SavedReport.findByPk(req.params.id);
+    if (r) await r.destroy();
+    res.json({ success: true });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
 // ─── 5. TICKETS (FULL LOGIC) ─────────────────────────────────────────────────
 
 app.get("/api/tickets", async (req, res) => {
@@ -1033,7 +1058,10 @@ app.put("/api/tickets/:id", async (req, res) => {
         }
         const ticket = await Ticket.findByPk(req.params.id);
         if (!ticket) return res.status(404).json({ error: "Ticket not found" });
-        await ticket.update(req.body);
+        const updateData = { ...req.body };
+        if (updateData.status === "Closed" && !ticket.closedAt) updateData.closedAt = new Date();
+        if (updateData.status && updateData.status !== "Closed") updateData.closedAt = null;
+        await ticket.update(updateData);
         res.json(fmt(ticket));
     } catch (err) { res.status(500).json({ error: err.message }); }
 });

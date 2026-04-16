@@ -1051,9 +1051,10 @@ export default function HelpDesk() {
     selectedVendors: [],
   });
   const [reportTimeRange, setReportTimeRange] = useState("all");
-  const [savedReports, setSavedReports] = useState(() => {
-    try { return JSON.parse(localStorage.getItem("df_saved_reports") || "[]"); } catch { return []; }
-  });
+  const [savedReports, setSavedReports] = useState([]);
+  useEffect(() => {
+    axios.get(`${BASE_URL}/saved-reports`).then(r => setSavedReports(r.data)).catch(() => {});
+  }, []);
   const [reportBuilderOpen, setReportBuilderOpen] = useState(false);
   const [reportFilters, setReportFilters] = useState({
     dataSource: "tickets", status: [], priority: [], category: [], assignee: "",
@@ -6280,8 +6281,10 @@ export default function HelpDesk() {
                 { key: "department", label: "Department" }, { key: "contact", label: "Contact" },
                 { key: "reportedBy", label: "Reported By" },
                 { key: "assignees", label: "Assignees" }, { key: "location", label: "Location" },
-                { key: "dueDate", label: "Due Date" }, { key: "createdAt", label: "Created" },
-                { key: "updatedAt", label: "Updated" },
+                { key: "createdAt", label: "Created Date" },
+                { key: "updatedAt", label: "Updated Date" },
+                { key: "dueDate", label: "Due Date" },
+                { key: "closedAt", label: "Closed Date" },
               ],
               projects: [
                 { key: "id", label: "ID" }, { key: "title", label: "Title" },
@@ -6311,6 +6314,10 @@ export default function HelpDesk() {
             const getCellValue = (row, key) => {
               if (key === "assignees") return (row.assignees || []).map(a => a.name).join(", ");
               if (key === "createdAt" || key === "updatedAt" || key === "dueDate") return row[key] ? new Date(row[key]).toLocaleDateString() : "—";
+              if (key === "closedAt") {
+                const closeEvent = (row.timeline || []).slice().reverse().find(e => e.action?.includes("Status changed to Closed"));
+                return closeEvent?.date ? new Date(closeEvent.date).toLocaleDateString() : "—";
+              }
               if (key === "progress") return row[key] != null ? `${row[key]}%` : "—";
               return row[key] || "—";
             };
@@ -6329,9 +6336,14 @@ export default function HelpDesk() {
                 filters: { ...reportFilters },
                 rowCount: reportPreview.length,
               };
-              const updated = [report, ...savedReports];
-              setSavedReports(updated);
-              localStorage.setItem("df_saved_reports", JSON.stringify(updated));
+              axios.post(`${BASE_URL}/saved-reports`, {
+                name: reportName.trim(),
+                filters: { ...reportFilters },
+                rowCount: reportPreview.length,
+                savedBy: currentUser?.name || "Unknown",
+              })
+                .then(r => setSavedReports(prev => [r.data, ...prev]))
+                .catch(() => alert("Failed to save report"));
               setReportName("");
               setReportBuilderOpen(false);
               alert(`Report "${report.name}" saved.`);
@@ -6350,9 +6362,9 @@ export default function HelpDesk() {
             };
 
             const deleteReport = (id) => {
-              const updated = savedReports.filter(r => r.id !== id);
-              setSavedReports(updated);
-              localStorage.setItem("df_saved_reports", JSON.stringify(updated));
+              axios.delete(`${BASE_URL}/saved-reports/${id}`)
+                .then(() => setSavedReports(prev => prev.filter(r => r.id !== id)))
+                .catch(() => alert("Failed to delete report"));
             };
 
             const loadReport = (r) => {
@@ -6381,9 +6393,15 @@ export default function HelpDesk() {
             const toggleArr = (field, val) => setReportFilters(f => ({
               ...f, [field]: f[field].includes(val) ? f[field].filter(x => x !== val) : [...f[field], val],
             }));
-            const toggleCol = (k) => setReportFilters(f => ({
-              ...f, columns: f.columns.includes(k) ? f.columns.filter(x => x !== k) : [...f.columns, k],
-            }));
+            const toggleCol = (k) => setReportFilters(f => {
+              if (f.columns.includes(k)) return { ...f, columns: f.columns.filter(x => x !== k) };
+              const allKeys = availableCols.map(c => c.key);
+              const originalIndex = allKeys.indexOf(k);
+              const newCols = [...f.columns];
+              const insertAt = newCols.findIndex(col => allKeys.indexOf(col) > originalIndex);
+              if (insertAt === -1) newCols.push(k); else newCols.splice(insertAt, 0, k);
+              return { ...f, columns: newCols };
+            });
 
             const allCategories = [...new Set(sourceData.map(r => r.category).filter(Boolean))];
             const activeCols = reportFilters.columns.length ? reportFilters.columns : availableCols.map(c => c.key);
@@ -6419,7 +6437,7 @@ export default function HelpDesk() {
                             <div>
                               <div style={{ fontWeight: 600, fontSize: 14, color: "#0f172a" }}>{r.name}</div>
                               <div style={{ fontSize: 12, color: "#94a3b8", marginTop: 2 }}>
-                                {r.filters.dataSource} · {r.rowCount} rows · {new Date(r.createdAt).toLocaleDateString()}
+                                {r.filters.dataSource} · {r.rowCount} rows · {new Date(r.createdAt).toLocaleDateString()}{r.savedBy ? ` · Saved by: ${r.savedBy}` : ""}
                               </div>
                             </div>
                             <div style={{ display: "flex", gap: 8 }}>
