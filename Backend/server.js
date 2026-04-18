@@ -74,6 +74,7 @@ const Vendor = sequelize.define("Vendor", {
 const Category = sequelize.define("Category", {
     name: { type: DataTypes.STRING, allowNull: false },
     color: { type: DataTypes.STRING, defaultValue: "#3b82f6" },
+    subcategories: { type: DataTypes.JSON, defaultValue: [] },
 }, { timestamps: true });
 
 const CustomAttr = sequelize.define("CustomAttr", {
@@ -595,6 +596,14 @@ app.get("/api/categories", async (req, res) => {
 app.post("/api/categories", async (req, res) => {
     try { res.status(201).json(await Category.create(req.body)); }
     catch (err) { res.status(500).json({ error: err.message }); }
+});
+app.put("/api/categories/:id", async (req, res) => {
+    try {
+        const cat = await Category.findByPk(req.params.id);
+        if (!cat) return res.status(404).json({ error: "Not found" });
+        await cat.update(req.body);
+        res.json(fmt(cat));
+    } catch (err) { res.status(500).json({ error: err.message }); }
 });
 app.delete("/api/categories/:id", async (req, res) => {
     try {
@@ -1225,8 +1234,8 @@ app.delete("/api/projects/:id", async (req, res) => {
 
 app.get("/api/all-data", async (req, res) => {
     try {
-        const [users, orgs, categories, customAttrs, tickets, webcasts, satsangs, satsangTypes, projects, departments, locations, vendors] = await Promise.all([
-            User.findAll(), Org.findAll(), Category.findAll(), CustomAttr.findAll(), Ticket.findAll(), Webcast.findAll(), Satsang.findAll(), SatsangType.findAll(), Project.findAll(), Department.findAll(), Location.findAll(), Vendor.findAll()
+        const [users, orgs, categories, customAttrs, tickets, webcasts, satsangs, projects, departments, locations, vendors] = await Promise.all([
+            User.findAll(), Org.findAll(), Category.findAll(), CustomAttr.findAll(), Ticket.findAll(), Webcast.findAll(), Satsang.findAll(), Project.findAll(), Department.findAll(), Location.findAll(), Vendor.findAll()
         ]);
         res.json({
             users: users.map(fmt),
@@ -1236,7 +1245,6 @@ app.get("/api/all-data", async (req, res) => {
             tickets: tickets.map(fmt),
             webcasts: webcasts.map(fmt),
             satsangs: satsangs.map(fmt),
-            satsangTypes: satsangTypes.map(fmt),
             projects: projects.map(fmt),
             departments: departments.map(fmt),
             locations: locations.map(fmt),
