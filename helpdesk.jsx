@@ -1257,6 +1257,8 @@ export default function HelpDesk() {
   const [selProject, setSelProject] = useState(null);
   const [selAgent, setSelAgent] = useState(null);
   const [agentStatusFilter, setAgentStatusFilter] = useState("all");
+  const [userStatusFilter, setUserStatusFilter] = useState("all");
+
   const [agentTicketFilter, setAgentTicketFilter] = useState(null);
 
   // ── Satsangs ──
@@ -4444,17 +4446,16 @@ export default function HelpDesk() {
   };
 
   const sideNav = (currentUser?.role === "Admin" || currentUser?.role === "Manager") ? [
-    { id: "dashboard", label: "Dashboard", icon: "▦" },
-    { id: "tickets", label: "All Tickets", icon: "◈" },
-    { id: "projects", label: "Projects", icon: "📁" },
-    { id: "reports", label: "Reports", icon: "◉" },
-    { id: "users", label: "Agents", icon: "◎" },
-    { id: "settings", label: "Settings", icon: "⚙" },
+  { id: "dashboard", label: "Dashboard", icon: "🏠" },
+  { id: "tickets", label: "All Tickets", icon: "📝" },
+  { id: "projects", label: "Projects", icon: "📁" },
+  { id: "reports", label: "Reports", icon: "📊" },
+  { id: "settings", label: "Settings", icon: "⚙️" },
   ] : [
-    { id: "dashboard", label: "Dashboard", icon: "▦" },
-    { id: "tickets", label: "All Tickets", icon: "◈" },
-    { id: "projects", label: "Projects", icon: "📁" },
-    { id: "settings", label: "Settings", icon: "⚙" },
+  { id: "dashboard", label: "Dashboard", icon: "🏠" },
+  { id: "tickets", label: "All Tickets", icon: "📝" },
+  { id: "projects", label: "Projects", icon: "📁" },
+  { id: "settings", label: "Settings", icon: "⚙️" },
   ];
   const stabs = currentUser?.role === "Admin" ? [
     { id: "organisations", label: "Orgs & Departments", icon: "" },
@@ -4486,7 +4487,6 @@ export default function HelpDesk() {
     if (view === "projects") return cpv.label;
     if (view === "webcast") return "Webcast";
     if (view === "reports") return "Reports";
-    if (view === "users") return "Agents";
     return "Settings";
   };
 
@@ -6589,216 +6589,6 @@ export default function HelpDesk() {
             );
           })()}
 
-          {/* ── AGENTS ── */}
-          {view === "users" && !selAgent ? (
-            <>
-              {/* Status filter tabs — plain text, no animated cards */}
-              <div style={{ display: "flex", gap: 6, marginBottom: 14, flexWrap: "wrap" }}>
-                {[
-                  { key: "all", label: "All", count: users.length },
-                  { key: "On Duty", label: "On Duty", count: users.filter(u => u.status === "On Duty" || u.status === "On Ticket").length },
-                  { key: "On Ticket", label: "On Ticket", count: users.filter(u => u.status === "On Ticket").length },
-                  { key: "Idle", label: "Idle", count: users.filter(u => u.status === "Idle").length },
-                  { key: "On Lunch", label: "On Lunch", count: users.filter(u => u.status === "On Lunch").length },
-                  { key: "off", label: "Off Duty", count: users.filter(u => u.status !== "On Duty" && u.status !== "On Ticket" && u.status !== "Idle" && u.status !== "On Lunch").length },
-                ].map(s => (
-                  <button key={s.key} onClick={() => setAgentStatusFilter(s.key)}
-                    style={{ padding: "5px 12px", borderRadius: 6, border: `1.5px solid ${agentStatusFilter === s.key ? "#3b82f6" : "#e2e8f0"}`, background: agentStatusFilter === s.key ? "#eff6ff" : "#fff", color: agentStatusFilter === s.key ? "#1d4ed8" : "#64748b", fontSize: 12, fontWeight: agentStatusFilter === s.key ? 700 : 400, cursor: "pointer", fontFamily: "'DM Sans',sans-serif" }}>
-                    {s.label} <span style={{ opacity: 0.7 }}>({s.count})</span>
-                  </button>
-                ))}
-              </div>
-              <div style={{ background: "#fff", borderRadius: 10, border: "1.5px solid #e2e8f0", overflow: "hidden" }}>
-                <table style={{ width: "100%", borderCollapse: "collapse" }}>
-                  <thead>
-                    <tr style={{ background: "#f8fafc", borderBottom: "2px solid #e2e8f0" }}>
-                      <th style={{ ...thStyle, borderRight: "1px solid #94a3b8" }}>Agent</th>
-                      <th style={{ ...thStyle, borderRight: "1px solid #94a3b8" }}>Role</th>
-                      <th style={{ ...thStyle, borderRight: "1px solid #94a3b8" }}>Status</th>
-                      <th style={{ ...thStyle, borderRight: "1px solid #94a3b8" }}>Email</th>
-                      <th style={{ ...thStyle, borderRight: "1px solid #94a3b8" }}>Assigned</th>
-                      <th style={{ ...thStyle, borderRight: "1px solid #94a3b8" }}>Closed</th>
-                      <th style={{ ...thStyle, borderRight: "1px solid #94a3b8" }}>Open</th>
-                      <th style={{ ...thStyle, borderRight: "1px solid #94a3b8" }}>Rate</th>
-                      <th style={thStyle}>Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {agentStats.filter(a => {
-                      if (agentStatusFilter === "all") return true;
-                      const userStatus = users.find(u => u.id === a.id)?.status || "Off Duty";
-                      if (agentStatusFilter === "On Duty") return userStatus === "On Duty" || userStatus === "On Ticket";
-                      if (agentStatusFilter === "Idle") { return userStatus === "Idle"; };
-                      if (agentStatusFilter === "On Ticket") return userStatus === "On Ticket";
-                      if (agentStatusFilter === "off") return userStatus !== "On Duty" && userStatus !== "On Ticket" && userStatus !== "Idle" && userStatus !== "On Lunch";
-                      return userStatus === agentStatusFilter;
-                    }).map(a => {
-                      const userInfo = users.find(u => u.id === a.id);
-                      const u = users.find(x => x.id === a.id);
-                      const statusValue = u?.status || "Off Duty";
-                      const statusStyle = statusOpts.find(s => s.l === statusValue);
-                      const rate = a.assigned ? Math.round(a.closed / a.assigned * 100) : 0;
-                      const barColor = rate > 70 ? "#22c55e" : rate > 40 ? "#f59e0b" : "#ef4444";
-                      const openCount = tickets.filter(t => t.assignees?.some(x => x.id === a.id) && (t.status === "Open") && t.status !== "Bin").length;
-                      return (
-                        <tr key={a.id} className="rh" style={{ background: "#fff", borderBottom: "1px solid #f1f5f9" }}>
-                            <td style={{ ...tdStyle, borderRight: "1px solid #94a3b8" }}><span style={{ fontSize: 13, fontWeight: 500, color: "#0f172a" }}>{a.name}</span></td>
-                            <td style={{ ...tdStyle, borderRight: "1px solid #94a3b8", color: "#64748b", fontSize: 12 }}>{a.role}</td>
-                            <td style={{ ...tdStyle, borderRight: "1px solid #94a3b8", fontSize: 12, color: statusStyle ? statusStyle.c : "#94a3b8" }}>{statusValue}</td>
-                            <td style={{ ...tdStyle, borderRight: "1px solid #94a3b8", fontSize: 12, color: "#64748b" }}>{a.email}</td>
-                            <td style={{ ...tdStyle, borderRight: "1px solid #94a3b8", textAlign: "center", fontSize: 13, color: "#334155" }}>{a.assigned}</td>
-                            <td style={{ ...tdStyle, borderRight: "1px solid #94a3b8", textAlign: "center", fontSize: 13, color: "#334155" }}>{a.closed}</td>
-                            <td style={{ ...tdStyle, borderRight: "1px solid #94a3b8", textAlign: "center", fontSize: 13, color: "#334155" }}>{openCount}</td>
-                            <td style={{ ...tdStyle, borderRight: "1px solid #94a3b8", fontSize: 12, color: rate > 70 ? "#15803d" : rate > 40 ? "#b45309" : "#b91c1c" }}>{rate}%</td>                          <td style={tdStyle}>
-                            <button onClick={() => setSelAgent(a)} style={{ padding: "4px 10px", background: "none", color: "#3b82f6", border: "1px solid #bfdbfe", borderRadius: 5, cursor: "pointer", fontSize: 11, fontWeight: 600 }}>View</button>
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
-            </>
-          ) : view === "users" && selAgent ? <div>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
-              <button onClick={() => setSelAgent(null)} style={{ ...bG, padding: "7px 14px", fontSize: 12 }}>← Back to Agents</button>
-              {(currentUser?.role === "Admin" || currentUser?.role === "Manager") && (() => { const userInfo = users.find(u => u.id === selAgent.id); return (
-                <button onClick={() => { setUserEditModal({ show: true, user: userInfo, newRole: userInfo?.role, editName: userInfo?.name || "", editEmail: userInfo?.email || "", editPhone: userInfo?.phone || "", editPassword: "" }); }} style={{ padding: "7px 16px", background: "#f1f5f9", color: "#374151", border: "1px solid #e2e8f0", borderRadius: 7, cursor: "pointer", fontSize: 12, fontWeight: 600 }}>Edit Agent</button>
-              ); })()}
-            </div>
-            <div style={{ background: "#fff", borderRadius: 12, padding: 18, boxShadow: "0 1px 4px rgba(0,0,0,0.06)", marginBottom: 16 }}>
-              <div style={{ display: "flex", alignItems: "flex-start", gap: 14, marginBottom: 16, justifyContent: "space-between" }}>
-                <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
-                  <Avatar name={selAgent.name} size={56} />
-                  <div>
-                    <div style={{ fontSize: 18, fontWeight: 700 }}>{selAgent.name}</div>
-                    <div style={{ fontSize: 13, color: "#64748b", marginTop: 2 }}>{selAgent.email}</div>
-                    <div style={{ display: "flex", gap: 6, marginTop: 6 }}>
-                      <Badge label={selAgent.role} style={{ background: "#ede9fe", color: "#6d28d9" }} />
-                      {(() => {
-                        const u = users.find(x => x.id === selAgent.id);
-                        if (!u?.status) return null;
-                        const statusValue = u.status || "Off Duty";
-                        const sStyle = statusOpts.find(s => s.l === statusValue);
-                        return sStyle ? <Badge label={sStyle.l} style={{ background: sStyle.bg, color: sStyle.c }} /> : null;
-                      })()}
-                    </div>
-
-                    {/* ✅ Show ticket and location tracking - AGENTS ONLY */}
-                    {selAgent.role === "Agent" && (
-                      <div style={{ marginTop: 12, paddingTop: 12, borderTop: "1px solid #e2e8f0", display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-                        <div>
-                          <div style={{ fontSize: 11, fontWeight: 600, color: "#94a3b8", marginBottom: 4 }}>🎫 Current Ticket</div>
-                          {users.find(x => x.id === selAgent.id)?.currentTicketId ? (
-                            <Badge label={users.find(x => x.id === selAgent.id)?.currentTicketId} style={{ background: "#ede9fe", color: "#6d28d9" }} />
-                          ) : (
-                            <span style={{ fontSize: 12, color: "#cbd5e1" }}>No ticket assigned</span>
-                          )}
-                        </div>
-                        <div>
-                          <div style={{ fontSize: 11, fontWeight: 600, color: "#94a3b8", marginBottom: 4 }}>📍 Current Location</div>
-                          {users.find(x => x.id === selAgent.id)?.currentLocation ? (
-                            <Badge label={users.find(x => x.id === selAgent.id)?.currentLocation} style={{ background: "#dcfce7", color: "#15803d" }} />
-                          ) : (
-                            <span style={{ fontSize: 12, color: "#cbd5e1" }}>No location set</span>
-                          )}
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                </div>
-
-                {/* ✅ Update button for agents only */}
-                {selAgent.role === "Agent" && (
-                  <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                    <button onClick={() => {
-                      setCurrentTicketId(users.find(x => x.id === selAgent.id)?.currentTicketId || "");
-                      setCurrentLocation(users.find(x => x.id === selAgent.id)?.currentLocation || "");
-                      setShowLocationModal(true);
-                    }} style={{ padding: "8px 16px", background: "#3b82f6", border: "none", borderRadius: 6, color: "#fff", fontWeight: 600, cursor: "pointer", fontSize: 12, whiteSpace: "nowrap" }}>Update Activity</button>
-                    {/* ✅ NEW: Assign as Idle button for Admin/Manager */}
-                    {(currentUser?.role === "Admin" || currentUser?.role === "Manager") && (
-                      <button
-                        onClick={async () => {
-                          try {
-                            const updatedUser = { ...selAgent, status: "Idle" };
-                            await axios.put(`${USERS_API}/${selAgent.id}`, updatedUser);
-                            setUsers(users.map(u => u.id === selAgent.id ? updatedUser : u));
-                            setSelAgent(updatedUser);
-                            setCustomAlert({ show: true, message: "✅ Agent assigned as Idle", type: "success" });
-                          } catch (e) {
-                            setCustomAlert({ show: true, message: "Failed to update agent status", type: "error" });
-                          }
-                        }}
-                        style={{ padding: "8px 16px", background: "#22c55e", border: "none", borderRadius: 6, color: "#fff", fontWeight: 600, cursor: "pointer", fontSize: 12, whiteSpace: "nowrap", transition: "background 0.2s" }}
-                        onMouseOver={e => e.target.style.background = "#16a34a"}
-                        onMouseOut={e => e.target.style.background = "#22c55e"}
-                      >⏸️ Assign as Idle</button>
-                    )}
-                  </div>
-                )}
-              </div>
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 10 }}>
-                {[
-                  { l: "All", v: selAgent.assigned, c: "#94a3b8", filter: null, bg: "#f1f5f9" },
-                  { l: "Assigned", v: selAgent.assigned, c: "#3b82f6", filter: "assigned", bg: "#dbeafe" },
-                  { l: "Closed", v: selAgent.closed, c: "#22c55e", filter: "closed", bg: "#dcfce7" },
-                  { l: "Open", v: tickets.filter(t => t.assignees?.some(a => a.id === selAgent.id) && (t.status === "Open")).length, c: "#f59e0b", filter: "open", bg: "#fef3c7" }
-                ].map(s => (
-                  <div
-                    key={s.l}
-                    onClick={() => setAgentTicketFilter(s.filter)}
-                    style={{
-                      textAlign: "center",
-                      padding: "12px 8px",
-                      background: agentTicketFilter === s.filter ? s.bg : "#f8fafc",
-                      borderRadius: 10,
-                      border: agentTicketFilter === s.filter ? `2px solid ${s.c}` : "2px solid transparent",
-                      cursor: "pointer",
-                      transition: "all 0.2s"
-                    }}
-                    onMouseEnter={e => { if (agentTicketFilter !== s.filter) { e.currentTarget.style.background = "#f0f0f0"; } }}
-                    onMouseLeave={e => { if (agentTicketFilter !== s.filter) { e.currentTarget.style.background = "#f8fafc"; } }}
-                  >
-                    <div style={{ fontSize: 22, fontWeight: 700, color: s.c }}>{s.v}</div>
-                    <div style={{ fontSize: 11, color: "#94a3b8", marginTop: 4 }}>{s.l}</div>
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            <div style={{ background: "#fff", borderRadius: 12, padding: 16, boxShadow: "0 1px 4px rgba(0,0,0,0.06)" }}>
-              <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 14, color: "#374151" }}>Assigned Tickets</div>
-              {tickets.filter(t => t.assignees?.some(a => a.id === selAgent.id) && t.status !== "Bin").length > 0 ? (
-                <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                  {tickets.filter(t => {
-                    if (!t.assignees?.some(a => a.id === selAgent.id)) return false;
-                    if (t.status === "Bin") return false;
-                    if (agentTicketFilter === null) return true;
-                    if (agentTicketFilter === "assigned") return t.status === "Open";
-                    if (agentTicketFilter === "closed") return t.status === "Closed";
-                    if (agentTicketFilter === "open") return t.status === "Open";
-                    return true;
-                  }).map(t => {
-                    return (
-                      <div key={t.id} onClick={() => { setSelTicket(t); }} style={{ display: "flex", alignItems: "center", gap: 10, padding: "12px", borderRadius: 9, border: "1px solid #f1f5f9", cursor: "pointer", transition: "all 0.2s", background: "#fff" }}
-                        onMouseEnter={e => { e.currentTarget.style.background = "#f8fafc"; e.currentTarget.style.borderColor = "#3b82f6"; e.currentTarget.style.transform = "translateX(4px)"; }}
-                        onMouseLeave={e => { e.currentTarget.style.background = "#fff"; e.currentTarget.style.borderColor = "#f1f5f9"; e.currentTarget.style.transform = "translateX(0)"; }}>
-                        <div style={{ flex: 1, minWidth: 0 }}>
-                          <div style={{ fontSize: 13, fontWeight: 600, color: "#1e293b" }}>{t.summary}</div>
-                          <div style={{ fontSize: 11, color: "#64748b", marginTop: 2 }}>{t.id} · {t.org}</div>
-                        </div>
-                        <Badge label={t.status} style={{ ...STATUS_COLOR[t.status], fontSize: 11 }} />
-                      </div>
-                    );
-                  })}
-                </div>
-              ) : (
-                <div style={{ textAlign: "center", padding: 24, color: "#94a3b8", fontSize: 13 }}>No assigned tickets</div>
-              )}
-            </div>
-          </div> : null}
-
           {/* ── SETTINGS ── */}
           {view === "settings" && <div style={{ display: "flex", gap: 18, alignItems: "flex-start" }}>
             <div style={{ width: 194, background: "#fff", borderRadius: 12, padding: 9, boxShadow: "0 1px 4px rgba(0,0,0,0.06)", flexShrink: 0 }}>
@@ -7224,6 +7014,21 @@ export default function HelpDesk() {
                 ) : (
                   <div style={{ marginBottom: 18, padding: "10px 14px", background: "#fef3c7", color: "#92400e", borderRadius: 8, fontSize: 13, fontWeight: 500 }}>Read Only: User management is restricted to Admins.</div>
                 )}
+                <div style={{ display: "flex", gap: 6, marginBottom: 14, flexWrap: "wrap" }}>
+                  {[
+                    { key: "all", label: "All" },
+                    { key: "On Duty", label: "On Duty" },
+                    { key: "On Ticket", label: "On Ticket" },
+                    { key: "Idle", label: "Idle" },
+                    { key: "On Lunch", label: "On Lunch" },
+                    { key: "off", label: "Off Duty" },
+                  ].map(s => (
+                    <button key={s.key} onClick={() => setUserStatusFilter(s.key)}
+                      style={{ padding: "5px 12px", borderRadius: 6, border: `1.5px solid ${userStatusFilter === s.key ? "#3b82f6" : "#e2e8f0"}`, background: userStatusFilter === s.key ? "#eff6ff" : "#fff", color: userStatusFilter === s.key ? "#1d4ed8" : "#64748b", fontSize: 12, fontWeight: userStatusFilter === s.key ? 700 : 400, cursor: "pointer" }}>
+                      {s.label}
+                    </button>
+                  ))}
+                </div>
                 <div style={{ border: "1px solid #e2e8f0", borderRadius: 8, overflow: "hidden" }}><table style={{ width: "100%", borderCollapse: "collapse" }}>
                   <thead><tr>
                     <FilterableHeader label="Name" field="name" data={users} filters={userSort} onFilter={setUserSort} style={thStyle} />
@@ -7231,9 +7036,19 @@ export default function HelpDesk() {
                     <FilterableHeader label="Role" field="role" data={users} filters={userSort} onFilter={setUserSort} style={thStyle} />
                     <FilterableHeader label="Status" field="status" data={users} filters={userSort} onFilter={setUserSort} style={thStyle} />
                     <FilterableHeader label="Account" field="active" data={users} filters={userSort} onFilter={setUserSort} style={thStyle} getVal={(row, f) => row.active ? "Activated" : "Deactivated"} />
+                    <th style={thStyle}>Assigned</th>
+                    <th style={thStyle}>Closed</th>
+                    <th style={thStyle}>Open</th>
+                    <th style={thStyle}>Rate</th>
                     {(currentUser?.role === "Admin") && <th style={thStyle}>Actions</th>}
                   </tr></thead>
-                  <tbody>{applySort(users, userSort).map(u => (
+                  <tbody>{applySort(users.filter(u => {
+                    if (userStatusFilter === "all") return true;
+                    const s = u.status || "Off Duty";
+                    if (userStatusFilter === "On Duty") return s === "On Duty" || s === "On Ticket";
+                    if (userStatusFilter === "off") return s !== "On Duty" && s !== "On Ticket" && s !== "Idle" && s !== "On Lunch";
+                    return s === userStatusFilter;
+                  }), userSort).map(u => (
                     <tr key={u.id} className="rh">
                       <td style={tdStyle}><span style={{ fontSize: 13, fontWeight: 600 }}>{u.name}</span></td>
                       <td style={{ ...tdStyle, color: "#64748b", fontSize: 12 }}>{u.email}</td>
@@ -7244,6 +7059,10 @@ export default function HelpDesk() {
                         return <span style={{ fontSize: 12, color: sStyle?.c || "#f59e0b" }}>{sStyle?.l || "Off Duty"}</span>;
                       })()}</td>
                       <td style={tdStyle}><span style={{ fontSize: 12, color: u.active ? "#15803d" : "#ef4444", fontWeight: 500 }}>{u.active ? "Activated" : "Deactivated"}</span></td>
+                      <td style={{ ...tdStyle, textAlign: "center", fontSize: 13 }}>{tickets.filter(t => t.assignees?.some(a => a.id === u.id) && t.status !== "Bin").length}</td>
+                      <td style={{ ...tdStyle, textAlign: "center", fontSize: 13 }}>{tickets.filter(t => t.assignees?.some(a => a.id === u.id) && t.status === "Closed").length}</td>
+                      <td style={{ ...tdStyle, textAlign: "center", fontSize: 13 }}>{tickets.filter(t => t.assignees?.some(a => a.id === u.id) && t.status === "Open").length}</td>
+                      {(() => { const assigned = tickets.filter(t => t.assignees?.some(a => a.id === u.id) && t.status !== "Bin").length; const closed = tickets.filter(t => t.assignees?.some(a => a.id === u.id) && t.status === "Closed").length; const rate = assigned ? Math.round(closed / assigned * 100) : 0; return <td style={{ ...tdStyle, fontSize: 12, color: rate > 70 ? "#15803d" : rate > 40 ? "#b45309" : "#b91c1c" }}>{rate}%</td>; })()}
                       {(currentUser?.role === "Admin") && (
                         <td style={tdStyle}>
                           <button onClick={() => { setUserEditModal({ show: true, user: u, newRole: u.role, editName: u.name || "", editEmail: u.email || "", editPhone: u.phone || "", editPassword: "" }); }} style={{ border: "none", background: "#dbeafe", color: "#1e40af", borderRadius: 6, padding: "6px 14px", cursor: "pointer", fontSize: 12, fontWeight: 600 }}>Manage</button>
