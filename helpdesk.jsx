@@ -4473,6 +4473,11 @@ export default function HelpDesk() {
     { id: "bin", label: "Bin", icon: "" },
     { id: "usermgmt", label: "User Management", icon: "" },
     { id: "customattrs", label: "Ticket Form", icon: "" },
+  ] : currentUser?.role === "Agent" ? [
+    { id: "organisations", label: "Orgs & Departments", icon: "" },
+    { id: "categories", label: "Categories", icon: "" },
+    { id: "locations", label: "Locations", icon: "" },
+    { id: "vendors", label: "Vendors", icon: "" },
   ] : [
   ];
   const getPageTitle = () => {
@@ -5969,7 +5974,7 @@ export default function HelpDesk() {
                           style={{ padding: "4px 10px", borderRadius: 6, border: "1.5px solid #f59e0b", background: "#fffbeb", color: "#b45309", cursor: "pointer", fontSize: 12, fontWeight: 600, fontFamily: "'DM Sans',sans-serif", whiteSpace: "nowrap" }}
                         >🔄 Reopen</button>
                       ) : (
-                        <select value={t.status} onChange={e => updateStatus(t.id, e.target.value)} style={{ ...sS, width: 108, fontSize: 12, padding: "4px 7px" }}>{STATUSES.map(s => <option key={s}>{s}</option>)}</select>
+                        <select value={t.status} onChange={e => updateStatus(t.id, e.target.value)} style={{ ...sS, width: 108, fontSize: 12, padding: "4px 7px" }}>{STATUSES.filter(s => s !== "Bin" || (currentUser?.role !== "Agent" && currentUser?.role !== "Viewer")).map(s => <option key={s}>{s}</option>)}</select>
                       )}
                     </td>
                   </tr>
@@ -6180,7 +6185,7 @@ export default function HelpDesk() {
                           } else {
                             updateProjectStatus(p.id, newStatus);
                           }
-                        }} style={{ ...sS, width: 108, fontSize: 12, padding: "4px 7px" }}>{PROJECT_STATUSES.map(s => <option key={s}>{s}</option>)}</select>
+                        }} style={{ ...sS, width: 108, fontSize: 12, padding: "4px 7px" }}>{PROJECT_STATUSES.filter(s => s !== "Bin" || (currentUser?.role !== "Agent" && currentUser?.role !== "Viewer")).map(s => <option key={s}>{s}</option>)}</select>
                       )}
                     </td>
                   </tr>
