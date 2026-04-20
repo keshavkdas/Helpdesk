@@ -58,7 +58,6 @@ const TICKET_VIEWS = [
   { id: "unassigned", label: "Unassigned", desc: "Tickets with no assignees", filter: t => (!t.assignees || t.assignees.length === 0) && t.status !== "Closed" },
   { id: "mine", label: "My Tickets",desc: "Open/in progress assigned to me", filter: (t, me) => (t.status === "Open") && t.assignees?.some(a => a.id === me?.id) },
   { id: "all", label: "All Tickets", desc: "Every ticket in the system", filter: () => true },
-  { id: "alerts", label: "Active Alerts", desc: "Critical tickets with active alerts", filter: t => t.priority === "Critical" && t.status !== "Closed" },
   { id: "pastdue", label: "Past Due", desc: "Open tickets with past due date", filter: t => t.status === "Open" && t.dueDate && new Date(String(t.dueDate)) < new Date() },
   { id: "vendor", label: "By Vendor", desc: "Tickets sent to vendors for repair", filter: t => t.status === "Pending" && t.timeline?.some(ev => ev.action?.includes("Sent for Repair")) },
 ];
@@ -1081,7 +1080,7 @@ export default function HelpDesk() {
   });
 
   const mainContentRef = useRef(null);
-  const switchView = (v) => { setView(v); setReportBuilderOpen(false); setTimeout(() => mainContentRef.current?.scrollTo(0, 0), 0); };
+  const switchView = (v) => { setView(v); setSearch(""); setStatusF("All"); setPriorityF("All"); setDeptFilter("all"); setCategoryFilter("all"); setOrgFilterSearch(""); setProjSearch(""); setProjStatusF("All"); setProjPriorityF("All"); setVisibleTicketCols(new Set(ALL_TICKET_COLS.filter(c => c !== "vendor" && c !== "reportedBy"))); setVisibleProjCols(new Set(ALL_PROJ_COLS.filter(c => c !== "progress"))); setSettingsTab("organisations"); setReportBuilderOpen(false);; setTimeout(() => mainContentRef.current?.scrollTo(0, 0), 0); };
   const [settingsTab, setSettingsTab] = useState("organisations");
   const [activeQuickFilters, setActiveQuickFilters] = useState([]);
   const [showQuickFilterDD, setShowQuickFilterDD] = useState(false);
@@ -1492,10 +1491,10 @@ export default function HelpDesk() {
   const [ticketsPerPage, setTicketsPerPage] = useState(10);
   const [sortOrder, setSortOrder] = useState("desc"); // "desc" = newest first, "asc" = oldest first
   const ALL_TICKET_COLS = ["id","created","summary","org","department","vendor","reportedBy","assignees","priority","category","status"];
-  const [visibleTicketCols, setVisibleTicketCols] = useState(new Set(ALL_TICKET_COLS));
+  const [visibleTicketCols, setVisibleTicketCols] = useState(new Set(ALL_TICKET_COLS.filter(c => c !== "vendor" && c !== "reportedBy")));
   const [showTicketColPicker, setShowTicketColPicker] = useState(false);
   const ALL_PROJ_COLS = ["id","created","title","org","department","assignees","priority","category","status","progress","dueDate"];
-  const [visibleProjCols, setVisibleProjCols] = useState(new Set(ALL_PROJ_COLS));
+  const [visibleProjCols, setVisibleProjCols] = useState(new Set(ALL_PROJ_COLS.filter(c => c !== "progress")));
   const [showProjColPicker, setShowProjColPicker] = useState(false);
   const [ticketColDDPos, setTicketColDDPos] = useState({ top: 0, right: 0 });
   const [projColDDPos, setProjColDDPos] = useState({ top: 0, right: 0 });
@@ -1540,7 +1539,7 @@ export default function HelpDesk() {
   const [ticketSort, setTicketSort] = useState({});
   const [projSort, setProjSort] = useState({});
   const [userSort, setUserSort] = useState({ _sortField: "name", _sortDir: "asc" });
-  const [orgSort, setOrgSort] = useState({});
+  const [orgSort, setOrgSort] = useState({ _sortField: "name", _sortDir: "asc" });
   const [catSort, setCatSort] = useState({});
   const [deptSort, setDeptSort] = useState({});
   const [locSort, setLocSort] = useState({});
@@ -4179,7 +4178,7 @@ export default function HelpDesk() {
       const minutesElapsed = (new Date() - loginTime) / 60000;
 
       // Step 1: Set Idle after 15 min of On Duty — only once
-      if (u.status === "On Duty" && minutesElapsed >= 15) {
+      if (u.status === "On Duty" && minutesElapsed >= 1) {
         const idleUp = { ...u, status: "Idle", idleAt: new Date().toISOString(), _isSystemUpdate: true };
         try {
           await axios.put(`${USERS_API}/${u.id}`, idleUp);
@@ -4399,7 +4398,6 @@ export default function HelpDesk() {
     { id: "categories", label: "Categories", icon: "" },
     { id: "locations", label: "Locations", icon: "" },
     { id: "vendors", label: "Vendors", icon: "" },
-    { id: "bin", label: "Bin", icon: "" },
     { id: "usermgmt", label: "User Management", icon: "" },
     { id: "customattrs", label: "Ticket Form", icon: "" },
     { id: "dbmgmt", label: "Database Mgmt", icon: "" },
@@ -4408,7 +4406,6 @@ export default function HelpDesk() {
     { id: "categories", label: "Categories", icon: "" },
     { id: "locations", label: "Locations", icon: "" },
     { id: "vendors", label: "Vendors", icon: "" },
-    { id: "bin", label: "Bin", icon: "" },
     { id: "usermgmt", label: "User Management", icon: "" },
     { id: "customattrs", label: "Ticket Form", icon: "" },
   ] : currentUser?.role === "Agent" ? [
@@ -4431,10 +4428,9 @@ export default function HelpDesk() {
   const tdStyle = { padding: "10px 11px", borderBottom: "1px solid #94a3b8", borderLeft: "1px solid #cbd5e1", borderRight: "1px solid #cbd5e1", fontSize: 13 };
 
   // Webcast fields shared component
-  const WebcastFields = ({ f, setF, isProject = false }) => {
-    const satsangSearch = isProject ? projSatsangTypeSearch : satsangTypeSearch;
-    const showDD = isProject ? showProjSatsangTypeDD : showSatsangTypeDD;
-
+const WebcastFields = ({ f, setF, isProject = false }) => {
+    const [satsangSearch, setSatsangSearch] = useState("");
+    const [showDD, setShowDD] = useState(false);
     const locSearch = isProject ? projWebcastLocationSearch : webcastLocationSearch;
     const setLocSearch = isProject ? setProjWebcastLocationSearch : setWebcastLocationSearch;
     const showLocDD = isProject ? showProjWebcastLocationDD : showWebcastLocationDD;
@@ -4870,7 +4866,7 @@ export default function HelpDesk() {
               onFocus={() => { setDashboardOrgSearch(""); setShowDashboardOrgDD(true); }}
               style={{ width: "100%", padding: "7px 28px 7px 10px", borderRadius: 7, border: dashboardOrg !== "all" ? "1.5px solid #3b82f6" : "1px solid #334155", background: dashboardOrg !== "all" ? "#172554" : "#1e293b", color: "#e2e8f0", fontSize: 12, fontFamily: "'DM Sans',sans-serif", boxSizing: "border-box", outline: "none" }}
             />
-            {dashboardOrg !== "all" && (
+            {(
               <span onClick={() => { setDashboardOrg("all"); setDashboardOrgSearch(""); }} style={{ position: "absolute", right: 8, top: "50%", transform: "translateY(-50%)", cursor: "pointer", color: "#60a5fa", fontSize: 16, lineHeight: 1 }}>×</span>
             )}
             {showDashboardOrgDD && (
@@ -4878,7 +4874,7 @@ export default function HelpDesk() {
                 <div style={{ position: "fixed", inset: 0, zIndex: 199 }} onClick={() => { setShowDashboardOrgDD(false); setDashboardOrgSearch(""); }} />
                 <div ref={el => { if (el) { const rect = el.parentElement.getBoundingClientRect(); const spaceBelow = window.innerHeight - rect.bottom - 8; el.style.maxHeight = Math.min(180, spaceBelow) + "px"; } }} style={{ position: "absolute", left: 0, right: 0, top: "calc(100% + 4px)", background: "#1e293b", border: "1.5px solid #334155", borderRadius: 8, zIndex: 200, maxHeight: 180, overflowY: "auto", boxShadow: "0 8px 24px rgba(0,0,0,0.4)" }}>
                   <div onClick={() => { setDashboardOrg("all"); setShowDashboardOrgDD(false); setDashboardOrgSearch(""); }} style={{ padding: "8px 12px", cursor: "pointer", color: dashboardOrg === "all" ? "#60a5fa" : "#94a3b8", fontWeight: dashboardOrg === "all" ? 700 : 400, fontSize: 12, borderBottom: "1px solid #334155" }}>All Organizations</div>
-                  {orgs.filter(o => dashboardOrgSearch === "" || o.name.toLowerCase().includes(dashboardOrgSearch.toLowerCase())).map(o => (
+                  {[...orgs].sort((a,b) => a.name.localeCompare(b.name)).filter(o => dashboardOrgSearch === "" || o.name.toLowerCase().includes(dashboardOrgSearch.toLowerCase())).map(o => (
                     <div key={o.id} onClick={() => { setDashboardOrg(o.name); setShowDashboardOrgDD(false); setDashboardOrgSearch(""); }} style={{ padding: "8px 12px", cursor: "pointer", color: dashboardOrg === o.name ? "#60a5fa" : "#e2e8f0", fontWeight: dashboardOrg === o.name ? 700 : 400, fontSize: 12, borderBottom: "1px solid #283548" }}>
                       {o.name}
                     </div>
@@ -5519,12 +5515,12 @@ export default function HelpDesk() {
                       ))}
                     </div>
                     <div style={{ padding: "10px 16px", borderTop: "1px solid #f1f5f9" }}>
-                      <button onClick={() => { switchView("tickets"); setTvFilter("alerts"); setShowBellPanel(false); }} style={{ width: "100%", padding: "7px", borderRadius: 8, border: "none", background: "#f8fafc", color: "#3b82f6", fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: "'DM Sans',sans-serif" }}>View All Alerts →</button>
+                      <button onClick={() => { switchView("alerts"); setShowBellPanel(false); }} style={{ width: "100%", padding: "7px", borderRadius: 8, border: "none", background: "#f8fafc", color: "#3b82f6", fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: "'DM Sans',sans-serif" }}>View All Alerts →</button>
                     </div>
                   </div>
                 </>}
               </div>
-
+              
               {/* ✉️ Inbox — DB-backed per user */}
               <div style={{ position: "relative" }}>
                 <button onClick={() => { setShowInboxPanel(p => !p); setShowBellPanel(false); if (!showInboxPanel) markInboxRead(); }}
@@ -5566,11 +5562,19 @@ export default function HelpDesk() {
                       ))}
                     </div>
                     <div style={{ padding: "10px 16px", borderTop: "1px solid #f1f5f9" }}>
-                      <button onClick={() => { switchView("tickets"); setTvFilter("alerts"); setShowInboxPanel(false); }} style={{ width: "100%", padding: "7px", borderRadius: 8, border: "none", background: "#f8fafc", color: "#3b82f6", fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: "'DM Sans',sans-serif" }}>View All Alerts →</button>
+                      <button onClick={() => { switchView("alerts"); setShowInboxPanel(false); }} style={{ width: "100%", padding: "7px", borderRadius: 8, border: "none", background: "#f8fafc", color: "#3b82f6", fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: "'DM Sans',sans-serif" }}>View All Alerts →</button>
                     </div>
                   </div>
                 </>}
               </div>
+
+              {/* 🗑 Bin — Admin/Manager only */}
+            {(currentUser?.role === "Admin" || currentUser?.role === "Manager") && (
+              <button onClick={() => switchView("bin")} title="Bin"
+                style={{ width: 36, height: 36, borderRadius: 9, border: "1.5px solid #e2e8f0", background: view === "settings" && settingsTab === "bin" ? "#fee2e2" : "#fff", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 16 }}>
+                🗑️
+              </button>
+            )}
             </div>
           </div>
         </div>
@@ -5889,7 +5893,7 @@ export default function HelpDesk() {
                     {visibleTicketCols.has("org") && <td style={tdStyle} onClick={() => setSelTicket(t)}><div style={{ fontSize: 12, fontWeight: 500 }}>{t.org}</div></td>}
                     {visibleTicketCols.has("department") && <td style={tdStyle} onClick={() => setSelTicket(t)}><div style={{ fontSize: 12, color: "#64748b" }}>{t.department || "—"}</div></td>}
                     {visibleTicketCols.has("vendor") && <td style={tdStyle} onClick={() => setSelTicket(t)}><div style={{ fontSize: 12, color: "#64748b" }}>{t.vendor || "—"}</div></td>}
-                    {visibleTicketCols.has("reportedBy") && <td style={tdStyle} onClick={() => setSelTicket(t)}><span style={{ fontSize: 12, color: "#64748b" }} title={t.reportedBy || "—"}>{t.reportedBy ? t.reportedBy.slice(0, 4) : "—"}</span></td>}
+                    {visibleTicketCols.has("reportedBy") && <td style={tdStyle} onClick={() => setSelTicket(t)}><span style={{ fontSize: 12, color: "#64748b" }} title={t.reportedBy || "—"}>{t.reportedBy ? t.reportedBy.split(" ")[0] : "—"}</span></td>}
                     {visibleTicketCols.has("assignees") && <td style={tdStyle} onClick={() => setSelTicket(t)}>
                       <div style={{ display: "flex", alignItems: "center", gap: 4, flexWrap: "wrap" }}>
                         {(t.assignees || []).map((a) => (
@@ -5938,7 +5942,7 @@ export default function HelpDesk() {
             </div>
           </div>}
           {/* ── Active Alerts: Notifications + Inbox panels ── */}
-          {view === "tickets" && tvFilter === "alerts" && (
+          {(view === "tickets" && tvFilter === "alerts") || view === "alerts" ? (
             <div style={{ display: "flex", flexDirection: "column", gap: 16, marginBottom: 20 }}>
 
               {/* Notifications - 10 days */}
@@ -6011,7 +6015,7 @@ export default function HelpDesk() {
               </div>
 
             </div>
-          )}
+          ): null}
           {/* ── PROJECTS ── */}
           {view === "projects" && <div style={{ background: "#fff", borderRadius: 12, boxShadow: "0 1px 4px rgba(0,0,0,0.06)", overflow: "hidden" }}>
 
@@ -6525,7 +6529,47 @@ export default function HelpDesk() {
               </div>
             );
           })()}
-
+          {/* ── BIN ── */}
+          {view === "bin" && <div style={{ background: "#fff", borderRadius: 12, padding: 22, boxShadow: "0 1px 4px rgba(0,0,0,0.06)" }}>
+            <h3 style={{ margin: "0 0 4px", fontSize: 15, fontWeight: 700 }}>🧹 Bin</h3>
+            <p style={{ margin: "0 0 18px", fontSize: 12, color: "#64748b" }}>Manage deleted tickets and projects. Auto-deleted after 30 days.</p>
+            {/* Tickets bin */}
+            <div style={{ marginBottom: 24 }}>
+              <div style={{ fontSize: 13, fontWeight: 700, color: "#374151", marginBottom: 10 }}>🎫 Tickets ({tickets.filter(t => t.status === "Bin").length})</div>
+              {tickets.filter(t => t.status === "Bin").length === 0 ? (
+                <div style={{ fontSize: 13, color: "#94a3b8", padding: "18px 0" }}>No deleted tickets.</div>
+              ) : tickets.filter(t => t.status === "Bin").map(t => (
+                <div key={t.id} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 14px", borderRadius: 8, background: "#f8fafc", marginBottom: 7, fontSize: 13 }}>
+                  <span style={{ fontWeight: 600 }}>{t.id}</span>
+                  <span style={{ color: "#64748b", flex: 1, margin: "0 12px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{t.title}</span>
+                  <button onClick={() => restoreTicket(t.id)} style={{ fontSize: 11, padding: "4px 10px", borderRadius: 6, border: "none", background: "#22c55e", color: "#fff", cursor: "pointer", fontWeight: 600, marginRight: 6 }}>Restore</button>
+                  <button onClick={() => permanentlyDeleteTicket(t.id)} style={{ fontSize: 11, padding: "4px 10px", borderRadius: 6, border: "none", background: "#ef4444", color: "#fff", cursor: "pointer", fontWeight: 600 }}>Delete</button>
+                </div>
+              ))}
+            </div>
+            {/* Projects bin */}
+              <div>
+                <div style={{ fontSize: 13, fontWeight: 700, color: "#374151", marginBottom: 10 }}>📁 Projects ({projects.filter(p => p.status === "Bin").length})</div>
+                {projects.filter(p => p.status === "Bin").length === 0 ? (
+                  <div style={{ textAlign: "center", color: "#94a3b8", padding: 20, background: "#f8fafc", borderRadius: 8 }}>No projects in bin</div>
+                ) : projects.filter(p => p.status === "Bin").map(p => {
+                  const daysLeft = Math.max(0, 30 - Math.floor((new Date() - new Date(p.updatedAt || p.updated)) / 86400000));
+                  return (
+                    <div key={p.id} style={{ padding: 12, background: "#f8fafc", borderRadius: 8, border: "1px solid #e2e8f0", display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 7 }}>
+                      <div style={{ flex: 1 }}>
+                        <div style={{ fontWeight: 600, color: "#0f172a" }}>{p.id}</div>
+                        <div style={{ fontSize: 12, color: "#64748b" }}>{p.title}</div>
+                        <div style={{ fontSize: 11, color: daysLeft === 0 ? "#ef4444" : "#94a3b8", marginTop: 4 }}>{daysLeft === 0 ? "⚠️ Deleting today" : `🕐 Auto-delete in ${daysLeft} days`}</div>
+                      </div>
+                      <div style={{ display: "flex", gap: 6, marginLeft: 12 }}>
+                        <button onClick={() => updateProjectStatus(p.id, "Open")} style={{ padding: "6px 12px", background: "#22c55e", border: "none", borderRadius: 4, color: "#fff", cursor: "pointer", fontSize: 11, fontWeight: 600 }}>Restore</button>
+                        <button onClick={() => { setConfirmModal({ show: true, title: "Delete Project Permanently", message: "This cannot be undone.", confirmLabel: "Delete", confirmDanger: true, onConfirm: async () => { try { await axios.delete(`${PROJECTS_API}/${p.id}`); setProjects(prev => prev.filter(x => x.id !== p.id)); setCustomAlert({ show: true, message: "✅ Project permanently deleted", type: "success" }); } catch(e) { setCustomAlert({ show: true, message: "Failed to delete", type: "error" }); } setConfirmModal({ show: false }); }, onCancel: () => setConfirmModal({ show: false }) }); }} style={{ padding: "6px 12px", background: "#ef4444", border: "none", borderRadius: 4, color: "#fff", cursor: "pointer", fontSize: 11, fontWeight: 600 }}>Delete Now</button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+          </div>}
           {/* ── SETTINGS ── */}
           {view === "settings" && <div style={{ display: "flex", gap: 18, alignItems: "flex-start" }}>
             <div style={{ width: 194, background: "#fff", borderRadius: 12, padding: 9, boxShadow: "0 1px 4px rgba(0,0,0,0.06)", flexShrink: 0 }}>
@@ -6719,7 +6763,7 @@ export default function HelpDesk() {
                   <tbody>
                     {[...categories].sort((a, b) => (a.name || "").localeCompare(b.name || "")).map(c => (
                       <tr key={c.id} className="rh" style={{ verticalAlign: "top" }}>
-                        <td style={{ ...tdStyle, fontWeight: 600 }}>{c.name}</td>
+                        <td style={{ ...tdStyle, fontWeight: 600 }}>{expandedCatId === c.id ? <input style={{ ...iS, fontSize: 12, padding: "4px 8px", width: 160 }} value={c.name} onChange={e => setCategories(categories.map(x => x.id === c.id ? { ...x, name: e.target.value } : x))} autoFocus /> : c.name}</td>
                         <td style={tdStyle}>
                           {(c.subcategories || []).length === 0
                             ? <span style={{ fontSize: 12, color: "#cbd5e1" }}>None</span>
@@ -6747,7 +6791,6 @@ export default function HelpDesk() {
                         {currentUser?.role === "Admin" && <td style={{ ...tdStyle, whiteSpace: "nowrap" }}>
                           {expandedCatId === c.id ? (
                             <>
-                              <input style={{ ...iS, fontSize: 12, padding: "4px 8px", display: "inline", width: 120, marginRight: 6 }} value={c.name} onChange={e => setCategories(categories.map(x => x.id === c.id ? { ...x, name: e.target.value } : x))} />
                               <button onClick={async () => { try { await axios.put(`${CATEGORIES_API}/${c.id}`, { name: c.name }); setExpandedCatId(null); setCustomAlert({ show: true, message: "✅ Category updated!", type: "success" }); } catch { setCustomAlert({ show: true, message: "Failed to update category", type: "error" }); }}} style={{ border: "none", background: "#22c55e", color: "#fff", borderRadius: 6, padding: "4px 10px", cursor: "pointer", fontSize: 12, fontWeight: 600, marginRight: 4 }}>Save</button>
                               <button onClick={() => setExpandedCatId(null)} style={{ border: "1px solid #e2e8f0", background: "#fff", color: "#64748b", borderRadius: 6, padding: "4px 10px", cursor: "pointer", fontSize: 12, fontWeight: 600 }}>Cancel</button>
                             </>
@@ -6874,7 +6917,7 @@ export default function HelpDesk() {
                 {vendors.length === 0 && <div style={{ textAlign: "center", color: "#94a3b8", padding: 28 }}>No vendors yet. Add one to get started.</div>}
               </div>}
 
-              {settingsTab === "bin" && (
+              {settingsTab === "bin" && false && (
                 <div style={{ background: "#fff", borderRadius: 12, padding: 22, boxShadow: "0 1px 4px rgba(0,0,0,0.06)" }}>
                   <h3 style={{ margin: "0 0 4px", fontSize: 15, fontWeight: 700 }}>🧹 Bin</h3>
                   <p style={{ margin: "0 0 18px", fontSize: 12, color: "#64748b" }}>Manage deleted tickets and projects. Auto-deleted after 30 days.</p>
@@ -7002,10 +7045,10 @@ export default function HelpDesk() {
                         return <span style={{ fontSize: 12, color: sStyle?.c || "#f59e0b" }}>{sStyle?.l || "Off Duty"}</span>;
                       })()}</td>
                       <td style={tdStyle}><span style={{ fontSize: 12, color: u.active ? "#15803d" : "#ef4444", fontWeight: 500 }}>{u.active ? "Activated" : "Deactivated"}</span></td>
-                      <td style={{ ...tdStyle, textAlign: "center", fontSize: 13 }}>{tickets.filter(t => t.assignees?.some(a => a.id === u.id) && t.status !== "Bin").length}</td>
-                      <td style={{ ...tdStyle, textAlign: "center", fontSize: 13 }}>{tickets.filter(t => t.assignees?.some(a => a.id === u.id) && t.status === "Closed").length}</td>
-                      <td style={{ ...tdStyle, textAlign: "center", fontSize: 13 }}>{tickets.filter(t => t.assignees?.some(a => a.id === u.id) && t.status === "Open").length}</td>
-                      {(() => { const assigned = tickets.filter(t => t.assignees?.some(a => a.id === u.id) && t.status !== "Bin").length; const closed = tickets.filter(t => t.assignees?.some(a => a.id === u.id) && t.status === "Closed").length; const rate = assigned ? Math.round(closed / assigned * 100) : 0; return <td style={{ ...tdStyle, fontSize: 12, color: rate > 70 ? "#15803d" : rate > 40 ? "#b45309" : "#b91c1c" }}>{rate}%</td>; })()}
+                      <td style={{ ...tdStyle, textAlign: "center", fontSize: 13 }}>{tickets.filter(t => t.assignees?.some(a => a.id === u.id) && t.status !== "Bin" && (dashboardOrg === "all" || t.org === dashboardOrg)).length}</td>
+                      <td style={{ ...tdStyle, textAlign: "center", fontSize: 13 }}>{tickets.filter(t => t.assignees?.some(a => a.id === u.id) && t.status === "Closed" && (dashboardOrg === "all" || t.org === dashboardOrg)).length}</td>
+                      <td style={{ ...tdStyle, textAlign: "center", fontSize: 13 }}>{tickets.filter(t => t.assignees?.some(a => a.id === u.id) && t.status === "Open" && (dashboardOrg === "all" || t.org === dashboardOrg)).length}</td>
+                      {(() => { const assigned = tickets.filter(t => t.assignees?.some(a => a.id === u.id) && t.status !== "Bin" && (dashboardOrg === "all" || t.org === dashboardOrg)).length; const closed = tickets.filter(t => t.assignees?.some(a => a.id === u.id) && t.status === "Closed").length; const rate = assigned ? Math.round(closed / assigned * 100) : 0; return <td style={{ ...tdStyle, fontSize: 12, color: rate > 70 ? "#15803d" : rate > 40 ? "#b45309" : "#b91c1c" }}>{rate}%</td>; })()}
                       {(currentUser?.role === "Admin") && (
                         <div style={{ display: "flex", gap: 6 }}>
                           <button onClick={() => { setUserEditModal({ show: true, user: u, newRole: u.role, editName: u.name || "", editEmail: u.email || "", editPhone: u.phone || "", editPassword: "" }); }} style={{ border: "none", background: "#dbeafe", color: "#1e40af", borderRadius: 6, padding: "6px 14px", cursor: "pointer", fontSize: 12, fontWeight: 600 }}>Manage</button>

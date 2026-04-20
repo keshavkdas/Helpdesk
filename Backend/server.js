@@ -362,6 +362,9 @@ app.put("/api/users/:id", async (req, res) => {
         if (newStatus && newStatus !== currentStatus) {
             // Check if attempting to logout (change to Off Duty)
             if (newStatus === "Off Duty" && currentStatus !== "Off Duty" && !req.body.forceLogout && !req.body._isSystemUpdate) {
+                if (currentStatus === "Idle") {
+                    return res.status(403).json({ error: "Idle agents can only be set Off Duty by admin or by logging in again." });
+                }
                 if (!logoutReason || logoutReason.trim() === "") {
                     return res.status(400).json({
                         error: "Logout reason is required",
