@@ -1082,7 +1082,6 @@ export default function HelpDesk() {
 
   const mainContentRef = useRef(null);
   const switchView = (v) => { setView(v); setReportBuilderOpen(false); setTimeout(() => mainContentRef.current?.scrollTo(0, 0), 0); };
-
   const [settingsTab, setSettingsTab] = useState("organisations");
   const [activeQuickFilters, setActiveQuickFilters] = useState([]);
   const [showQuickFilterDD, setShowQuickFilterDD] = useState(false);
@@ -1143,6 +1142,7 @@ export default function HelpDesk() {
   const [deleteConfirmation, setDeleteConfirmation] = useState(null);
   const [permanentDeleteId, setPermanentDeleteId] = useState(null);
   const [binDeletedAt, setBinDeletedAt] = useState({});
+  const [restoreModal, setRestoreModal] = useState({ show: false, ticket: null, remark: "" });
 
   // ✅ NEW: Locations (from database)
   const [locations, setLocations] = useState([]);
@@ -1263,12 +1263,6 @@ export default function HelpDesk() {
 
   // ── Satsangs ──
   const [satsangs, setSatsangs] = useState([]);
-  const [satsangTypes, setSatsangTypes] = useState([]);
-  const [satsangTypeSearch, setSatsangTypeSearch] = useState("");
-  const [showSatsangTypeDD, setShowSatsangTypeDD] = useState(false);
-  const [newSatsangType, setNewSatsangType] = useState("");
-  const [projSatsangTypeSearch, setProjSatsangTypeSearch] = useState("");
-  const [showProjSatsangTypeDD, setShowProjSatsangTypeDD] = useState(false);
 
   // ── Comments ──
   const [newComment, setNewComment] = useState("");
@@ -1493,6 +1487,7 @@ export default function HelpDesk() {
 
   // ✅ NEW: Confirmation Modal State
   const [confirmModal, setConfirmModal] = useState({ show: false, title: "", message: "", onConfirm: null, onCancel: null });
+  const [agentDetailModal, setAgentDetailModal] = useState({ show: false, user: null });
   const [selectedTickets, setSelectedTickets] = useState(new Set());
   const [ticketsPerPage, setTicketsPerPage] = useState(10);
   const [sortOrder, setSortOrder] = useState("desc"); // "desc" = newest first, "asc" = oldest first
@@ -1619,15 +1614,6 @@ export default function HelpDesk() {
       } catch (e) {
         console.log("Locations loading from API:", e.message);
         setLocations([]);
-      }
-
-      // ✅ NEW: Load satsang types from database
-      try {
-        const satTypeResponse = await axios.get(`${BASE_URL}/satsang-types`);
-        setSatsangTypes((satTypeResponse.data || []).map(st => st.name));
-      } catch (e) {
-        console.log("Satsang types loading from API:", e.message);
-        setSatsangTypes([]);
       }
 
       const allRaw = [...(data.webcasts || []), ...(data.tickets || [])];
@@ -2232,7 +2218,7 @@ export default function HelpDesk() {
     total: dashboardData.filter(x => x.status !== "Bin").length,
     open: dashboardData.filter(x => x.status === "Open").length,
     closed: dashboardData.filter(x => x.status === "Closed").length,
-    critical: dashboardData.filter(x => x.priority === "Critical" && x.status !== "Bin").length
+    critical: dashboardData.filter(x => x.priority === "Critical" && x.status === "Open" && x.status !== "Bin").length
   }), [dashboardData]);
 
   // For dashboard: Agents and Viewers only see stats for projects assigned to them
@@ -2887,7 +2873,8 @@ export default function HelpDesk() {
         setDeleteConfirmation({ show: false });
         try {
           const nowISO = new Date().toISOString();
-          const updatedT = { ...t, status: "Bin", updated: nowISO };
+          const binTimelineEvent = { action: "Moved to Bin", by: currentUser.name, date: nowISO, note: `Previous status: ${t.status}` };
+          const updatedT = { ...t, status: "Bin", updated: nowISO, timeline: [...(t.timeline || []), binTimelineEvent] };
           const apiUrl = isTrueWebcast(t) ? `${BASE_URL}/webcasts/${id}` : `${TICKETS_API}/${id}`;
           await axios.put(apiUrl, updatedT);
           setTickets(p => p.map(x => x.id === id ? { ...updatedT, updated: new Date(nowISO) } : x));
@@ -3685,56 +3672,6 @@ export default function HelpDesk() {
     });
   };
 
-  // ✅ NEW: Satsang Type Management Functions
-  const addSatsangType = async () => {
-    if (!newSatsangType?.trim()) {
-      setCustomAlert({ show: true, message: "Satsang type name required", type: "error" });
-      return;
-    }
-    if (satsangTypes.some(t => t.toLowerCase() === newSatsangType.trim().toLowerCase())) {
-      setCustomAlert({ show: true, message: `⚠️ Satsang type "${newSatsangType.trim()}" already exists`, type: "error" });
-      return;
-    }
-    try {
-      const res = await axios.post(`${BASE_URL}/satsang-types`, { name: newSatsangType.trim() });
-      setSatsangTypes([...satsangTypes, res.data.name]);
-      setNewSatsangType("");
-      setCustomAlert({ show: true, message: "✅ Satsang type added!", type: "success" });
-      addDailyNotif({ type: "satsang_type_added", icon: "📡", text: `${currentUser.name} added satsang type "${res.data.name}"`, by: currentUser.name });
-    } catch (e) {
-      setCustomAlert({ show: true, message: "Failed to add satsang type", type: "error" });
-    }
-  };
-
-  const deleteSatsangType = async (typeName) => {
-    setConfirmModal({
-      show: true, title: "Delete Satsang Type",
-      confirmLabel: "Delete", confirmDanger: true, message: `Are you sure you want to delete "${typeName}"?`,
-      onConfirm: async () => {
-        try {
-          const typeToDelete = satsangTypes.find(t => t === typeName);
-          if (!typeToDelete) {
-            setCustomAlert({ show: true, message: "Satsang type not found", type: "error" });
-            setConfirmModal({ show: false, title: "", message: "", onConfirm: null, onCancel: null });
-            return;
-          }
-          // Delete by finding the database entry and deleting it
-          const allTypes = await axios.get(`${BASE_URL}/satsang-types`);
-          const typeRecord = allTypes.data.find(t => t.name === typeName);
-          if (typeRecord) {
-            await axios.delete(`${BASE_URL}/satsang-types/${typeRecord.id}`);
-          }
-          setSatsangTypes(satsangTypes.filter(t => t !== typeName));
-          setCustomAlert({ show: true, message: "✅ Satsang type deleted!", type: "success" });
-        } catch (e) {
-          setCustomAlert({ show: true, message: "Failed to delete satsang type", type: "error" });
-        }
-        setConfirmModal({ show: false, title: "", message: "", onConfirm: null, onCancel: null });
-      },
-      onCancel: () => setConfirmModal({ show: false, title: "", message: "", onConfirm: null, onCancel: null })
-    });
-  };
-
   // ✅ NEW: Vendor Management Functions
   const addVendor = async () => {
     if (!newVendor?.name?.trim()) {
@@ -4448,13 +4385,13 @@ export default function HelpDesk() {
   const sideNav = (currentUser?.role === "Admin" || currentUser?.role === "Manager") ? [
   { id: "dashboard", label: "Dashboard", icon: "🏠" },
   { id: "tickets", label: "All Tickets", icon: "📝" },
-  { id: "projects", label: "Projects", icon: "📁" },
+  { id: "projects", label: "All Projects", icon: "📁" },
   { id: "reports", label: "Reports", icon: "📊" },
   { id: "settings", label: "Settings", icon: "⚙️" },
   ] : [
   { id: "dashboard", label: "Dashboard", icon: "🏠" },
   { id: "tickets", label: "All Tickets", icon: "📝" },
-  { id: "projects", label: "Projects", icon: "📁" },
+  { id: "projects", label: "All Projects", icon: "📁" },
   { id: "settings", label: "Settings", icon: "⚙️" },
   ];
   const stabs = currentUser?.role === "Admin" ? [
@@ -4496,9 +4433,7 @@ export default function HelpDesk() {
   // Webcast fields shared component
   const WebcastFields = ({ f, setF, isProject = false }) => {
     const satsangSearch = isProject ? projSatsangTypeSearch : satsangTypeSearch;
-    const setSatsangSearch = isProject ? setProjSatsangTypeSearch : setSatsangTypeSearch;
     const showDD = isProject ? showProjSatsangTypeDD : showSatsangTypeDD;
-    const setShowDD = isProject ? setShowProjSatsangTypeDD : setShowSatsangTypeDD;
 
     const locSearch = isProject ? projWebcastLocationSearch : webcastLocationSearch;
     const setLocSearch = isProject ? setProjWebcastLocationSearch : setWebcastLocationSearch;
@@ -4898,6 +4833,8 @@ export default function HelpDesk() {
                 switchView(n.id);
                 if (n.id === "tickets") {
                   setTvFilter("all");
+                  setStatusF("All");
+                  setPriorityF("All");
                   setTicketsExpanded(prev => !prev);
                 }
               }} style={{ display: "flex", alignItems: "center", gap: 9, width: "100%", padding: "8px 11px", borderRadius: 7, border: "none", cursor: "pointer", background: view === n.id ? "#1e293b" : "transparent", color: view === n.id ? "#60a5fa" : "#64748b", fontSize: 13, fontWeight: view === n.id ? 600 : 400, marginBottom: 2, textAlign: "left", fontFamily: "'DM Sans',sans-serif" }}>
@@ -4910,7 +4847,7 @@ export default function HelpDesk() {
                     { id: "open", label: "Open Tickets", icon: "" },
                     { id: "closed", label: "Closed Tickets", icon: "" },
                   ].map(v => (
-                    <button key={v.id} onClick={() => { setTvFilter(v.id); setStatusF("All"); setPriorityF("All"); }} style={{ display: "flex", alignItems: "center", gap: 7, width: "100%", padding: "6px 11px", borderRadius: 6, border: "none", cursor: "pointer", background: tvFilter === v.id ? "#0f172a" : "transparent", color: tvFilter === v.id ? "#93c5fd" : "#475569", fontSize: 11.5, textAlign: "left", fontFamily: "'DM Sans',sans-serif", marginBottom: 1 }}>
+                    <button key={v.id} onClick={() => { setTvFilter(v.id); setStatusF("All"); setPriorityF("All"); setSearch(""); }} style={{ display: "flex", alignItems: "center", gap: 7, width: "100%", padding: "6px 11px", borderRadius: 6, border: "none", cursor: "pointer", background: tvFilter === v.id ? "#0f172a" : "transparent", color: tvFilter === v.id ? "#93c5fd" : "#475569", fontSize: 11.5, textAlign: "left", fontFamily: "'DM Sans',sans-serif", marginBottom: 1 }}>
                       <span style={{ fontSize: 12 }}>{v.icon}</span>{v.label}
                     </button>
                   ))}
@@ -6958,11 +6895,17 @@ export default function HelpDesk() {
                               <div style={{ flex: 1 }}>
                                 <div style={{ fontWeight: 600, color: "#0f172a" }}>{t.id}</div>
                                 <div style={{ fontSize: 12, color: "#64748b" }}>{t.summary}</div>
-                                <div style={{ fontSize: 11, color: daysLeft === 0 ? "#ef4444" : "#94a3b8", marginTop: 4 }}>
+                                <div style={{ fontSize: 11, color: "#94a3b8", marginTop: 2 }}>
+                                  {(() => { const prev = [...(t.timeline || [])].reverse().find(e => e.action === "Moved to Bin"); const match = prev?.note?.match(/Previous status: (.+)/); return match ? `Prev status: ${match[1]}` : ""; })()}
+                                </div>
+                                <div style={{ fontSize: 11, color: daysLeft === 0 ? "#ef4444" : "#94a3b8", marginTop: 2 }}>
                                   {daysLeft === 0 ? "⚠️ Deleting today" : `🕐 Auto-delete in ${daysLeft} days`}
                                 </div>
                               </div>
-                              <button onClick={() => permanentlyDeleteTicket(t.id)} style={{ padding: "6px 12px", background: "#ef4444", border: "none", borderRadius: 4, color: "#fff", cursor: "pointer", fontSize: 11, fontWeight: 600, marginLeft: 12 }}>Delete Now</button>
+                              <div style={{ display: "flex", gap: 6, marginLeft: 12 }}>
+                                <button onClick={() => setRestoreModal({ show: true, ticket: t, remark: "" })} style={{ padding: "6px 12px", background: "#22c55e", border: "none", borderRadius: 4, color: "#fff", cursor: "pointer", fontSize: 11, fontWeight: 600 }}>Restore</button>
+                                <button onClick={() => permanentlyDeleteTicket(t.id)} style={{ padding: "6px 12px", background: "#ef4444", border: "none", borderRadius: 4, color: "#fff", cursor: "pointer", fontSize: 11, fontWeight: 600 }}>Delete Now</button>
+                              </div>
                             </div>
                           );
                         })}
@@ -7064,9 +7007,12 @@ export default function HelpDesk() {
                       <td style={{ ...tdStyle, textAlign: "center", fontSize: 13 }}>{tickets.filter(t => t.assignees?.some(a => a.id === u.id) && t.status === "Open").length}</td>
                       {(() => { const assigned = tickets.filter(t => t.assignees?.some(a => a.id === u.id) && t.status !== "Bin").length; const closed = tickets.filter(t => t.assignees?.some(a => a.id === u.id) && t.status === "Closed").length; const rate = assigned ? Math.round(closed / assigned * 100) : 0; return <td style={{ ...tdStyle, fontSize: 12, color: rate > 70 ? "#15803d" : rate > 40 ? "#b45309" : "#b91c1c" }}>{rate}%</td>; })()}
                       {(currentUser?.role === "Admin") && (
-                        <td style={tdStyle}>
+                        <div style={{ display: "flex", gap: 6 }}>
                           <button onClick={() => { setUserEditModal({ show: true, user: u, newRole: u.role, editName: u.name || "", editEmail: u.email || "", editPhone: u.phone || "", editPassword: "" }); }} style={{ border: "none", background: "#dbeafe", color: "#1e40af", borderRadius: 6, padding: "6px 14px", cursor: "pointer", fontSize: 12, fontWeight: 600 }}>Manage</button>
-                        </td>
+                          {u.status === "On Ticket" && (
+                            <button onClick={() => setAgentDetailModal({ show: true, user: u })} style={{ border: "none", background: "#cffafe", color: "#0e7490", borderRadius: 6, padding: "6px 14px", cursor: "pointer", fontSize: 12, fontWeight: 600 }}>Details</button>
+                          )}
+                        </div>
                       )}
                     </tr>
                   ))}</tbody>
@@ -7834,18 +7780,23 @@ export default function HelpDesk() {
           <div style={{ marginBottom: 14 }}>
             <div style={{ fontSize: 11, fontWeight: 600, color: "#374151", marginBottom: 7 }}>UPDATE STATUS</div>
             <div style={{ display: "flex", gap: 7, flexWrap: "wrap", marginBottom: 10 }}>
-              {STATUSES.filter(s => s !== "Bin" || (currentUser?.role === "Admin" || currentUser?.role === "Manager")).map(s => <button key={s} onClick={() => s === "Closed" ? updateStatus(selTicket.id, s) : setPendingTicketStatus(s)} style={{ padding: "5px 13px", borderRadius: 7, border: "none", cursor: "pointer", fontSize: 12, fontWeight: 600, fontFamily: "'DM Sans',sans-serif", background: (pendingTicketStatus === s || selTicket.status === s) ? (STATUS_COLOR[s]?.text || "#64748b") : "#f1f5f9", color: (pendingTicketStatus === s || selTicket.status === s) ? "#fff" : "#64748b", opacity: pendingTicketStatus === s && selTicket.status !== s ? 0.7 : 1 }}>{s}</button>)}
-              {selTicket.status === "Closed" && (currentUser?.role === "Admin" || currentUser?.role === "Manager") && (
-                <button onClick={() => setPendingTicketStatus("Open")} style={{ padding: "5px 13px", borderRadius: 7, border: "1.5px solid #3b82f6", background: pendingTicketStatus === "Open" ? "#3b82f6" : "#eff6ff", color: pendingTicketStatus === "Open" ? "#fff" : "#1d4ed8", cursor: "pointer", fontSize: 12, fontWeight: 600, fontFamily: "'DM Sans',sans-serif" }}>🔄 Reopen Ticket</button>
-              )}
-              {selTicket.status === "Closed" && (currentUser?.role === "Agent" || currentUser?.role === "Viewer") && (
-                <button onClick={async () => {
-                  const admins = (Array.isArray(users) ? users : []).filter(u => u.active && (u.role === "Admin" || u.role === "Manager"));
-                  for (const admin of admins) {
-                    await axios.post(NOTIFICATIONS_API, { userId: admin.id, type: "reopen_request", icon: "🔄", title: "Reopen Request", message: `${currentUser.name} requested to reopen ticket "${selTicket.summary}" (${selTicket.id})`, ticketId: selTicket.id, read: false, alerted: false, resolved: null }).catch(() => {});
-                  }
-                  setCustomAlert({ show: true, message: "✅ Reopen request sent to admins for approval", type: "success" });
-                }} style={{ padding: "5px 13px", borderRadius: 7, border: "1.5px solid #f59e0b", background: "#fffbeb", color: "#b45309", cursor: "pointer", fontSize: 12, fontWeight: 600, fontFamily: "'DM Sans',sans-serif" }}>🔄 Request Reopen</button>
+              {selTicket.status === "Closed" ? (
+                <>
+                  {(currentUser?.role === "Admin" || currentUser?.role === "Manager") && (
+                    <button onClick={() => setPendingTicketStatus("Open")} style={{ padding: "5px 13px", borderRadius: 7, border: "1.5px solid #3b82f6", background: pendingTicketStatus === "Open" ? "#3b82f6" : "#eff6ff", color: pendingTicketStatus === "Open" ? "#fff" : "#1d4ed8", cursor: "pointer", fontSize: 12, fontWeight: 600, fontFamily: "'DM Sans',sans-serif" }}>🔄 Reopen Ticket</button>
+                  )}
+                  {(currentUser?.role === "Agent" || currentUser?.role === "Viewer") && (
+                    <button onClick={async () => {
+                      const admins = (Array.isArray(users) ? users : []).filter(u => u.active && (u.role === "Admin" || u.role === "Manager"));
+                      for (const admin of admins) {
+                        await axios.post(NOTIFICATIONS_API, { userId: admin.id, type: "reopen_request", icon: "🔄", title: "Reopen Request", message: `${currentUser.name} requested to reopen ticket "${selTicket.summary}" (${selTicket.id})`, ticketId: selTicket.id, read: false, alerted: false, resolved: null }).catch(() => {});
+                      }
+                      setCustomAlert({ show: true, message: "✅ Reopen request sent to admins for approval", type: "success" });
+                    }} style={{ padding: "5px 13px", borderRadius: 7, border: "1.5px solid #f59e0b", background: "#fffbeb", color: "#b45309", cursor: "pointer", fontSize: 12, fontWeight: 600, fontFamily: "'DM Sans',sans-serif" }}>🔄 Request Reopen</button>
+                  )}
+                </>
+              ) : (
+                STATUSES.filter(s => s !== "Bin" || (currentUser?.role === "Admin" || currentUser?.role === "Manager")).map(s => <button key={s} onClick={() => s === "Closed" ? updateStatus(selTicket.id, s) : setPendingTicketStatus(s)} style={{ padding: "5px 13px", borderRadius: 7, border: "none", cursor: "pointer", fontSize: 12, fontWeight: 600, fontFamily: "'DM Sans',sans-serif", background: (pendingTicketStatus === s || selTicket.status === s) ? (STATUS_COLOR[s]?.text || "#64748b") : "#f1f5f9", color: (pendingTicketStatus === s || selTicket.status === s) ? "#fff" : "#64748b", opacity: pendingTicketStatus === s && selTicket.status !== s ? 0.7 : 1 }}>{s}</button>)
               )}
             </div>
             {/* Save button for pending status changes */}
@@ -8845,6 +8796,54 @@ export default function HelpDesk() {
           }
         }
       `}</style>
+
+      {restoreModal.show && (
+            <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 2000 }}>
+              <div style={{ background: "#fff", borderRadius: 12, width: 440, padding: 24, boxShadow: "0 20px 60px rgba(0,0,0,0.3)" }}>
+                <h3 style={{ margin: "0 0 4px", fontSize: 16, fontWeight: 700 }}>🔄 Restore Ticket</h3>
+                <p style={{ margin: "0 0 16px", fontSize: 12, color: "#64748b" }}>
+                  Restoring <strong>{restoreModal.ticket?.id}</strong> to its previous status:&nbsp;
+                  <strong>{(() => { const prev = [...(restoreModal.ticket?.timeline || [])].reverse().find(e => e.action === "Moved to Bin"); const match = prev?.note?.match(/Previous status: (.+)/); return match ? match[1] : "Open"; })()}</strong>
+                </p>
+                <label style={{ fontSize: 11, fontWeight: 600, color: "#374151", display: "block", marginBottom: 6 }}>Restore Remark *</label>
+                <textarea value={restoreModal.remark} onChange={e => setRestoreModal(m => ({ ...m, remark: e.target.value }))} placeholder="Reason for restoring this ticket..." style={{ width: "100%", padding: "8px 10px", borderRadius: 7, border: "1px solid #e2e8f0", fontSize: 13, minHeight: 80, resize: "vertical", boxSizing: "border-box", fontFamily: "'DM Sans',sans-serif" }} />
+                <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 16 }}>
+                  <button onClick={() => setRestoreModal({ show: false, ticket: null, remark: "" })} style={{ padding: "8px 16px", borderRadius: 6, border: "1px solid #e2e8f0", background: "#fff", color: "#64748b", cursor: "pointer", fontSize: 13, fontWeight: 600 }}>Cancel</button>
+                  <button onClick={async () => {
+                    if (!restoreModal.remark.trim()) { setCustomAlert({ show: true, message: "Remark is required to restore", type: "error" }); return; }
+                    const t = restoreModal.ticket;
+                    const prevEntry = [...(t.timeline || [])].reverse().find(e => e.action === "Moved to Bin");
+                    const match = prevEntry?.note?.match(/Previous status: (.+)/);
+                    const restoreStatus = match ? match[1] : "Open";
+                    const nowISO = new Date().toISOString();
+                    const restoreEvent = { action: "Restored from Bin", by: currentUser.name, date: nowISO, note: restoreModal.remark.trim() };
+                    const updated = { ...t, status: restoreStatus, updated: nowISO, timeline: [...(t.timeline || []), restoreEvent] };
+                    try {
+                      const apiUrl = isTrueWebcast(t) ? `${BASE_URL}/webcasts/${t.id}` : `${TICKETS_API}/${t.id}`;
+                      await axios.put(apiUrl, updated);
+                      setTickets(p => p.map(x => x.id === t.id ? { ...updated, updated: new Date(nowISO) } : x));
+                      setRestoreModal({ show: false, ticket: null, remark: "" });
+                      setCustomAlert({ show: true, message: `✅ Ticket restored to ${restoreStatus}`, type: "success" });
+                    } catch { setCustomAlert({ show: true, message: "Failed to restore ticket", type: "error" }); }
+                  }} style={{ padding: "8px 16px", borderRadius: 6, border: "none", background: "#22c55e", color: "#fff", cursor: "pointer", fontSize: 13, fontWeight: 600 }}>Restore</button>
+                </div>
+              </div>
+            </div>
+          )}
+         {agentDetailModal.show && (
+        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 2000 }}>
+          <div style={{ background: "#fff", borderRadius: 12, width: 360, padding: 24, boxShadow: "0 20px 60px rgba(0,0,0,0.3)" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+              <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700, color: "#0f172a" }}>🟦 {agentDetailModal.user?.name} — On Ticket</h3>
+              <button onClick={() => setAgentDetailModal({ show: false, user: null })} style={{ background: "none", border: "none", fontSize: 22, cursor: "pointer", color: "#94a3b8" }}>×</button>
+            </div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 10, fontSize: 13 }}>
+              <div style={{ padding: 12, background: "#cffafe", borderRadius: 8 }}><span style={{ fontWeight: 700, color: "#0e7490" }}>🎫 Ticket: </span><span style={{ color: "#0e7490" }}>{agentDetailModal.user?.currentTicketId || "N/A"}</span></div>
+              <div style={{ padding: 12, background: "#f0fdf4", borderRadius: 8 }}><span style={{ fontWeight: 700, color: "#15803d" }}>📍 Location: </span><span style={{ color: "#15803d" }}>{agentDetailModal.user?.currentLocation || "N/A"}</span></div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

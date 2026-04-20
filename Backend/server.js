@@ -95,16 +95,6 @@ const Satsang = sequelize.define("Satsang", {
     status: { type: DataTypes.ENUM("Live", "Completed"), defaultValue: "Completed" },
 }, { timestamps: true });
 
-// ✅ NEW: SatsangType Model for webcast satsang types
-const SatsangType = sequelize.define("SatsangType", {
-    name: { type: DataTypes.STRING, allowNull: false },
-}, {
-    timestamps: true,
-    indexes: [
-        { unique: true, fields: ["name"] }
-    ]
-});
-
 const Ticket = sequelize.define("Ticket", {
     // We explicitly mark this as the Primary Key so Sequelize is happy
     id: {
@@ -631,29 +621,6 @@ app.put("/api/satsangs/:id", async (req, res) => {
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// ✅ NEW: SatsangType Endpoints
-app.get("/api/satsang-types", async (req, res) => {
-    try {
-        const types = await SatsangType.findAll({ order: [['name', 'ASC']] });
-        res.json(types.map(fmt));
-    } catch (err) { res.status(500).json({ error: err.message }); }
-});
-
-app.post("/api/satsang-types", async (req, res) => {
-    try {
-        const existing = await SatsangType.findOne({ where: { name: req.body.name } });
-        if (existing) return res.status(400).json({ error: "Satsang type already exists" });
-        res.status(201).json(fmt(await SatsangType.create(req.body)));
-    } catch (err) { res.status(500).json({ error: err.message }); }
-});
-
-app.delete("/api/satsang-types/:id", async (req, res) => {
-    try {
-        const type = await SatsangType.findByPk(req.params.id);
-        if (type) await type.destroy();
-        res.json({ success: true });
-    } catch (err) { res.status(500).json({ error: err.message }); }
-});
 app.delete("/api/satsangs/:id", async (req, res) => {
     try {
         const s = await Satsang.findByPk(req.params.id);
