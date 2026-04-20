@@ -194,7 +194,7 @@ const bG = { padding: "9px 14px", borderRadius: 8, border: "1.5px solid #e2e8f0"
 const Modal = ({ open, onClose, title, width = 640, children }) => {
   if (!open) return null;
   return <div style={{ position: "fixed", inset: 0, background: "rgba(15,23,42,0.5)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000, padding: 16, backdropFilter: "blur(2px)" }} onClick={e => e.target === e.currentTarget && onClose()}>
-    <div style={{ background: "#fff", borderRadius: 16, width: "100%", maxWidth: width, maxHeight: "90vh", overflow: "auto", boxShadow: "0 25px 60px rgba(0,0,0,0.2)" }}>
+    <div style={{ background: "#faf8f4", borderRadius: 16, width: "100%", maxWidth: width, maxHeight: "90vh", overflow: "auto", boxShadow: "0 25px 60px rgba(0,0,0,0.2)" }}>
       <div style={{ padding: "16px 24px", borderBottom: "1px solid #f1f5f9", display: "flex", alignItems: "center", justifyContent: "space-between", position: "sticky", top: 0, background: "#fff", zIndex: 1 }}>
         <h2 style={{ margin: 0, fontSize: 16, fontWeight: 700, color: "#0f172a" }}>{title}</h2>
         <button onClick={onClose} style={{ border: "none", background: "#f1f5f9", borderRadius: 8, width: 32, height: 32, cursor: "pointer", fontSize: 18, color: "#64748b", display: "flex", alignItems: "center", justifyContent: "center" }}>×</button>
@@ -814,9 +814,9 @@ const SmartChart = ({ title, data, defaultType = "bar", defaultColor = "#3b82f6"
     document.addEventListener("mousedown", handler);
     return () => document.removeEventListener("mousedown", handler);
   }, [showPicker]);
-  const baseW = 280, baseH = 130;
+  const baseW = 280, baseH = 158;
   const W = size === "small" ? 240 : baseW;
-  const H = size === "small" ? 100 : baseH;
+  const H = size === "small" ? 120 : baseH;
   const PL = 28, PR = 8, PT = 10, PB = 22;
   const IW = W - PL - PR, IH = H - PT - PB;
   const max = Math.max(...data.map(d => d.value), 1);
@@ -926,7 +926,7 @@ const SmartChart = ({ title, data, defaultType = "bar", defaultColor = "#3b82f6"
   if (type === "pie") {
     const pieData = data.map((d, i) => ({ ...d, color: d.color || pieCo(i, defaultColor === "#3b82f6" ? null : defaultColor) }));
     return (
-      <div style={{ background: "#fff", borderRadius: 12, padding: "14px 16px", boxShadow: "0 1px 4px rgba(0,0,0,0.06)", position: "relative", zIndex: 1 }}>
+      <div style={{ background: "#faf8f4", borderRadius: 12, padding: "14px 16px", boxShadow: "0 1px 4px rgba(0,0,0,0.06)", position: "relative", zIndex: 1 }}>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
           <span style={{ fontSize: 12, fontWeight: 700, color: "#374151" }}>{title}</span>
           <div ref={pickerRef} style={{ position: "relative", zIndex: 10 }}>
@@ -956,7 +956,7 @@ const SmartChart = ({ title, data, defaultType = "bar", defaultColor = "#3b82f6"
   }
 
   return (
-    <div style={{ background: "#fff", borderRadius: 12, padding: "14px 16px", boxShadow: "0 1px 4px rgba(0,0,0,0.06)", position: "relative", zIndex: 1 }}>
+    <div style={{ background: "#faf8f4", borderRadius: 12, padding: "14px 16px", boxShadow: "0 1px 4px rgba(0,0,0,0.06)", position: "relative", zIndex: 1 }}>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
         <span style={{ fontSize: 12, fontWeight: 700, color: "#374151" }}>{title}</span>
         <div ref={pickerRef} style={{ position: "relative", zIndex: 10 }}>
@@ -1115,6 +1115,9 @@ export default function HelpDesk() {
   const [customDateFrom, setCustomDateFrom] = useState("");
   const [customDateTo, setCustomDateTo] = useState("");
   const [dashboardOrg, setDashboardOrg] = useState("all");
+  const [catBreakdownExpanded, setCatBreakdownExpanded] = useState(false);
+  const [closuresByPersonExpanded, setClosuresByPersonExpanded] = useState(false);
+
   const [dashboardOrgSearch, setDashboardOrgSearch] = useState("");
   useEffect(() => {
     setReportFilters(f => ({ ...f, org: dashboardOrg === "all" ? "" : dashboardOrg }));
@@ -2213,12 +2216,17 @@ export default function HelpDesk() {
   const stats = useMemo(() => ({ total: fbr.length, open: fbr.filter(x => x.status === "Open").length, closed: fbr.filter(x => x.status === "Closed").length, critical: fbr.filter(x => x.priority === "Critical").length }), [fbr]);
 
   // ✅ NEW: Dashboard stats (filtered by organization)
-  const dashboardStats = useMemo(() => ({
-    total: dashboardData.filter(x => x.status !== "Bin").length,
-    open: dashboardData.filter(x => x.status === "Open").length,
-    closed: dashboardData.filter(x => x.status === "Closed").length,
-    critical: dashboardData.filter(x => x.priority === "Critical" && x.status === "Open" && x.status !== "Bin").length
-  }), [dashboardData]);
+  const dashboardStats = useMemo(() => {
+  const isAgent = currentUser?.role === "Agent" || currentUser?.role === "Viewer";
+  let base = dashboardOrg !== "all" ? tickets.filter(t => t.org === dashboardOrg) : tickets;
+  if (isAgent) base = base.filter(t => t.assignees?.some(a => a.id === currentUser?.id));
+  return {
+    total: base.filter(x => x.status !== "Bin").length,
+    open: base.filter(x => x.status === "Open").length,
+    closed: base.filter(x => x.status === "Closed").length,
+    critical: base.filter(x => x.priority === "Critical" && x.status === "Open").length
+  };
+}, [dashboardData, currentUser]);
 
   // For dashboard: Agents and Viewers only see stats for projects assigned to them
   const dashboardProjects = useMemo(() => {
@@ -2240,7 +2248,12 @@ export default function HelpDesk() {
     }));
   }, [tickets, prbr, users, dashboardOrg]);
   const dailyData = useMemo(() => { const days = parseInt(range) <= 7 ? parseInt(range) : 7; return Array.from({ length: days }, (_, i) => { const d = new Date(now - (days - 1 - i) * dayMs); return { label: d.toLocaleDateString("en", { weekday: "short" }), value: fbr.filter(t => t.created.getDate() === d.getDate() && t.created.getMonth() === d.getMonth()).length }; }); }, [fbr, range, now, dayMs]);
-  const priorityDist = useMemo(() => PRIORITIES.map(p => ({ label: p, value: dashboardData.filter(t => t.priority === p && t.status !== "Bin").length, color: PRIORITY_COLOR[p] })), [dashboardData]);
+  const priorityDist = useMemo(() => {
+    const isAgent = currentUser?.role === "Agent" || currentUser?.role === "Viewer";
+    let base = dashboardOrg !== "all" ? tickets.filter(t => t.org === dashboardOrg) : tickets;
+    if (isAgent) base = base.filter(t => t.assignees?.some(a => a.id === currentUser?.id));
+    return PRIORITIES.map(p => ({ label: p, value: base.filter(t => t.priority === p && t.status !== "Bin").length, color: PRIORITY_COLOR[p] }));
+  }, [tickets, dashboardOrg, currentUser]);
   const categoryDist = useMemo(() => categories.slice(0, 6).map(c => ({ label: c.name, value: dashboardData.filter(t => t.category === c.name).length, color: c.color })), [dashboardData, categories]);
   const categoryDistFull = useMemo(() => [...categories].sort((a, b) => { const av = dashboardData.filter(t => t.category === a.name).length; const bv = dashboardData.filter(t => t.category === b.name).length; return bv - av; }).map(c => ({ label: c.name, value: dashboardData.filter(t => t.category === c.name).length, color: c.color })), [dashboardData, categories]);
 
@@ -4178,7 +4191,7 @@ export default function HelpDesk() {
       const minutesElapsed = (new Date() - loginTime) / 60000;
 
       // Step 1: Set Idle after 15 min of On Duty — only once
-      if (u.status === "On Duty" && minutesElapsed >= 1) {
+      if (u.status === "On Duty" && minutesElapsed >= 5) {
         const idleUp = { ...u, status: "Idle", idleAt: new Date().toISOString(), _isSystemUpdate: true };
         try {
           await axios.put(`${USERS_API}/${u.id}`, idleUp);
@@ -4691,7 +4704,7 @@ const WebcastFields = ({ f, setF, isProject = false }) => {
 
       {deleteConfirmation?.show && (
         <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 2000 }}>
-          <div style={{ background: "#fff", borderRadius: 12, padding: 24, maxWidth: 500, boxShadow: "0 20px 60px rgba(0,0,0,0.3)" }}>
+          <div style={{ background: "#faf8f4", borderRadius: 12, padding: 24, maxWidth: 500, boxShadow: "0 20px 60px rgba(0,0,0,0.3)" }}>
             <h2 style={{ margin: "0 0 12px", fontSize: 16, fontWeight: 700, color: "#0f172a" }}>{deleteConfirmation.title}</h2>
             <p style={{ margin: "0 0 20px", fontSize: 13, color: "#475569", lineHeight: 1.5 }}>{deleteConfirmation.message}</p>
             <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
@@ -4714,7 +4727,7 @@ const WebcastFields = ({ f, setF, isProject = false }) => {
 
       {/* ✅ NEW: Advanced Export Modal */}
       {showAdvancedExportModal && <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 10000 }}>
-        <div style={{ background: "#fff", borderRadius: 14, padding: 24, maxWidth: 600, width: "90%", maxHeight: "90vh", overflow: "auto", boxShadow: "0 20px 60px rgba(0,0,0,0.3)" }}>
+        <div style={{ background: "#faf8f4", borderRadius: 14, padding: 24, maxWidth: 600, width: "90%", maxHeight: "90vh", overflow: "auto", boxShadow: "0 20px 60px rgba(0,0,0,0.3)" }}>
           <div style={{ fontSize: 18, fontWeight: 700, marginBottom: 6, color: "#1e293b" }}>Advanced Export Options</div>
           <div style={{ fontSize: 13, color: "#64748b", marginBottom: 18 }}>Select the filters you want to apply when exporting</div>
 
@@ -5624,32 +5637,33 @@ const WebcastFields = ({ f, setF, isProject = false }) => {
               {/* Dashboard Graphs - Different layouts for different roles */}
               {(currentUser?.role === "Admin" || currentUser?.role === "Manager") ? (
                 <>
-                  {/* Row 1: Tickets Over Time + Priority + Status — equal 3 cols */}
-                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12, marginBottom: 12 }}>
-                    <SmartChart title="Tickets Over Time (Weekly)" data={dashboardDailyData} defaultColor="#3b82f6" />
-                    <SmartChart title="Priority Distribution" data={priorityDist} defaultType="pie" />
-                    <SmartChart title="Status Overview" data={dashboardStatusDist} defaultType="pie" />
-                  </div>
-
-                  {/* Row 2: Category Breakdown + Closures by Person — 8 items then scroll */}
+                  {/* Row 1: Category Breakdown + Closures by Person */}
                   <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 12 }}>
                     <div style={{ background: "#fff", borderRadius: 12, padding: 18, boxShadow: "0 1px 4px rgba(0,0,0,0.06)" }}>
-                      <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 12, color: "#374151" }}>Category Breakdown</div>
-                      <div style={{ height: 212, overflowY: "auto", paddingRight: 4 }}>
-                        <HorizontalBarChart data={categoryDistFull} />
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+                        <div style={{ fontSize: 13, fontWeight: 600, color: "#374151" }}>Category Breakdown</div>
+                        <button onClick={() => setCatBreakdownExpanded(v => !v)} style={{ fontSize: 11, fontWeight: 600, color: "#3b82f6", background: "none", border: "none", cursor: "pointer", padding: 0 }}>{catBreakdownExpanded ? "Show Less ↑" : "View All ↓"}</button>
                       </div>
+                      <HorizontalBarChart data={catBreakdownExpanded ? categoryDistFull : categoryDistFull.slice(0, 6)} />
                     </div>
                     <div style={{ background: "#fff", borderRadius: 12, padding: 18, boxShadow: "0 1px 4px rgba(0,0,0,0.06)" }}>
-                      <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 12, color: "#374151" }}>Closures by Person</div>
-                      <div style={{ height: 212, overflowY: "auto", paddingRight: 4 }}>
-                        <HorizontalBarChart data={dashboardClosingUsersFull} />
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+                        <div style={{ fontSize: 13, fontWeight: 600, color: "#374151" }}>Closures by Person</div>
+                        <button onClick={() => setClosuresByPersonExpanded(v => !v)} style={{ fontSize: 11, fontWeight: 600, color: "#3b82f6", background: "none", border: "none", cursor: "pointer", padding: 0 }}>{closuresByPersonExpanded ? "Show Less ↑" : "View All ↓"}</button>
                       </div>
+                      <HorizontalBarChart data={closuresByPersonExpanded ? dashboardClosingUsersFull : dashboardClosingUsersFull.slice(0, 6)} />
                     </div>
+                  </div>
+
+                  {/* Row 2: Tickets Over Time + Priority */}
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 12 }}>
+                    <SmartChart title="Daily Ticket count (Over a Week)" data={dashboardDailyData} defaultColor="#3b82f6" />
+                    <SmartChart title="Priority Distribution" data={priorityDist} defaultType="pie" />
                   </div>
 
                   {/* Recent Tickets for Admin/Manager */}
                   <div style={{ display: "grid", gridTemplateColumns: "1fr", gap: 12 }}>
-                    <div style={{ background: "#fff", borderRadius: 12, padding: 16, boxShadow: "0 1px 4px rgba(0,0,0,0.06)" }}>
+                    <div style={{ background: "#faf8f4", borderRadius: 12, padding: 16, boxShadow: "0 1px 4px rgba(0,0,0,0.06)" }}>
                       <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 10, color: "#374151" }}>Recent Tickets</div>
                       {(currentUser?.role === "Admin" || currentUser?.role === "Manager" ? tickets : tickets.filter(t => t.reportedBy === currentUser?.name || t.assignees?.some(a => a.id === currentUser?.id))).slice(0, 10).map(t => (
                         <div key={t.id} onClick={() => setSelTicket(t)} style={{ display: "flex", alignItems: "center", gap: 9, padding: "6px", borderRadius: 8, cursor: "pointer", border: "1px solid #f1f5f9", marginBottom: 5 }}>
@@ -5664,10 +5678,9 @@ const WebcastFields = ({ f, setF, isProject = false }) => {
               ) : (
                 <>
                   {/* Viewer/Agent: 3 charts side by side */}
-                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12, marginBottom: 12 }}>
-                    <SmartChart title="Tickets Over Time (Weekly)" data={dashboardDailyData} defaultColor="#3b82f6" size="small" />
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 12 }}>
+                    <SmartChart title="Daily Ticket count (Over a Week)" data={dashboardDailyData} defaultColor="#3b82f6" size="small" />
                     <SmartChart title="Priority Distribution" data={priorityDist} defaultType="pie" size="small" />
-                    <SmartChart title="Status Overview" data={dashboardStatusDist} defaultType="pie" size="small" />
                   </div>
                   {/* Viewer/Agent: Horizontal Bar Charts row */}
                   {/* NO Recent Tickets for Viewer/Agent */}
@@ -5677,7 +5690,7 @@ const WebcastFields = ({ f, setF, isProject = false }) => {
           </>}
 
           {/* ── TICKETS (v2 layout + v1 action column) ── */}
-          {view === "tickets" && <div style={{ background: "#fff", borderRadius: 12, boxShadow: "0 1px 4px rgba(0,0,0,0.06)", overflow: "hidden" }}>
+          {view === "tickets" && <div style={{ background: "#faf8f4", borderRadius: 12, boxShadow: "0 1px 4px rgba(0,0,0,0.06)", overflow: "hidden" }}>
             <div style={{ padding: "11px 14px", borderBottom: "1px solid #f1f5f9", display: "flex", gap: 9, alignItems: "center", flexWrap: "wrap" }}>
               <input placeholder="Search…" value={search} onChange={e => setSearch(e.target.value)} style={{ ...iS, width: 200, fontSize: 13, padding: "7px 10px" }} />
               <span style={{ fontSize: 12, color: "#64748b" }}>{allSortedTickets.length} tickets</span>
@@ -5946,7 +5959,7 @@ const WebcastFields = ({ f, setF, isProject = false }) => {
             <div style={{ display: "flex", flexDirection: "column", gap: 16, marginBottom: 20 }}>
 
               {/* Notifications - 10 days */}
-              <div style={{ background: "#fff", borderRadius: 12, boxShadow: "0 1px 4px rgba(0,0,0,0.06)", overflow: "hidden" }}>
+              <div style={{ background: "#faf8f4", borderRadius: 12, boxShadow: "0 1px 4px rgba(0,0,0,0.06)", overflow: "hidden" }}>
                 <div style={{ padding: "12px 16px", borderBottom: "1px solid #f1f5f9", display: "flex", alignItems: "center", gap: 8 }}>
                   <span style={{ fontSize: 16 }}>🔔</span>
                   <span style={{ fontWeight: 700, fontSize: 14, color: "#0f172a" }}>Notifications</span>
@@ -5977,7 +5990,7 @@ const WebcastFields = ({ f, setF, isProject = false }) => {
               </div>
 
               {/* Inbox */}
-              <div style={{ background: "#fff", borderRadius: 12, boxShadow: "0 1px 4px rgba(0,0,0,0.06)", overflow: "hidden" }}>
+              <div style={{ background: "#faf8f4", borderRadius: 12, boxShadow: "0 1px 4px rgba(0,0,0,0.06)", overflow: "hidden" }}>
                 <div style={{ padding: "12px 16px", borderBottom: "1px solid #f1f5f9", display: "flex", alignItems: "center", gap: 8 }}>
                   <span style={{ fontSize: 16 }}>✉️</span>
                   <span style={{ fontWeight: 700, fontSize: 14, color: "#0f172a" }}>Inbox</span>
@@ -6017,7 +6030,7 @@ const WebcastFields = ({ f, setF, isProject = false }) => {
             </div>
           ): null}
           {/* ── PROJECTS ── */}
-          {view === "projects" && <div style={{ background: "#fff", borderRadius: 12, boxShadow: "0 1px 4px rgba(0,0,0,0.06)", overflow: "hidden" }}>
+          {view === "projects" && <div style={{ background: "#faf8f4", borderRadius: 12, boxShadow: "0 1px 4px rgba(0,0,0,0.06)", overflow: "hidden" }}>
 
             {/* Project action bar */}
             <div style={{ padding: "11px 14px", borderBottom: "1px solid #f1f5f9", display: "flex", gap: 9, alignItems: "center", flexWrap: "wrap" }}>
@@ -6153,7 +6166,7 @@ const WebcastFields = ({ f, setF, isProject = false }) => {
                     { label: "Critical", value: webcastBase.filter(t => t.priority === "Critical" && t.status !== "Closed").length, color: "#ef4444", icon: "🔥", filter: "critical" },
                     { label: "Unassigned", value: allWebcasts.filter(t => (!t.assignees || t.assignees.length === 0) && t.status !== "Closed").length, color: "#a855f7", icon: "🔸", filter: "unassigned" },
                   ].map(s => (
-                    <div key={s.label} onClick={() => setWebcastFilter(webcastFilter === s.filter ? null : s.filter)} style={{ background: "#fff", borderRadius: 12, padding: "14px 16px", boxShadow: "0 1px 4px rgba(0,0,0,0.06)", borderTop: `3px solid ${s.color}`, cursor: "pointer", transition: "all 0.2s", transform: webcastFilter === s.filter ? "scale(1.05)" : "scale(1)", opacity: webcastFilter === s.filter ? 1 : 0.8 }}>
+                    <div key={s.label} onClick={() => setWebcastFilter(webcastFilter === s.filter ? null : s.filter)} style={{ background: "#faf8f4", borderRadius: 12, padding: "14px 16px", boxShadow: "0 1px 4px rgba(0,0,0,0.06)", borderTop: `3px solid ${s.color}`, cursor: "pointer", transition: "all 0.2s", transform: webcastFilter === s.filter ? "scale(1.05)" : "scale(1)", opacity: webcastFilter === s.filter ? 1 : 0.8 }}>
                       <div style={{ fontSize: 20, marginBottom: 5 }}>{s.icon}</div>
                       <div style={{ fontSize: 24, fontWeight: 700, color: s.color }}>{s.value}</div>
                       <div style={{ fontSize: 11, color: "#64748b" }}>{s.label}</div>
@@ -6164,7 +6177,7 @@ const WebcastFields = ({ f, setF, isProject = false }) => {
             })()}
 
             {/* Webcast Table - Only show tickets assigned to current user (or all for Admin) */}
-            <div style={{ background: "#fff", borderRadius: 12, padding: 22, boxShadow: "0 1px 4px rgba(0,0,0,0.06)" }}>
+            <div style={{ background: "#faf8f4", borderRadius: 12, padding: 22, boxShadow: "0 1px 4px rgba(0,0,0,0.06)" }}>
               <h3 style={{ margin: "0 0 14px", fontSize: 15, fontWeight: 700 }}>{webcastFilter === "unassigned" ? "⚠️ Unassigned Webcast Tickets" : (currentUser?.role === "Admin" || currentUser?.role === "Manager") ? "All Webcast Tickets" : "My Webcast Tickets"}</h3>
               <div style={{ overflowX: "auto" }}>
                 <table style={{ width: "100%", borderCollapse: "collapse" }}>
@@ -6530,7 +6543,7 @@ const WebcastFields = ({ f, setF, isProject = false }) => {
             );
           })()}
           {/* ── BIN ── */}
-          {view === "bin" && <div style={{ background: "#fff", borderRadius: 12, padding: 22, boxShadow: "0 1px 4px rgba(0,0,0,0.06)" }}>
+          {view === "bin" && <div style={{ background: "#faf8f4", borderRadius: 12, padding: 22, boxShadow: "0 1px 4px rgba(0,0,0,0.06)" }}>
             <h3 style={{ margin: "0 0 4px", fontSize: 15, fontWeight: 700 }}>🧹 Bin</h3>
             <p style={{ margin: "0 0 18px", fontSize: 12, color: "#64748b" }}>Manage deleted tickets and projects. Auto-deleted after 30 days.</p>
             {/* Tickets bin */}
@@ -6572,7 +6585,7 @@ const WebcastFields = ({ f, setF, isProject = false }) => {
           </div>}
           {/* ── SETTINGS ── */}
           {view === "settings" && <div style={{ display: "flex", gap: 18, alignItems: "flex-start" }}>
-            <div style={{ width: 194, background: "#fff", borderRadius: 12, padding: 9, boxShadow: "0 1px 4px rgba(0,0,0,0.06)", flexShrink: 0 }}>
+            <div style={{ width: 194, background: "#faf8f4", borderRadius: 12, padding: 9, boxShadow: "0 1px 4px rgba(0,0,0,0.06)", flexShrink: 0 }}>
               {stabs.map(t => (
                 <button key={t.id} onClick={() => setSettingsTab(t.id)} style={{ display: "flex", alignItems: "center", gap: 8, width: "100%", padding: "9px 11px", borderRadius: 7, border: "none", cursor: "pointer", background: settingsTab === t.id ? "#eff6ff" : "transparent", color: settingsTab === t.id ? "#3b82f6" : "#374151", fontSize: 12.5, fontWeight: settingsTab === t.id ? 600 : 400, textAlign: "left", fontFamily: "'DM Sans',sans-serif", marginBottom: 2 }}>
                   <span>{t.icon}</span>{t.label}
@@ -6580,7 +6593,7 @@ const WebcastFields = ({ f, setF, isProject = false }) => {
               ))}
             </div>
             <div style={{ flex: 1 }}>
-              {(settingsTab === "organisations" || settingsTab === "departments") && <div style={{ background: "#fff", borderRadius: 12, padding: 22, boxShadow: "0 1px 4px rgba(0,0,0,0.06)" }}>
+              {(settingsTab === "organisations" || settingsTab === "departments") && <div style={{ background: "#faf8f4", borderRadius: 12, padding: 22, boxShadow: "0 1px 4px rgba(0,0,0,0.06)" }}>
                 <h3 style={{ margin: "0 0 2px", fontSize: 15, fontWeight: 700 }}>Organizations & Departments</h3>
                 <p style={{ margin: "0 0 18px", fontSize: 12, color: "#64748b" }}>Each organization expands to show its departments. Drag departments to reorder.</p>
 
@@ -6730,7 +6743,7 @@ const WebcastFields = ({ f, setF, isProject = false }) => {
                   );
                 })()}
               </div>}
-              {settingsTab === "categories" && <div style={{ background: "#fff", borderRadius: 12, padding: 22, boxShadow: "0 1px 4px rgba(0,0,0,0.06)" }}>
+              {settingsTab === "categories" && <div style={{ background: "#faf8f4", borderRadius: 12, padding: 22, boxShadow: "0 1px 4px rgba(0,0,0,0.06)" }}>
                 <h3 style={{ margin: "0 0 2px", fontSize: 15, fontWeight: 700 }}>Categories & Subcategories</h3>
                 <p style={{ margin: "0 0 18px", fontSize: 12, color: "#64748b" }}>Each category expands to show its subcategories.</p>
                 {currentUser?.role === "Admin" ? (
@@ -6809,7 +6822,7 @@ const WebcastFields = ({ f, setF, isProject = false }) => {
               </div>}
 
               {/* ✅ NEW: Locations Management */}
-              {settingsTab === "locations" && <div style={{ background: "#fff", borderRadius: 12, padding: 22, boxShadow: "0 1px 4px rgba(0,0,0,0.06)" }}>
+              {settingsTab === "locations" && <div style={{ background: "#faf8f4", borderRadius: 12, padding: 22, boxShadow: "0 1px 4px rgba(0,0,0,0.06)" }}>
                 <h3 style={{ margin: "0 0 4px", fontSize: 15, fontWeight: 700 }}>Locations ({locations.length})</h3>
                 <p style={{ margin: "0 0 18px", fontSize: 12, color: "#64748b" }}>Manage ticket and project locations/venues.</p>
                 {currentUser?.role === "Admin" ? (
@@ -6861,7 +6874,7 @@ const WebcastFields = ({ f, setF, isProject = false }) => {
                 {locations.length === 0 && <div style={{ textAlign: "center", color: "#94a3b8", padding: 28 }}>No locations yet. Add one to get started.</div>}
               </div>}
 
-              {settingsTab === "vendors" && <div style={{ background: "#fff", borderRadius: 12, padding: 22, boxShadow: "0 1px 4px rgba(0,0,0,0.06)" }}>
+              {settingsTab === "vendors" && <div style={{ background: "#faf8f4", borderRadius: 12, padding: 22, boxShadow: "0 1px 4px rgba(0,0,0,0.06)" }}>
                 <h3 style={{ margin: "0 0 4px", fontSize: 15, fontWeight: 700 }}>Vendors ({vendors.length})</h3>
                 <p style={{ margin: "0 0 18px", fontSize: 12, color: "#64748b" }}>Manage vendors with contact information for sending tickets.</p>
                 {currentUser?.role === "Admin" ? (
@@ -6918,7 +6931,7 @@ const WebcastFields = ({ f, setF, isProject = false }) => {
               </div>}
 
               {settingsTab === "bin" && false && (
-                <div style={{ background: "#fff", borderRadius: 12, padding: 22, boxShadow: "0 1px 4px rgba(0,0,0,0.06)" }}>
+                <div style={{ background: "#faf8f4", borderRadius: 12, padding: 22, boxShadow: "0 1px 4px rgba(0,0,0,0.06)" }}>
                   <h3 style={{ margin: "0 0 4px", fontSize: 15, fontWeight: 700 }}>🧹 Bin</h3>
                   <p style={{ margin: "0 0 18px", fontSize: 12, color: "#64748b" }}>Manage deleted tickets and projects. Auto-deleted after 30 days.</p>
 
@@ -6989,7 +7002,7 @@ const WebcastFields = ({ f, setF, isProject = false }) => {
                 </div>
               )}
 
-              {settingsTab === "usermgmt" && <div style={{ background: "#fff", borderRadius: 12, padding: 22, boxShadow: "0 1px 4px rgba(0,0,0,0.06)" }}>
+              {settingsTab === "usermgmt" && <div style={{ background: "#faf8f4", borderRadius: 12, padding: 22, boxShadow: "0 1px 4px rgba(0,0,0,0.06)" }}>
                 <h3 style={{ margin: "0 0 14px", fontSize: 15, fontWeight: 700 }}>User Management ({users.length} users)</h3>
                 {(currentUser?.role === "Admin") ? (
                   <div style={{ marginBottom: 18, display: "flex", justifyContent: "flex-end" }}>
@@ -7061,7 +7074,7 @@ const WebcastFields = ({ f, setF, isProject = false }) => {
                   ))}</tbody>
                 </table>
               </div></div>} 
-              {settingsTab === "customattrs" && <div style={{ background: "#fff", borderRadius: 12, padding: 22, boxShadow: "0 1px 4px rgba(0,0,0,0.06)" }}>
+              {settingsTab === "customattrs" && <div style={{ background: "#faf8f4", borderRadius: 12, padding: 22, boxShadow: "0 1px 4px rgba(0,0,0,0.06)" }}>
                 <h3 style={{ margin: "0 0 4px", fontSize: 15, fontWeight: 700 }}>Ticket Form</h3>
                 <p style={{ margin: "0 0 14px", fontSize: 12, color: "#64748b" }}>Add custom fields to the New Ticket form. After adding, configure placement in the layout designer.</p>
 
@@ -7131,7 +7144,7 @@ const WebcastFields = ({ f, setF, isProject = false }) => {
                   );
                 })}
               </div>}
-              {settingsTab === "dbmgmt" && <div style={{ background: "#fff", borderRadius: 12, padding: 22, boxShadow: "0 1px 4px rgba(0,0,0,0.06)" }}>
+              {settingsTab === "dbmgmt" && <div style={{ background: "#faf8f4", borderRadius: 12, padding: 22, boxShadow: "0 1px 4px rgba(0,0,0,0.06)" }}>
                 <h3 style={{ margin: "0 0 4px", fontSize: 15, fontWeight: 700 }}>Database Management</h3>
                 <p style={{ margin: "0 0 18px", fontSize: 12, color: "#64748b" }}>Export and import data from the database.</p>
 
@@ -8260,7 +8273,7 @@ const WebcastFields = ({ f, setF, isProject = false }) => {
       {/* ── Floating 30-sec Action Alerts (forward requests / responses) ── */}
       <div style={{ position: "fixed", top: 20, left: "50%", transform: "translateX(-50%)", zIndex: 10005, display: "flex", flexDirection: "column", gap: 10, alignItems: "center", pointerEvents: "none", width: "100%", maxWidth: 480, padding: "0 16px" }}>
         {floatingAlerts.map(alert => (
-          <div key={alert.alertId} style={{ width: "100%", background: "#fff", borderRadius: 14, boxShadow: "0 8px 32px rgba(0,0,0,0.18)", border: alert.type === "forward_request" ? "2px solid #f59e0b" : alert.status === "Approved" ? "2px solid #22c55e" : alert.status === "Rejected" ? "2px solid #ef4444" : "2px solid #3b82f6", overflow: "hidden", pointerEvents: "auto", animation: "floatIn 0.35s ease-out" }}>
+          <div key={alert.alertId} style={{ width: "100%", background: "#faf8f4", borderRadius: 14, boxShadow: "0 8px 32px rgba(0,0,0,0.18)", border: alert.type === "forward_request" ? "2px solid #f59e0b" : alert.status === "Approved" ? "2px solid #22c55e" : alert.status === "Rejected" ? "2px solid #ef4444" : "2px solid #3b82f6", overflow: "hidden", pointerEvents: "auto", animation: "floatIn 0.35s ease-out" }}>
             {/* Progress bar countdown */}
             <div style={{ height: 3, background: alert.type === "forward_request" ? "#fef3c7" : "#f0fdf4", position: "relative" }}>
               <div style={{ position: "absolute", left: 0, top: 0, height: "100%", background: alert.type === "forward_request" ? "#f59e0b" : alert.status === "Approved" ? "#22c55e" : "#ef4444", animation: "shrink30 30s linear forwards" }} />
@@ -8520,7 +8533,7 @@ const WebcastFields = ({ f, setF, isProject = false }) => {
       {/* ── Custom Attributes Layout Designer Modal ── */}
       {showAttrLayoutModal && (
         <div style={{ position: "fixed", inset: 0, background: "rgba(15,23,42,0.55)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1100, padding: 16, backdropFilter: "blur(3px)" }}>
-          <div style={{ background: "#fff", borderRadius: 18, width: "100%", maxWidth: 780, maxHeight: "92vh", overflow: "hidden", display: "flex", flexDirection: "column", boxShadow: "0 30px 70px rgba(0,0,0,0.25)" }}>
+          <div style={{ background: "#faf8f4", borderRadius: 18, width: "100%", maxWidth: 780, maxHeight: "92vh", overflow: "hidden", display: "flex", flexDirection: "column", boxShadow: "0 30px 70px rgba(0,0,0,0.25)" }}>
             {/* Header */}
             <div style={{ padding: "18px 24px", borderBottom: "1px solid #f1f5f9", display: "flex", alignItems: "center", justifyContent: "space-between", flexShrink: 0 }}>
               <div>
@@ -8692,7 +8705,7 @@ const WebcastFields = ({ f, setF, isProject = false }) => {
       {/* ✅ NEW: Activity Log Modal */}
       {showActivityLog && (
         <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 2000 }}>
-          <div style={{ background: "#fff", borderRadius: 12, width: "90%", maxWidth: 600, maxHeight: "80vh", display: "flex", flexDirection: "column", boxShadow: "0 20px 60px rgba(0,0,0,0.3)" }}>
+          <div style={{ background: "#faf8f4", borderRadius: 12, width: "90%", maxWidth: 600, maxHeight: "80vh", display: "flex", flexDirection: "column", boxShadow: "0 20px 60px rgba(0,0,0,0.3)" }}>
             {/* Header */}
             <div style={{ padding: "20px 24px", borderBottom: "1px solid #f1f5f9", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
               <h2 style={{ margin: 0, fontSize: 18, fontWeight: 700, color: "#0f172a" }}>📋 Activity Log</h2>
@@ -8737,7 +8750,7 @@ const WebcastFields = ({ f, setF, isProject = false }) => {
       {/* ✅ NEW: Session History Modal */}
       {showSessionHistory && (
         <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 2000 }}>
-          <div style={{ background: "#fff", borderRadius: 12, width: "90%", maxWidth: 600, maxHeight: "80vh", display: "flex", flexDirection: "column", boxShadow: "0 20px 60px rgba(0,0,0,0.3)" }}>
+          <div style={{ background: "#faf8f4", borderRadius: 12, width: "90%", maxWidth: 600, maxHeight: "80vh", display: "flex", flexDirection: "column", boxShadow: "0 20px 60px rgba(0,0,0,0.3)" }}>
             {/* Header */}
             <div style={{ padding: "20px 24px", borderBottom: "1px solid #f1f5f9", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
               <h2 style={{ margin: 0, fontSize: 18, fontWeight: 700, color: "#0f172a" }}>⏱️ Session History</h2>
@@ -8842,7 +8855,7 @@ const WebcastFields = ({ f, setF, isProject = false }) => {
 
       {restoreModal.show && (
             <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 2000 }}>
-              <div style={{ background: "#fff", borderRadius: 12, width: 440, padding: 24, boxShadow: "0 20px 60px rgba(0,0,0,0.3)" }}>
+              <div style={{ background: "#faf8f4", borderRadius: 12, width: 440, padding: 24, boxShadow: "0 20px 60px rgba(0,0,0,0.3)" }}>
                 <h3 style={{ margin: "0 0 4px", fontSize: 16, fontWeight: 700 }}>🔄 Restore Ticket</h3>
                 <p style={{ margin: "0 0 16px", fontSize: 12, color: "#64748b" }}>
                   Restoring <strong>{restoreModal.ticket?.id}</strong> to its previous status:&nbsp;
@@ -8875,7 +8888,7 @@ const WebcastFields = ({ f, setF, isProject = false }) => {
           )}
          {agentDetailModal.show && (
         <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 2000 }}>
-          <div style={{ background: "#fff", borderRadius: 12, width: 360, padding: 24, boxShadow: "0 20px 60px rgba(0,0,0,0.3)" }}>
+          <div style={{ background: "#faf8f4", borderRadius: 12, width: 360, padding: 24, boxShadow: "0 20px 60px rgba(0,0,0,0.3)" }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
               <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700, color: "#0f172a" }}>🟦 {agentDetailModal.user?.name} — On Ticket</h3>
               <button onClick={() => setAgentDetailModal({ show: false, user: null })} style={{ background: "none", border: "none", fontSize: 22, cursor: "pointer", color: "#94a3b8" }}>×</button>
