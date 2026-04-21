@@ -837,6 +837,7 @@ const SmartChart = ({ title, data, defaultType = "bar", defaultColor = "#3b82f6"
             <g key={i} style={{ cursor: "pointer" }} onMouseEnter={() => setHov(i)} onMouseLeave={() => setHov(null)}>
               <rect x={toXb(i)} y={PT + IH - bh} width={bw} height={bh} rx={3} fill={col(i, defaultColor)} opacity={isH ? 1 : 0.85}
                 style={{ filter: isH ? `drop-shadow(0 -3px 6px ${col(i, defaultColor)}88)` : "none", transition: "all 0.15s" }} />
+              {d.value > 0 && <text x={toXb(i) + bw / 2} y={PT + IH - bh + (bh > 14 ? 11 : -3)} textAnchor="middle" fontSize={7} fontWeight={700} fill={bh > 14 ? "#fff" : col(i, defaultColor)}>{d.value}</text>}
               <text x={toXb(i) + bw / 2} y={H - 4} textAnchor="middle" fontSize={7} fill={isH ? "#374151" : "#94a3b8"} fontWeight={isH ? 700 : 400}>{d.label?.slice(0, 6)}</text>
             </g>);
         })}
@@ -854,7 +855,9 @@ const SmartChart = ({ title, data, defaultType = "bar", defaultColor = "#3b82f6"
             <g key={i} style={{ cursor: "pointer" }} onMouseEnter={() => setHov(i)} onMouseLeave={() => setHov(null)}>
               <circle cx={toX(i)} cy={toY(d.value)} r={isH ? 5 : 3} fill={defaultColor} stroke="#fff" strokeWidth={1.5}
                 style={{ filter: isH ? `drop-shadow(0 0 4px ${defaultColor})` : "none", transition: "r 0.1s" }} />
+              {d.value > 0 && <text x={toX(i)} y={toY(d.value) - 5} textAnchor="middle" fontSize={7} fontWeight={700} fill={defaultColor}>{d.value}</text>}
               <text x={toX(i)} y={H - 4} textAnchor="middle" fontSize={7} fill={isH ? "#374151" : "#94a3b8"}>{d.label?.slice(0, 5)}</text>
+
             </g>);
         })}
       </svg>);
@@ -894,7 +897,8 @@ const SmartChart = ({ title, data, defaultType = "bar", defaultColor = "#3b82f6"
             <g key={i} style={{ cursor: "pointer" }} onMouseEnter={() => setHov(i)} onMouseLeave={() => setHov(null)}>
               <rect x={c.x + 1} y={c.y + 1} width={c.w - 2} height={c.h - 2} fill={col(c.i, defaultColor)} rx={3}
                 style={{ filter: isH ? `drop-shadow(0 0 5px ${col(c.i, defaultColor)}99)` : "none", opacity: isH ? 1 : 0.8, transition: "opacity 0.12s" }} />
-              {c.w > 22 && c.h > 12 && <text x={c.x + c.w / 2} y={c.y + c.h / 2 + 3} textAnchor="middle" fontSize={Math.min(8, c.w / 5)} fill="#fff" fontWeight={600}>{c.label?.slice(0, 6)}</text>}
+              {c.w > 22 && c.h > 12 && <text x={c.x + c.w / 2} y={c.y + c.h / 2} textAnchor="middle" fontSize={Math.min(8, c.w / 5)} fill="#fff" fontWeight={600}>{c.label?.slice(0, 6)}</text>}
+              {c.w > 22 && c.h > 18 && <text x={c.x + c.w / 2} y={c.y + c.h / 2 + 9} textAnchor="middle" fontSize={Math.min(8, c.w / 5)} fill="#ffffffcc" fontWeight={700}>{c.value}</text>}
             </g>);
         })}
       </svg>);
@@ -913,7 +917,7 @@ const SmartChart = ({ title, data, defaultType = "bar", defaultColor = "#3b82f6"
                 <rect x={PL} y={y} width={bw} height={barH} rx={3} fill={col(i, defaultColor)} opacity={isH ? 1 : 0.85}
                   style={{ filter: isH ? `drop-shadow(0 0 5px ${col(i, defaultColor)}88)` : "none", transition: "width 0.3s ease" }} />
                 <text x={PL - 3} y={y + barH / 2 + 3} textAnchor="end" fontSize={7} fill={isH ? "#374151" : "#94a3b8"} fontWeight={isH ? 700 : 400}>{d.label?.slice(0, 8)}</text>
-                {isH && <text x={PL + bw + 3} y={y + barH / 2 + 3} fontSize={7} fill={col(i, defaultColor)} fontWeight={700}>{d.value}</text>}
+                <text x={PL + bw + 3} y={y + barH / 2 + 3} fontSize={7} fill={col(i, defaultColor)} fontWeight={700}>{d.value}</text>
               </g>
             );
           })}
@@ -1080,7 +1084,7 @@ export default function HelpDesk() {
   });
 
   const mainContentRef = useRef(null);
-  const switchView = (v) => { setView(v); setSearch(""); setStatusF("All"); setPriorityF("All"); setDeptFilter("all"); setCategoryFilter("all"); setOrgFilterSearch(""); setProjSearch(""); setProjStatusF("All"); setProjPriorityF("All"); setVisibleTicketCols(new Set(ALL_TICKET_COLS.filter(c => c !== "vendor" && c !== "reportedBy"))); setVisibleProjCols(new Set(ALL_PROJ_COLS.filter(c => c !== "progress"))); setSettingsTab("organisations"); setReportBuilderOpen(false);; setTimeout(() => mainContentRef.current?.scrollTo(0, 0), 0); };
+  const switchView = (v) => { setView(v); setSearch(""); setStatusF("All"); setPriorityF("All"); setDeptFilter("all"); setCategoryFilter("all"); setOrgFilterSearch(""); setProjSearch(""); setProjStatusF("All"); setProjPriorityF("All"); setVisibleTicketCols(new Set(ALL_TICKET_COLS.filter(c => c !== "vendor" && c !== "reportedBy"))); setVisibleProjCols(new Set(ALL_PROJ_COLS.filter(c => c !== "progress"))); setSettingsTab(currentUser?.role === "Agent" ? "profile" : "organisations"); setReportBuilderOpen(false);; setTimeout(() => mainContentRef.current?.scrollTo(0, 0), 0); };
   const [settingsTab, setSettingsTab] = useState("organisations");
   const [activeQuickFilters, setActiveQuickFilters] = useState([]);
   const [showQuickFilterDD, setShowQuickFilterDD] = useState(false);
@@ -2255,7 +2259,15 @@ export default function HelpDesk() {
     return PRIORITIES.map(p => ({ label: p, value: base.filter(t => t.priority === p && t.status !== "Bin").length, color: PRIORITY_COLOR[p] }));
   }, [tickets, dashboardOrg, currentUser]);
   const categoryDist = useMemo(() => categories.slice(0, 6).map(c => ({ label: c.name, value: dashboardData.filter(t => t.category === c.name).length, color: c.color })), [dashboardData, categories]);
-  const categoryDistFull = useMemo(() => [...categories].sort((a, b) => { const av = dashboardData.filter(t => t.category === a.name).length; const bv = dashboardData.filter(t => t.category === b.name).length; return bv - av; }).map(c => ({ label: c.name, value: dashboardData.filter(t => t.category === c.name).length, color: c.color })), [dashboardData, categories]);
+  const categoryDistFull = useMemo(() => {
+    const base = tickets.filter(t => t.status !== "Bin" && (dashboardOrg === "all" || t.org === dashboardOrg));
+    const rows = [...categories].sort((a, b) => {
+      const av = base.filter(t => t.category === a.name).length;
+      const bv = base.filter(t => t.category === b.name).length;
+      return bv - av;
+    }).map(c => ({ label: c.name, value: base.filter(t => t.category === c.name).length, color: c.color }));
+    return rows;
+  }, [tickets, categories, dashboardOrg]);
 
 
   // ✅ NEW: Dashboard-specific chart data (with org filter)
@@ -2297,29 +2309,20 @@ export default function HelpDesk() {
 }, [dashboardData]);
 
   const dashboardClosingUsers = useMemo(() => {
-    const closedTickets = dashboardData.filter(t => t.status === "Closed");
-    const userClosures = {};
-
-    closedTickets.forEach(t => {
-      if (t.assignees && t.assignees.length > 0) {
-        t.assignees.forEach(a => {
-          userClosures[a.name] = (userClosures[a.name] || 0) + 1;
-        });
-      }
-    });
-
-    return Object.entries(userClosures)
-      .sort((a, b) => b[1] - a[1])
-      .slice(0, 6)
-      .map(([name, count], i) => ({ label: name, value: count, color: PIE_COLORS[i % PIE_COLORS.length] }));
-  }, [dashboardData]);
+  return users.map((u, i) => ({
+    label: u.name,
+    value: tickets.filter(t => t.assignees?.some(a => a.id === u.id) && t.status === "Closed" && (dashboardOrg === "all" || t.org === dashboardOrg)).length,
+    color: PIE_COLORS[i % PIE_COLORS.length]
+  })).sort((a, b) => b.value - a.value).slice(0, 6);
+}, [tickets, users, dashboardOrg]);
 
   const dashboardClosingUsersFull = useMemo(() => {
-    const closedTickets = dashboardData.filter(t => t.status === "Closed");
-    const userClosures = {};
-    closedTickets.forEach(t => { (t.assignees || []).forEach(a => { userClosures[a.name] = (userClosures[a.name] || 0) + 1; }); });
-    return Object.entries(userClosures).sort((a, b) => b[1] - a[1]).map(([name, count], i) => ({ label: name, value: count, color: PIE_COLORS[i % PIE_COLORS.length] }));
-  }, [dashboardData]);
+  return users.map((u, i) => ({
+    label: u.name,
+    value: tickets.filter(t => t.assignees?.some(a => a.id === u.id) && t.status === "Closed" && (dashboardOrg === "all" || t.org === dashboardOrg)).length,
+    color: PIE_COLORS[i % PIE_COLORS.length]
+  })).sort((a, b) => b.value - a.value);
+}, [tickets, users, dashboardOrg]);
 
   // ✅ NEW: Yearly data for reports (30+ days)
   const yearlyData = useMemo(() => {
@@ -4422,10 +4425,7 @@ export default function HelpDesk() {
     { id: "usermgmt", label: "User Management", icon: "" },
     { id: "customattrs", label: "Ticket Form", icon: "" },
   ] : currentUser?.role === "Agent" ? [
-    { id: "organisations", label: "Orgs & Departments", icon: "" },
-    { id: "categories", label: "Categories", icon: "" },
-    { id: "locations", label: "Locations", icon: "" },
-    { id: "vendors", label: "Vendors", icon: "" },
+    { id: "profile", label: "My Profile", icon: "" },
   ] : [
   ];
   const getPageTitle = () => {
@@ -4434,7 +4434,8 @@ export default function HelpDesk() {
     if (view === "projects") return cpv.label;
     if (view === "webcast") return "Webcast";
     if (view === "reports") return "Reports";
-    return "Settings";
+    if (view === "settings") return "Settings";
+    return "";
   };
 
   const thStyle = { padding: "9px 11px", textAlign: "left", fontSize: 10, fontWeight: 600, color: "#64748b", textTransform: "uppercase", letterSpacing: "0.05em", borderBottom: "1px solid #94a3b8", border: "1px solid #94a3b8", whiteSpace: "nowrap", background: "#f8fafc" };
@@ -4901,8 +4902,8 @@ const WebcastFields = ({ f, setF, isProject = false }) => {
 
         {/* New Ticket / Project buttons */}
         <div style={{ padding: "8px 8px 10px", display: "flex", flexDirection: "column", gap: 5 }}>
-          <button onClick={() => { setForm(emptyForm()); setShowNewTicket(true); }} style={{ width: "100%", padding: "8px", borderRadius: 9, border: "none", background: "linear-gradient(135deg,#3b82f6,#6366f1)", color: "#fff", fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: "'DM Sans',sans-serif" }}>+ New Ticket</button>
-          <button onClick={() => setShowNewProject(true)} style={{ width: "100%", padding: "8px", borderRadius: 9, border: "1.5px solid #1e40af", background: "transparent", color: "#60a5fa", fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: "'DM Sans',sans-serif", display: (currentUser?.role === "Admin" || currentUser?.role === "Manager") ? "block" : "none" }}>+ New Project</button>
+          <button onClick={() => { setForm({ ...emptyForm(), org: dashboardOrg !== "all" ? dashboardOrg : "" }); setShowNewTicket(true); }} style={{ width: "100%", padding: "8px", borderRadius: 9, border: "none", background: "linear-gradient(135deg,#3b82f6,#6366f1)", color: "#fff", fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: "'DM Sans',sans-serif" }}>+ New Ticket</button>
+          <button onClick={() => { setProjForm({ ...emptyProjectForm, org: dashboardOrg !== "all" ? dashboardOrg : "" }); setShowNewProject(true); }} style={{ width: "100%", padding: "8px", borderRadius: 9, border: "1.5px solid #1e40af", background: "transparent", color: "#60a5fa", fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: "'DM Sans',sans-serif", display: (currentUser?.role === "Admin" || currentUser?.role === "Manager") ? "block" : "none" }}>+ New Project</button>
         </div>
 
         {/* Profile section (v1 full profile panel) */}
@@ -5682,6 +5683,16 @@ const WebcastFields = ({ f, setF, isProject = false }) => {
                     <SmartChart title="Daily Ticket count (Over a Week)" data={dashboardDailyData} defaultColor="#3b82f6" size="small" />
                     <SmartChart title="Priority Distribution" data={priorityDist} defaultType="pie" size="small" />
                   </div>
+                  <div style={{ background: "#faf8f4", borderRadius: 12, padding: 16, boxShadow: "0 1px 4px rgba(0,0,0,0.06)", marginTop: 12 }}>
+                    <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 10, color: "#374151" }}>My Recent Tickets</div>
+                    {tickets.filter(t => t.assignees?.some(a => a.id === currentUser?.id)).slice(0, 10).map(t => (
+                      <div key={t.id} onClick={() => setSelTicket(t)} style={{ display: "flex", alignItems: "center", gap: 9, padding: "6px", borderRadius: 8, cursor: "pointer", border: "1px solid #f1f5f9", marginBottom: 5 }}>
+                        <div style={{ flex: 1, minWidth: 0 }}><div style={{ fontSize: 12, fontWeight: 600, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{t.summary}</div><div style={{ fontSize: 10, color: "#94a3b8" }}>{t.id} · {t.org}</div></div>
+                        <Badge label={t.status} style={{...STATUS_COLOR[t.status], fontSize: 10}}/>
+                      </div>
+                    ))}
+                    {tickets.filter(t => t.assignees?.some(a => a.id === currentUser?.id)).length === 0 && <div style={{ color: "#94a3b8", fontSize: 12 }}>No tickets assigned</div>}
+                  </div>
                   {/* Viewer/Agent: Horizontal Bar Charts row */}
                   {/* NO Recent Tickets for Viewer/Agent */}
                 </>
@@ -5743,7 +5754,7 @@ const WebcastFields = ({ f, setF, isProject = false }) => {
                   </>}
                 </div>
                 {tvFilter !== "closed" && (
-                  <button onClick={() => { setForm(emptyForm()); setShowNewTicket(true); }} style={{ ...bP, padding: "7px 13px", fontSize: 12 }}>+ New Ticket</button>
+                  <button onClick={() => { setForm({ ...emptyForm(), org: dashboardOrg !== "all" ? dashboardOrg : "" }); setShowNewTicket(true); }} style={{ ...bP, padding: "7px 13px", fontSize: 12 }}>+ New Ticket</button>
                 )}
                 {selectedIds.size > 0 && <span style={{ fontSize: 12, color: "#3b82f6", fontWeight: 600, background: "#eff6ff", padding: "4px 10px", borderRadius: 99 }}>{selectedIds.size} selected</span>}
 
@@ -6074,7 +6085,7 @@ const WebcastFields = ({ f, setF, isProject = false }) => {
                   </>}
                 </div>
                 {selectedProjIds.size > 0 && <span style={{ fontSize: 12, color: "#3b82f6", fontWeight: 600, background: "#eff6ff", padding: "4px 10px", borderRadius: 99 }}>{selectedProjIds.size} selected</span>}
-                {(currentUser?.role === "Admin" || currentUser?.role === "Manager") && <button onClick={() => setShowNewProject(true)} style={{ ...bP, padding: "7px 13px", fontSize: 13, background: "linear-gradient(135deg,#8b5cf6,#6366f1)" }}>+ New Project</button>}
+                {(currentUser?.role === "Admin" || currentUser?.role === "Manager") && <button onClick={() => { setProjForm({ ...emptyProjectForm, org: dashboardOrg !== "all" ? dashboardOrg : "" }); setShowNewProject(true); }} style={{ ...bP, padding: "7px 13px", fontSize: 13, background: "linear-gradient(135deg,#8b5cf6,#6366f1)" }}>+ New Project</button>}
               </div>
             </div>
             <div style={{ overflowX: "auto", border: "1.5px solid #e2e8f0", borderRadius: 10, overflow: "hidden" }}>
@@ -7240,6 +7251,23 @@ const WebcastFields = ({ f, setF, isProject = false }) => {
                   </label>
                 </div>
               </div>}
+              {settingsTab === "profile" && currentUser?.role === "Agent" && (
+                <div style={{ background: "#faf8f4", borderRadius: 12, padding: 22, boxShadow: "0 1px 4px rgba(0,0,0,0.06)" }}>
+                  <h3 style={{ margin: "0 0 14px", fontSize: 15, fontWeight: 700 }}>My Profile</h3>
+                  {[
+                    { l: "Name", v: currentUser.name },
+                    { l: "Email", v: currentUser.email },
+                    { l: "Role", v: currentUser.role },
+                    { l: "Status", v: currentUser.status || "Off Duty" },
+                    { l: "Phone", v: currentUser.phone || "—" },
+                  ].map(f => (
+                    <div key={f.l} style={{ background: "#fff", padding: "10px 14px", borderRadius: 8, marginBottom: 8, border: "1px solid #e2e8f0" }}>
+                      <div style={{ fontSize: 10, fontWeight: 600, color: "#94a3b8", textTransform: "uppercase", marginBottom: 2 }}>{f.l}</div>
+                      <div style={{ fontSize: 13, fontWeight: 500 }}>{f.v}</div>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           </div>}
         </div>
