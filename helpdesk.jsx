@@ -1062,6 +1062,8 @@ export default function HelpDesk() {
   });
   const [reportPreview, setReportPreview] = useState([]);
   const [reportName, setReportName] = useState("");
+  const [saveReportDialogOpen, setSaveReportDialogOpen] = useState(false);
+
 
   // ✅ NEW: User management edit modal state
   const [userEditModal, setUserEditModal] = useState({ show: false, user: null, newRole: null, editName: "", editEmail: "", editPhone: "", editPassword: "" });
@@ -5582,36 +5584,6 @@ const WebcastFields = ({ f, setF, isProject = false }) => {
             {view === "projects" && <p style={{ margin: 0, fontSize: 11, color: "#94a3b8" }}>{cpv.desc}</p>}
           </div>
           <div style={{ display: "flex", gap: 9, alignItems: "center" }}>
-            {view === "reports" && (
-              <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-                <select value={range} onChange={e => { setRange(e.target.value); if (e.target.value !== "custom") { setCustomDateFrom(""); setCustomDateTo(""); } }} style={{ ...sS, width: 150, fontSize: 13, padding: "7px 10px" }}>
-                  <option value="all">All Time</option>
-                  <option value="1">Today</option>
-                  <option value="7">Last 7 Days</option>
-                  <option value="30">Last 30 Days</option>
-                  <option value="last_month">Last 6 Months</option>
-                  <option value="custom">📅 Custom Range</option>
-                </select>
-                {range === "custom" && (
-                  <>
-                    <input
-                      type="date"
-                      value={customDateFrom}
-                      onChange={e => setCustomDateFrom(e.target.value)}
-                      style={{ ...sS, fontSize: 12, padding: "7px 9px", width: 135 }}
-                    />
-                    <span style={{ fontSize: 12, color: "#94a3b8", fontWeight: 500 }}>to</span>
-                    <input
-                      type="date"
-                      value={customDateTo}
-                      onChange={e => setCustomDateTo(e.target.value)}
-                      max={new Date().toISOString().split("T")[0]}
-                      style={{ ...sS, fontSize: 12, padding: "7px 9px", width: 135 }}
-                    />
-                  </>
-                )}
-              </div>
-            )}
             {view === "dashboard" && (
               <>
                 {/* Time Period Dropdown */}
@@ -6574,7 +6546,23 @@ const WebcastFields = ({ f, setF, isProject = false }) => {
                 { key: "dueDate", label: "Due Date" }, { key: "createdAt", label: "Created" },
               ],
             };
-
+            
+            const ALWAYS_EXCLUDE = ["department", "contact", "reportedBy", "location","updatedAt"];
+            const DEFAULT_COLS = {
+              tickets: {
+                Open: ALL_COLUMNS.tickets.filter(c => !["reportedBy","closedAt","contact","department","location","updatedAt"].includes(c.key)).map(c => c.key),
+                Closed: ALL_COLUMNS.tickets.filter(c => !["reportedBy","createdAt","updatedAt","dueDate","department","location","contact"].includes(c.key)).map(c => c.key),
+              },
+              projects: {
+                Open: ALL_COLUMNS.projects.filter(c => !["reportedBy","closedAt","contact","department","location"].includes(c.key)).map(c => c.key),
+                Closed: ALL_COLUMNS.projects.filter(c => !["reportedBy","createdAt","updatedAt","dueDate","department","location","contact"].includes(c.key)).map(c => c.key),
+              },
+            };
+            const getDefaultCols = (src, statuses) => {
+              const s = statuses.length === 1 ? statuses[0] : null;
+              if (s) return DEFAULT_COLS[src]?.[s] || ALL_COLUMNS[src].map(c => c.key);
+              return ALL_COLUMNS[src].filter(c => !ALWAYS_EXCLUDE.includes(c.key)).map(c => c.key);
+            };
             const availableCols = ALL_COLUMNS[reportFilters.dataSource] || ALL_COLUMNS.tickets;
             const sourceData = reportFilters.dataSource === "projects" ? projects : tickets;
 
@@ -6589,12 +6577,15 @@ const WebcastFields = ({ f, setF, isProject = false }) => {
               if (reportFilters.priority.length) result = result.filter(r => reportFilters.priority.includes(r.priority));
               if (reportFilters.category.length) result = result.filter(r => reportFilters.category.includes(r.category));
               if (reportFilters.assignee) result = result.filter(r => (r.assignees || []).some(a => a.name?.toLowerCase().includes(reportFilters.assignee.toLowerCase())));
-              if (reportFilters.dateFrom) result = result.filter(r => new Date(r.createdAt) >= new Date(reportFilters.dateFrom));
-              if (reportFilters.dateTo) result = result.filter(r => new Date(r.createdAt) <= new Date(reportFilters.dateTo + "T23:59:59"));
-              if (reportFilters.org) result = result.filter(r => r.org === reportFilters.org);
               const onlyClosed = reportFilters.status.length === 1 && reportFilters.status[0] === "Closed";
-              if (onlyClosed && reportFilters.closedFrom) result = result.filter(r => { const d = getClosedDate(r); return d && d >= new Date(reportFilters.closedFrom); });
-              if (onlyClosed && reportFilters.closedTo) result = result.filter(r => { const d = getClosedDate(r); return d && d <= new Date(reportFilters.closedTo + "T23:59:59"); });
+              if (reportFilters.dateFrom) {
+                if (onlyClosed) result = result.filter(r => { const d = getClosedDate(r); return d && d >= new Date(reportFilters.dateFrom); });
+                else result = result.filter(r => new Date(r.createdAt) >= new Date(reportFilters.dateFrom));
+              }
+              if (reportFilters.dateTo) {
+                if (onlyClosed) result = result.filter(r => { const d = getClosedDate(r); return d && d <= new Date(reportFilters.dateTo + "T23:59:59"); });
+                else result = result.filter(r => new Date(r.createdAt) <= new Date(reportFilters.dateTo + "T23:59:59"));
+              }
               return result;
             };
 
@@ -6632,6 +6623,7 @@ const WebcastFields = ({ f, setF, isProject = false }) => {
                 .then(r => setSavedReports(prev => [r.data, ...prev]))
                 .catch(() => alert("Failed to save report"));
               setReportName("");
+              setSaveReportDialogOpen(false);
               setReportBuilderOpen(false);
               alert(`Report "${report.name}" saved.`);
             };
@@ -6704,7 +6696,7 @@ const WebcastFields = ({ f, setF, isProject = false }) => {
                   {btn("＋ New Report", () => {
                     setReportPreview([]);
                     setReportName("");
-                    setReportFilters({ dataSource: "tickets", status: [], priority: [], category: [], assignee: "", org: dashboardOrg === "all" ? "" : dashboardOrg, dateFrom: "", dateTo: "", columns: ALL_COLUMNS.tickets.map(c => c.key) });
+                    setReportFilters({ dataSource: "tickets", status: [], priority: [], category: [], assignee: "", org: dashboardOrg === "all" ? "" : dashboardOrg, dateFrom: "", dateTo: "", columns: getDefaultCols("tickets", []) });
                     setReportBuilderOpen(true);
                   })}
                 </div>
@@ -6752,12 +6744,17 @@ const WebcastFields = ({ f, setF, isProject = false }) => {
                       <div>
                         <label style={{ fontSize: 12, fontWeight: 600, color: "#475569", display: "block", marginBottom: 6 }}>DATA SOURCE</label>
                         <div style={{ display: "flex", gap: 8 }}>
-                          {["tickets", "projects"].map(s => chip(s.charAt(0).toUpperCase() + s.slice(1), reportFilters.dataSource === s, () => setReportFilters(f => ({ ...f, dataSource: s, status: [], priority: [], category: [], org: dashboardOrg === "all" ? "" : dashboardOrg, columns: ALL_COLUMNS[s].map(c => c.key) }))))}
+                          {["tickets", "projects"].map(s => chip(s.charAt(0).toUpperCase() + s.slice(1), reportFilters.dataSource === s, () => setReportFilters(f => ({ ...f, dataSource: s, status: [], priority: [], category: [], org: dashboardOrg === "all" ? "" : dashboardOrg, columns: getDefaultCols(s, []) }))))}
                         </div>
                       </div>
                       {/* Date Range */}
                       <div>
-                        <label style={{ fontSize: 12, fontWeight: 600, color: "#475569", display: "block", marginBottom: 6 }}>DATE RANGE (Created)</label>
+                        <label style={{ fontSize: 12, fontWeight: 600, color: "#475569", display: "block", marginBottom: 6 }}>
+                          DATE RANGE
+                          <span style={{ fontWeight: 400, color: "#94a3b8", marginLeft: 6, fontSize: 11 }}>
+                            ({reportFilters.status[0] === "Closed" ? "filters by closed date" : "filters by created date"})
+                          </span>
+                        </label>                        
                         <div style={{ display: "flex", gap: 8 }}>
                           <input type="date" value={reportFilters.dateFrom} max={new Date().toISOString().split("T")[0]} onChange={e => setReportFilters(f => ({ ...f, dateFrom: e.target.value }))} style={{ flex: 1, padding: "7px 10px", border: "1px solid #e2e8f0", borderRadius: 7, fontSize: 13 }} />
                           <input type="date" value={reportFilters.dateTo} max={new Date().toISOString().split("T")[0]} onChange={e => setReportFilters(f => ({ ...f, dateTo: e.target.value }))} style={{ flex: 1, padding: "7px 10px", border: "1px solid #e2e8f0", borderRadius: 7, fontSize: 13 }} />
@@ -6770,7 +6767,11 @@ const WebcastFields = ({ f, setF, isProject = false }) => {
                       <div>
                         <label style={{ fontSize: 12, fontWeight: 600, color: "#475569", display: "block", marginBottom: 6 }}>STATUS</label>
                         <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-                          {(reportFilters.dataSource === "projects" ? PROJECT_STATUSES : STATUSES.filter(s => s !== "Bin")).map(s => chip(s, reportFilters.status.includes(s), () => toggleArr("status", s)))}
+                          {(reportFilters.dataSource === "projects" ? PROJECT_STATUSES : STATUSES).filter(s => s !== "Bin").map(s => chip(s, reportFilters.status[0] === s, () => {
+                            const newStatus = reportFilters.status[0] === s ? [] : [s];
+                            setReportFilters(f => ({ ...f, status: newStatus, columns: getDefaultCols(f.dataSource, newStatus) }));
+                          }))}
+
                         </div>
                       </div>
                       <div>
@@ -6803,16 +6804,6 @@ const WebcastFields = ({ f, setF, isProject = false }) => {
                       </div>
                     </div>
 
-                    {reportFilters.status.length === 1 && reportFilters.status[0] === "Closed" && (
-                      <div style={{ marginBottom: 20 }}>
-                        <label style={{ fontSize: 12, fontWeight: 600, color: "#475569", display: "block", marginBottom: 6 }}>DATE RANGE (Closed)</label>
-                        <div style={{ display: "flex", gap: 8, maxWidth: 400 }}>
-                          <input type="date" value={reportFilters.closedFrom || ""} max={new Date().toISOString().split("T")[0]} onChange={e => setReportFilters(f => ({ ...f, closedFrom: e.target.value }))} style={{ flex: 1, padding: "7px 10px", border: "1px solid #e2e8f0", borderRadius: 7, fontSize: 13 }} />
-                          <input type="date" value={reportFilters.closedTo || ""} max={new Date().toISOString().split("T")[0]} onChange={e => setReportFilters(f => ({ ...f, closedTo: e.target.value }))} style={{ flex: 1, padding: "7px 10px", border: "1px solid #e2e8f0", borderRadius: 7, fontSize: 13 }} />
-                        </div>
-                      </div>
-                    )}
-
                     {/* Columns */}
                     <div style={{ marginBottom: 20 }}>
                       <label style={{ fontSize: 12, fontWeight: 600, color: "#475569", display: "block", marginBottom: 6 }}>COLUMNS TO EXPORT</label>
@@ -6826,6 +6817,20 @@ const WebcastFields = ({ f, setF, isProject = false }) => {
                       {btn("▶ Run Report", runReport)}
                       {reportPreview.length > 0 && btn("⬇ Export CSV", () => downloadReport("live", reportName || "report"), "#10b981")}
                     </div>
+                    
+                    {saveReportDialogOpen && (
+                      <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.45)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 3000 }}>
+                        <div style={{ background: "#fff", borderRadius: 12, padding: 28, width: 360, boxShadow: "0 20px 60px rgba(0,0,0,0.25)" }}>
+                          <h3 style={{ margin: "0 0 16px", fontSize: 16, fontWeight: 700, color: "#0f172a" }}>💾 Save Report</h3>
+                          <label style={{ fontSize: 12, fontWeight: 600, color: "#475569", display: "block", marginBottom: 6 }}>Report Name *</label>
+                          <input autoFocus value={reportName} onChange={e => setReportName(e.target.value)} onKeyDown={e => { if (e.key === "Enter") saveReport(); if (e.key === "Escape") setSaveReportDialogOpen(false); }} placeholder="Enter report name…" style={{ width: "100%", padding: "8px 10px", border: "1px solid #e2e8f0", borderRadius: 7, fontSize: 13, boxSizing: "border-box", marginBottom: 20 }} />
+                          <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
+                            <button onClick={() => { setSaveReportDialogOpen(false); setReportName(""); }} style={{ padding: "8px 16px", borderRadius: 6, border: "1px solid #e2e8f0", background: "#fff", color: "#64748b", cursor: "pointer", fontSize: 13, fontWeight: 600 }}>Cancel</button>
+                            <button onClick={saveReport} style={{ padding: "8px 16px", borderRadius: 6, border: "none", background: "#6366f1", color: "#fff", cursor: "pointer", fontSize: 13, fontWeight: 600 }}>Save</button>
+                          </div>
+                        </div>
+                      </div>
+                    )}
 
                     {/* Preview */}
                     {reportPreview.length > 0 && (
@@ -6833,8 +6838,7 @@ const WebcastFields = ({ f, setF, isProject = false }) => {
                         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
                           <span style={{ fontSize: 13, fontWeight: 600, color: "#334155" }}>{reportPreview.length} rows</span>
                           <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-                            <input value={reportName} onChange={e => setReportName(e.target.value)} placeholder="Report name…" style={{ padding: "6px 10px", border: "1px solid #e2e8f0", borderRadius: 7, fontSize: 13 }} />
-                            {btn("💾 Save Report", saveReport, "#6366f1")}
+                            {btn("💾 Save Report", () => setSaveReportDialogOpen(true), "#6366f1")}
                           </div>
                         </div>
                         <div style={{ overflowX: "auto", borderRadius: 8, border: "1px solid #e2e8f0" }}>
