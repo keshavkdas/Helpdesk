@@ -1084,13 +1084,20 @@ export default function HelpDesk() {
   });
 
   const mainContentRef = useRef(null);
-  const switchView = (v) => { setView(v); setSearch(""); setStatusF("All"); setPriorityF("All"); setDeptFilter("all"); setCategoryFilter("all"); setOrgFilterSearch(""); setProjSearch(""); setProjStatusF("All"); setProjPriorityF("All"); setVisibleTicketCols(new Set(ALL_TICKET_COLS.filter(c => c !== "vendor" && c !== "reportedBy"))); setVisibleProjCols(new Set(ALL_PROJ_COLS.filter(c => c !== "progress"))); setSettingsTab(currentUser?.role === "Agent" ? "profile" : "organisations"); setReportBuilderOpen(false);; setTimeout(() => mainContentRef.current?.scrollTo(0, 0), 0); };
+  const switchView = (v) => { setView(v); setSearch(""); setStatusF("All"); setPriorityF("All"); setFilterStatus([]); setFilterAssignment([]); setFilterAssignee(""); setFilterCategory(""); setDeptFilter("all"); setCategoryFilter("all"); setOrgFilterSearch(""); setProjSearch(""); setProjStatusF("All"); setProjPriorityF("All"); setProjFilterStatus([]); setProjFilterAssignment([]); setProjFilterAssignee(""); setProjFilterCategory(""); setProjFilterPriority("All"); setVisibleTicketCols(new Set(ALL_TICKET_COLS.filter(c => c !== "reportedBy"))); setVisibleProjCols(new Set(ALL_PROJ_COLS.filter(c => c !== "progress"))); setSettingsTab(currentUser?.role === "Agent" ? "profile" : "organisations"); setReportBuilderOpen(false);; setTimeout(() => mainContentRef.current?.scrollTo(0, 0), 0); };
   const [settingsTab, setSettingsTab] = useState("organisations");
-  const [activeQuickFilters, setActiveQuickFilters] = useState([]);
-  const [showQuickFilterDD, setShowQuickFilterDD] = useState(false);
-  const [quickFilterDDPos, setQuickFilterDDPos] = useState({ top: 0, left: 0 });
-  const quickFilterBtnRef = useRef(null);
-  const quickFilterDDRef = useRef(null);
+  const [showFilterPanel, setShowFilterPanel] = useState(false);
+  const [filterStatus, setFilterStatus] = useState([]);       // "open","closed","pastdue"
+  const [filterAssignment, setFilterAssignment] = useState([]); // "assigned","unassigned","vendor"
+  const [filterAssignee, setFilterAssignee] = useState([]);
+  const [filterAssigneeSearch, setFilterAssigneeSearch] = useState("");
+  const [filterCategory, setFilterCategory] = useState("");    // search string
+  const [activeFilterDD, setActiveFilterDD] = useState(null); // "status"|"assignment"|"assignee"|"category"|"priority"
+  const filterStatusRef = useRef(null);
+  const filterAssignmentRef = useRef(null);
+  const filterAssigneeRef = useRef(null);
+  const filterCategoryRef = useRef(null);
+  const filterPriorityRef = useRef(null);
   const [showProjFilterDD, setShowProjFilterDD] = useState(false);
   const ticketFilterRef = useRef(null);
   const projFilterRef = useRef(null);
@@ -1213,27 +1220,6 @@ export default function HelpDesk() {
     return () => document.removeEventListener("mousedown", handler);
   }, []);
 
-  useEffect(() => {
-    if (!showQuickFilterDD) return;
-    const handler = (e) => {
-      if (
-        quickFilterBtnRef.current && !quickFilterBtnRef.current.contains(e.target) &&
-        quickFilterDDRef.current && !quickFilterDDRef.current.contains(e.target)
-      ) {
-        setShowQuickFilterDD(false);
-      }
-    };
-    document.addEventListener("mousedown", handler);
-    return () => document.removeEventListener("mousedown", handler);
-  }, [showQuickFilterDD]);
-
-  useEffect(() => {
-    if (!showQuickFilterDD) return;
-    const handler = () => setShowQuickFilterDD(false);
-    window.addEventListener("scroll", handler, true);
-    return () => window.removeEventListener("scroll", handler, true);
-  }, [showQuickFilterDD]);
-
   // ── Ticket filters ──
   const [statusF, setStatusF] = useState("All");
   const [priorityF, setPriorityF] = useState("All");
@@ -1250,6 +1236,18 @@ export default function HelpDesk() {
   const [projSearch, setProjSearch] = useState("");
   const [projStatusF, setProjStatusF] = useState("All");
   const [projPriorityF, setProjPriorityF] = useState("All");
+  const [projFilterStatus, setProjFilterStatus] = useState([]);
+  const [projFilterAssignment, setProjFilterAssignment] = useState([]);
+  const [projFilterAssignee, setProjFilterAssignee] = useState([]);
+  const [projFilterAssigneeSearch, setProjFilterAssigneeSearch] = useState("");
+  const [projFilterCategory, setProjFilterCategory] = useState("");
+  const [projFilterPriority, setProjFilterPriority] = useState("All");
+  const [activeProjFilterDD, setActiveProjFilterDD] = useState(null);
+  const projFilterStatusRef = useRef(null);
+  const projFilterAssignmentRef = useRef(null);
+  const projFilterAssigneeRef = useRef(null);
+  const projFilterCategoryRef = useRef(null);
+  const projFilterPriorityRef = useRef(null);  
   const [selectedProjIds, setSelectedProjIds] = useState(new Set());
   const [showProjExport, setShowProjExport] = useState(false);
   const [showManageTicket, setShowManageTicket] = useState(null);
@@ -1497,8 +1495,8 @@ export default function HelpDesk() {
   const [selectedTickets, setSelectedTickets] = useState(new Set());
   const [ticketsPerPage, setTicketsPerPage] = useState(10);
   const [sortOrder, setSortOrder] = useState("desc"); // "desc" = newest first, "asc" = oldest first
-  const ALL_TICKET_COLS = ["id","created","summary","org","department","vendor","reportedBy","assignees","priority","category","status"];
-  const [visibleTicketCols, setVisibleTicketCols] = useState(new Set(ALL_TICKET_COLS.filter(c => c !== "vendor" && c !== "reportedBy")));
+  const ALL_TICKET_COLS = ["id","created","summary","org","department","reportedBy","assignees","priority","category","status"];
+  const [visibleTicketCols, setVisibleTicketCols] = useState(new Set(ALL_TICKET_COLS.filter(c => c !== "reportedBy")));
   const [showTicketColPicker, setShowTicketColPicker] = useState(false);
   const ALL_PROJ_COLS = ["id","created","title","org","department","assignees","priority","category","status","progress","dueDate"];
   const [visibleProjCols, setVisibleProjCols] = useState(new Set(ALL_PROJ_COLS.filter(c => c !== "progress")));
@@ -1507,7 +1505,17 @@ export default function HelpDesk() {
   const [projColDDPos, setProjColDDPos] = useState({ top: 0, right: 0 });
   const ticketColBtnRef = useRef(null);
   const projColBtnRef = useRef(null);
-
+  const [showTicketExport, setShowTicketExport] = useState(false);
+  const [showProjExportDD, setShowProjExportDD] = useState(false);
+  const [showTicketColExport, setShowTicketColExport] = useState(false);
+  const [ticketExportCols, setTicketExportCols] = useState(new Set(ALL_TICKET_COLS));
+  const [ticketExportMode, setTicketExportMode] = useState("csv");
+  const [showProjColExport, setShowProjColExport] = useState(false);
+  const [projExportCols, setProjExportCols] = useState(new Set(ALL_PROJ_COLS));
+  const [projExportMode, setProjExportMode] = useState("csv");
+  const ticketExportBtnRef = useRef(null);
+  const projExportBtnRef = useRef(null);
+  const printFrameRef = useRef(null);
   // ✅ NEW: Refs for column pickers (to handle scroll closing)
   const ticketColPickerRef = useRef(null);
   const projColPickerRef = useRef(null);
@@ -2154,17 +2162,32 @@ export default function HelpDesk() {
     if (orgFilter !== "all" && t.org !== orgFilter) return false;
     if (deptFilter !== "all" && t.department !== deptFilter) return false;
     if (categoryFilter !== "all" && t.category !== categoryFilter) return false;
-    if (activeQuickFilters.length > 0) {
-    const pass = activeQuickFilters.every(f => {
-      if (f === "unassigned") return (!t.assignees || t.assignees.length === 0) && t.status !== "Closed";
-      if (f === "mine") return t.status === "Open" && t.assignees?.some(a => a.id === currentUser.id);
-      if (f === "pastdue") return t.status === "Open" && t.dueDate && new Date(String(t.dueDate)) < new Date();
-      if (f === "vendor") return t.status === "Pending" && t.timeline?.some(ev => ev.action?.includes("Sent for Repair"));
-      if (f === "webcast") return t.category === "Webcast" || isTrueWebcast(t);
-      return false;
-    });
-    if (!pass) return false;
-  }
+    if (filterStatus.length > 0) {
+      const statusPass = filterStatus.some(f => {
+        if (f === "open") return t.status === "Open";
+        if (f === "closed") return t.status === "Closed";
+        if (f === "pastdue") { const due = t.dueDate && new Date(String(t.dueDate)); const today = new Date(); today.setHours(0,0,0,0); return t.status === "Open" && due && due < today; }        return false;
+      });
+      if (!statusPass) return false;
+    }
+    // Assignment filter
+    if (filterAssignment.length > 0) {
+      const assignPass = filterAssignment.some(f => {
+        if (f === "assigned") return t.assignees && t.assignees.length > 0;
+        if (f === "unassigned") return !t.assignees || t.assignees.length === 0;
+        if (f === "vendor") return t.status === "Pending" && t.timeline?.some(ev => ev.action?.includes("Sent for Repair"));
+        return false;
+      });
+      if (!assignPass) return false;
+    }
+    // Assignee search
+    if (filterAssignee.length > 0) {
+      if (!t.assignees?.some(a => filterAssignee.includes(a.name))) return false;
+    }
+    // Category search
+    if (filterCategory.trim()) {
+      if (!t.category?.toLowerCase().includes(filterCategory.toLowerCase())) return false;
+    }
     if (search) {
       if (search.startsWith("event:")) {
         const id = search.split(":")[1];
@@ -2173,7 +2196,7 @@ export default function HelpDesk() {
       if (!t.summary.toLowerCase().includes(search.toLowerCase()) && !t.id.toLowerCase().includes(search.toLowerCase()) && !t.org.toLowerCase().includes(search.toLowerCase())) return false;
     }
     return true;
-  }), [tickets, cvd, currentUser, statusF, priorityF, search, orgFilter, deptFilter, categoryFilter, activeQuickFilters]);
+  }), [tickets, cvd, currentUser, statusF, priorityF, search, orgFilter, deptFilter, categoryFilter, filterStatus, filterAssignment, filterAssignee, filterCategory]);
 
   // ✅ NEW: Filter for webcast tickets only
   const webcastFiltered = useMemo(() => tickets.filter(t => {
@@ -2208,14 +2231,37 @@ export default function HelpDesk() {
 
 
   const filteredProjects = useMemo(() => projects.filter(p => {
-    if (!cpv.filter(p, currentUser)) return false;
-    if ((currentUser?.role === "Agent" || currentUser?.role === "Viewer") && !p.assignees?.some(a => a.id === currentUser?.id)) return false;
-    if (dashboardOrg !== "all" && p.org !== dashboardOrg) return false;
+    if (!currentUser || !cpv.filter(p, currentUser)) return false;
     if (projStatusF !== "All" && p.status !== projStatusF) return false;
     if (projPriorityF !== "All" && p.priority !== projPriorityF) return false;
+    if (projFilterStatus.length > 0) {
+      const sp = projFilterStatus.some(f => {
+        if (f === "open") return p.status === "Open";
+        if (f === "closed") return p.status === "Closed";
+        if (f === "pastdue") { const due = p.dueDate && new Date(p.dueDate); const today = new Date(); today.setHours(0,0,0,0); return p.status === "Open" && due && due < today; }
+        return false;
+      });
+      if (!sp) return false;
+    }
+    if (projFilterAssignment.length > 0) {
+      const ap = projFilterAssignment.some(f => {
+        if (f === "assigned") return p.assignees && p.assignees.length > 0;
+        if (f === "unassigned") return !p.assignees || p.assignees.length === 0;
+        return false;
+      });
+      if (!ap) return false;
+    }
+    if (projFilterAssignee.length > 0) {
+      if (!p.assignees?.some(a => projFilterAssignee.includes(a.name))) return false;
+    }
+    if (projFilterCategory.trim()) {
+      if (!p.category?.toLowerCase().includes(projFilterCategory.toLowerCase())) return false;
+    }
+    if (projFilterPriority !== "All" && p.priority !== projFilterPriority) return false;
     if (projSearch && !p.title.toLowerCase().includes(projSearch.toLowerCase()) && !p.id.toLowerCase().includes(projSearch.toLowerCase()) && !p.org.toLowerCase().includes(projSearch.toLowerCase())) return false;
     return true;
-  }), [projects, cpv, currentUser, dashboardOrg, projStatusF, projPriorityF, projSearch]);
+  }), [projects, cpv, currentUser, dashboardOrg, projStatusF, projPriorityF, projSearch, projFilterStatus, projFilterAssignment, projFilterAssignee, projFilterCategory, projFilterPriority]);
+
 
   const stats = useMemo(() => ({ total: fbr.length, open: fbr.filter(x => x.status === "Open").length, closed: fbr.filter(x => x.status === "Closed").length, critical: fbr.filter(x => x.priority === "Critical").length }), [fbr]);
 
@@ -4725,7 +4771,98 @@ const WebcastFields = ({ f, setF, isProject = false }) => {
           </div>
         </div>
       )}
+      {showTicketColExport && (
+        <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.45)", display:"flex", alignItems:"center", justifyContent:"center", zIndex:10000 }}>
+          <div style={{ background:"#fff", borderRadius:12, padding:24, width:360, boxShadow:"0 20px 60px rgba(0,0,0,0.2)" }}>
+            <h3 style={{ margin:"0 0 12px", fontSize:15, fontWeight:700 }}>📄 Choose Columns to Export</h3>
+            <div style={{ display:"flex", flexDirection:"column", gap:6, marginBottom:16 }}>
+              {ALL_TICKET_COLS.map(col => (
+                <label key={col} style={{ display:"flex", alignItems:"center", gap:8, fontSize:13, cursor:"pointer" }}>
+                  <input type="checkbox" checked={ticketExportCols.has(col)} onChange={() => setTicketExportCols(prev => { const n=new Set(prev); n.has(col)?n.delete(col):n.add(col); return n; })} />
+                  {col.charAt(0).toUpperCase()+col.slice(1)}
+                </label>
+              ))}
+            </div>
+            <div style={{ display:"flex", gap:8, justifyContent:"flex-end" }}>
+              <button onClick={() => setShowTicketColExport(false)} style={{ ...bG, padding:"7px 14px" }}>Cancel</button>
+              <button onClick={() => {
+                const cols = [...ticketExportCols];
+                const colLabels = { id:"ID", created:"Created", summary:"Summary", org:"Organization", department:"Department", reportedBy:"Reported By", assignees:"Assignees", priority:"Priority", category:"Category", status:"Status" };
+                if (ticketExportMode === "csv") {
+                  const headers = cols.map(c => colLabels[c]||c);
+                  const rows = allSortedTickets.map(t => cols.map(c => {
+                    if(c==="assignees") return `"${(t.assignees||[]).map(a=>a.name).join("; ")}"`;
+                    if(c==="created"||c==="updated") return new Date(t[c]).toLocaleString();
+                    return `"${t[c]||""}"`;
+                  }));
+                  const csv = [headers,...rows].map(r=>r.join(",")).join("\n");
+                  const a=document.createElement("a"); a.href=URL.createObjectURL(new Blob([csv],{type:"text/csv"})); a.download=`tickets_export_${new Date().toISOString().split("T")[0]}.csv`; a.click();
+                } else {
+                  const headers = cols.map(c => colLabels[c]||c);
+                  const trs = allSortedTickets.map(t => `<tr>${cols.map(c => {
+                    let v = c==="assignees" ? (t.assignees||[]).map(a=>a.name).join(", ") : c==="created"||c==="updated" ? new Date(t[c]).toLocaleString() : (t[c]||"");
+                    return `<td>${v}</td>`;
+                  }).join("")}</tr>`).join("");
+                  const html = `<html><head><title>Tickets Export</title><style>body{font-family:sans-serif;font-size:12px}table{border-collapse:collapse;width:100%}th,td{border:1px solid #ccc;padding:6px 8px;text-align:left}th{background:#f1f5f9}@media print{body{margin:0}}</style></head><body><h2>Tickets Export — ${new Date().toLocaleDateString()}</h2><p>${allSortedTickets.length} tickets</p><table><thead><tr>${headers.map(h=>`<th>${h}</th>`).join("")}</tr></thead><tbody>${trs}</tbody></table></body></html>`;
+                  const fr = printFrameRef.current;
+                  fr.srcdoc = html;
+                  fr.onload = () => { fr.contentWindow.focus(); fr.contentWindow.print(); };
+                  return;
+                }
+                setShowTicketColExport(false);
+              }} style={{ ...bP, padding:"7px 14px" }}>⬇️ Export</button>
+            </div>
+          </div>
+        </div>
+      )}
 
+      {showProjColExport && (
+        <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.45)", display:"flex", alignItems:"center", justifyContent:"center", zIndex:10000 }}>
+          <div style={{ background:"#fff", borderRadius:12, padding:24, width:360, boxShadow:"0 20px 60px rgba(0,0,0,0.2)" }}>
+            <h3 style={{ margin:"0 0 12px", fontSize:15, fontWeight:700 }}>📄 Choose Columns to Export</h3>
+            <div style={{ display:"flex", flexDirection:"column", gap:6, marginBottom:16 }}>
+              {ALL_PROJ_COLS.map(col => (
+                <label key={col} style={{ display:"flex", alignItems:"center", gap:8, fontSize:13, cursor:"pointer" }}>
+                  <input type="checkbox" checked={projExportCols.has(col)} onChange={() => setProjExportCols(prev => { const n=new Set(prev); n.has(col)?n.delete(col):n.add(col); return n; })} />
+                  {col.charAt(0).toUpperCase()+col.slice(1)}
+                </label>
+              ))}
+            </div>
+            <div style={{ display:"flex", gap:8, justifyContent:"flex-end" }}>
+              <button onClick={() => setShowProjColExport(false)} style={{ ...bG, padding:"7px 14px" }}>Cancel</button>
+              <button onClick={() => {
+                const cols = [...projExportCols];
+                const colLabels = { id:"ID", created:"Created", title:"Title", org:"Organization", department:"Department", assignees:"Assignees", priority:"Priority", category:"Category", status:"Status", progress:"Progress", dueDate:"Due Date" };
+                const sortedProjs = applySort(filteredProjects, projSort);
+                if (projExportMode === "csv") {
+                  const headers = cols.map(c => colLabels[c]||c);
+                  const rows = sortedProjs.map(t => cols.map(c => {
+                    if(c==="assignees") return `"${(t.assignees||[]).map(a=>a.name).join("; ")}"`;
+                    if(c==="created") return new Date(t[c]).toLocaleString();
+                    if(c==="dueDate") return t.dueDate?.toLocaleDateString()||"";
+                    if(c==="progress") return `${t.progress||0}%`;
+                    return `"${t[c]||""}"`;
+                  }));
+                  const csv = [headers,...rows].map(r=>r.join(",")).join("\n");
+                  const a=document.createElement("a"); a.href=URL.createObjectURL(new Blob([csv],{type:"text/csv"})); a.download=`projects_export_${new Date().toISOString().split("T")[0]}.csv`; a.click();
+                } else {
+                  const headers = cols.map(c => colLabels[c]||c);
+                  const trs = sortedProjs.map(t => `<tr>${cols.map(c => {
+                    let v = c==="assignees" ? (t.assignees||[]).map(a=>a.name).join(", ") : c==="created" ? new Date(t[c]).toLocaleString() : c==="dueDate" ? t.dueDate?.toLocaleDateString()||"" : c==="progress" ? `${t.progress||0}%` : (t[c]||"");
+                    return `<td>${v}</td>`;
+                  }).join("")}</tr>`).join("");
+                  const html = `<html><head><title>Projects Export</title><style>body{font-family:sans-serif;font-size:12px}table{border-collapse:collapse;width:100%}th,td{border:1px solid #ccc;padding:6px 8px;text-align:left}th{background:#f1f5f9}@media print{body{margin:0}}</style></head><body><h2>Projects Export — ${new Date().toLocaleDateString()}</h2><p>${sortedProjs.length} projects</p><table><thead><tr>${headers.map(h=>`<th>${h}</th>`).join("")}</tr></thead><tbody>${trs}</tbody></table></body></html>`;
+                  const fr = printFrameRef.current;
+                  fr.srcdoc = html;
+                  fr.onload = () => { fr.contentWindow.focus(); fr.contentWindow.print(); };
+                  return;
+                }
+                setShowProjColExport(false);
+              }} style={{ ...bP, padding:"7px 14px" }}>⬇️ Export</button>
+            </div>
+          </div>
+        </div>
+      )}
       {/* ✅ NEW: Advanced Export Modal */}
       {showAdvancedExportModal && <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 10000 }}>
         <div style={{ background: "#faf8f4", borderRadius: 14, padding: 24, maxWidth: 600, width: "90%", maxHeight: "90vh", overflow: "auto", boxShadow: "0 20px 60px rgba(0,0,0,0.3)" }}>
@@ -5615,10 +5752,10 @@ const WebcastFields = ({ f, setF, isProject = false }) => {
               </div>
               <div style={{ display: "grid", gridTemplateColumns: "repeat(6,1fr)", gap: 9, marginBottom: 20 }}>
                 {[
-                  { label: "Open", value: dashboardStats.open, bg: "#fef3c7", accent: "#f59e0b", icon: "", action: () => { switchView("tickets"); setTvFilter("open"); setStatusF("All"); setPriorityF("All"); } },
-                  ...((currentUser?.role === "Admin" || currentUser?.role === "Manager") ? [{ label: "Unassigned", value: dashboardData.filter(t => (!t.assignees || t.assignees.length === 0) && t.status !== "Closed" && t.status !== "Bin").length, bg: "#f3e8ff", accent: "#a855f7", icon: "", action: () => { switchView("tickets"); setTvFilter("unassigned"); } }] : []),
-                  { label: "Critical", value: dashboardStats.critical, bg: "#fee2e2", accent: "#ef4444", icon: "", action: () => { switchView("tickets"); setTvFilter("all"); setStatusF("All"); setPriorityF("Critical"); } },
-                  { label: "Closed", value: dashboardStats.closed, bg: "#dcfce7", accent: "#22c55e", icon: "", action: () => { switchView("tickets"); setTvFilter("closed"); setStatusF("All"); setPriorityF("All"); } },
+                  { label: "Open", value: dashboardStats.open, bg: "#fef3c7", accent: "#f59e0b", icon: "", action: () => { switchView("tickets"); setTvFilter("all"); setFilterStatus(["open"]); setFilterAssignment([]); setPriorityF("All"); } },
+                  ...((currentUser?.role === "Admin" || currentUser?.role === "Manager") ? [{ label: "Unassigned", value: dashboardData.filter(t => (!t.assignees || t.assignees.length === 0) && t.status !== "Closed" && t.status !== "Bin").length, bg: "#f3e8ff", accent: "#a855f7", icon: "", action: () => { switchView("tickets"); setTvFilter("all"); setFilterAssignment(["unassigned"]); setFilterStatus(["open"]); setPriorityF("All"); } }] : []),
+                  { label: "Critical", value: dashboardStats.critical, bg: "#fee2e2", accent: "#ef4444", icon: "", action: () => { switchView("tickets"); setTvFilter("all"); setFilterStatus(["open"]); setPriorityF("Critical"); setFilterAssignment([]); } },
+                  { label: "Closed", value: dashboardStats.closed, bg: "#dcfce7", accent: "#22c55e", icon: "", action: () => { switchView("tickets"); setTvFilter("all"); setFilterStatus(["closed"]); setFilterAssignment([]); setPriorityF("All"); } },
                   { label: "Total", value: dashboardStats.total, bg: "#dbeafe", accent: "#3b82f6", icon: "", action: () => { switchView("tickets"); setTvFilter("all"); setStatusF("All"); setPriorityF("All"); } },
                 ].map(s => (
                   <div key={s.label} onClick={s.action} style={{ background: s.bg, borderRadius: 12, padding: "16px 16px", boxShadow: "0 2px 6px rgba(0,0,0,0.1)", borderLeft: `5px solid ${s.accent}`, cursor: "pointer", transition: "all 0.2s ease" }}
@@ -5705,39 +5842,127 @@ const WebcastFields = ({ f, setF, isProject = false }) => {
             <div style={{ padding: "11px 14px", borderBottom: "1px solid #f1f5f9", display: "flex", gap: 9, alignItems: "center", flexWrap: "wrap" }}>
               <input placeholder="Search…" value={search} onChange={e => setSearch(e.target.value)} style={{ ...iS, width: 200, fontSize: 13, padding: "7px 10px" }} />
               <span style={{ fontSize: 12, color: "#64748b" }}>{allSortedTickets.length} tickets</span>
-              <div style={{ position: "relative" }}>
-                <button ref={quickFilterBtnRef} onClick={() => { const r = quickFilterBtnRef.current?.getBoundingClientRect(); if (r) setQuickFilterDDPos({ top: r.bottom + 6, left: r.left }); setShowQuickFilterDD(v => !v); }} style={{ display: "flex", alignItems: "center", gap: 6, padding: "5px 12px", borderRadius: 8, border: `1.5px solid ${activeQuickFilters.length > 0 ? "#3b82f6" : "#e2e8f0"}`, background: activeQuickFilters.length > 0 ? "#eff6ff" : "#f8fafc", color: activeQuickFilters.length > 0 ? "#1d4ed8" : "#64748b", fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: "'DM Sans',sans-serif", whiteSpace: "nowrap" }}>
-                  🔽 Filter{activeQuickFilters.length > 0 ? ` (${activeQuickFilters.length})` : ""}
+              {/* Active filter chips */}
+              {/* ── Per-category filter buttons ── */}
+              {activeFilterDD && <div style={{ position: "fixed", inset: 0, zIndex: 199 }} onClick={() => setActiveFilterDD(null)} />}
+
+              {/* STATUS */}
+              <div style={{ position: "relative" }} ref={filterStatusRef}>
+                <button onClick={() => setActiveFilterDD(v => v === "status" ? null : "status")} style={{ display: "flex", alignItems: "center", gap: 4, padding: "5px 10px", borderRadius: 8, border: `1.5px solid ${filterStatus.length ? "#3b82f6" : "#e2e8f0"}`, background: filterStatus.length ? "#eff6ff" : "#f8fafc", color: filterStatus.length ? "#1d4ed8" : "#64748b", fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: "'DM Sans',sans-serif", whiteSpace: "nowrap" }}>
+                  Status{filterStatus.length ? ` (${filterStatus.length})` : ""} ▾
                 </button>
-                 {showQuickFilterDD && (
-                  <>
-                    <div style={{ position: "fixed", inset: 0, zIndex: 199, pointerEvents: "none" }} />
-                    <div ref={quickFilterDDRef} style={{ position: "fixed", top: quickFilterDDPos.top, left: quickFilterDDPos.left, background: "#fff", border: "1.5px solid #e2e8f0", borderRadius: 10, boxShadow: "0 8px 24px rgba(0,0,0,0.12)", zIndex: 200, minWidth: 180, padding: 8 }}>
-                      {[
-                        { id: "unassigned", label: "Unassigned", icon: "🔸", adminOnly: true },
-                        { id: "mine", label: "My Tickets", icon: "🙋", adminOnly: false },
-                        { id: "pastdue", label: "Past Due", icon: "🔴", adminOnly: false },
-                        { id: "vendor", label: "By Vendor", icon: "🏭", adminOnly: false },
-                        { id: "webcast", label: "Webcast", icon: "📡", adminOnly: false },
-                      ].filter(v => !v.adminOnly || currentUser?.role === "Admin" || currentUser?.role === "Manager")
-                      .map(v => {
-                        const active = activeQuickFilters.includes(v.id);
+                {activeFilterDD === "status" && (
+                  <div style={{ position: "fixed", top: (filterStatusRef.current?.getBoundingClientRect().bottom || 0) + 4, left: filterStatusRef.current?.getBoundingClientRect().left || 0, background: "#fff", border: "1.5px solid #e2e8f0", borderRadius: 10, boxShadow: "0 8px 24px rgba(0,0,0,0.12)", zIndex: 200, minWidth: 170, padding: 10 }}>
+                    {[{id:"open",label:"🟢 Open"},{id:"closed",label:"✅ Closed"},{id:"pastdue",label:"🔴 Past Due"}].map(f => (
+                      <label key={f.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "5px 4px", cursor: "pointer", fontSize: 13 }}>
+                        <input type="checkbox" checked={filterStatus.includes(f.id)} onChange={() => setFilterStatus(p => p.includes(f.id) ? p.filter(x => x !== f.id) : [...p, f.id])} />
+                        {f.label}
+                      </label>
+                    ))}
+                    {filterStatus.length > 0 && <div onClick={() => setFilterStatus([])} style={{ borderTop: "1px solid #f1f5f9", marginTop: 4, paddingTop: 6, color: "#ef4444", fontSize: 11, fontWeight: 600, cursor: "pointer" }}>✕ Clear</div>}
+                  </div>
+                )}
+              </div>
+
+              {/* ASSIGNMENT */}
+              <div style={{ position: "relative" }} ref={filterAssignmentRef}>
+                <button onClick={() => setActiveFilterDD(v => v === "assignment" ? null : "assignment")} style={{ display: "flex", alignItems: "center", gap: 4, padding: "5px 10px", borderRadius: 8, border: `1.5px solid ${filterAssignment.length ? "#3b82f6" : "#e2e8f0"}`, background: filterAssignment.length ? "#eff6ff" : "#f8fafc", color: filterAssignment.length ? "#1d4ed8" : "#64748b", fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: "'DM Sans',sans-serif", whiteSpace: "nowrap" }}>
+                  Assignment{filterAssignment.length ? ` (${filterAssignment.length})` : ""} ▾
+                </button>
+                {activeFilterDD === "assignment" && (
+                  <div style={{ position: "fixed", top: (filterAssignmentRef.current?.getBoundingClientRect().bottom || 0) + 4, left: filterAssignmentRef.current?.getBoundingClientRect().left || 0, background: "#fff", border: "1.5px solid #e2e8f0", borderRadius: 10, boxShadow: "0 8px 24px rgba(0,0,0,0.12)", zIndex: 200, minWidth: 190, padding: 10 }}>
+                    {[{id:"assigned",label:"🙋 Assigned"},{id:"unassigned",label:"🔸 Unassigned"},{id:"vendor",label:"🏭 Sent to Vendor"}].map(f => (
+                      <label key={f.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "5px 4px", cursor: "pointer", fontSize: 13 }}>
+                        <input type="checkbox" checked={filterAssignment.includes(f.id)} onChange={() => setFilterAssignment(p => p.includes(f.id) ? p.filter(x => x !== f.id) : [...p, f.id])} />
+                        {f.label}
+                      </label>
+                    ))}
+                    {filterAssignment.length > 0 && <div onClick={() => setFilterAssignment([])} style={{ borderTop: "1px solid #f1f5f9", marginTop: 4, paddingTop: 6, color: "#ef4444", fontSize: 11, fontWeight: 600, cursor: "pointer" }}>✕ Clear</div>}
+                  </div>
+                )}
+              </div>
+
+              {/* ASSIGNEE */}
+              <div style={{ position: "relative" }} ref={filterAssigneeRef}>
+                <button onClick={() => setActiveFilterDD(v => v === "assignee" ? null : "assignee")} style={{ display: "flex", alignItems: "center", gap: 4, padding: "5px 10px", borderRadius: 8, border: `1.5px solid ${filterAssignee.length ? "#3b82f6" : "#e2e8f0"}`, background: filterAssignee.length ? "#eff6ff" : "#f8fafc", color: filterAssignee.length ? "#1d4ed8" : "#64748b", fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: "'DM Sans',sans-serif", whiteSpace: "nowrap" }}>
+                  Assignee{filterAssignee.length ? ` (${filterAssignee.length})` : ""} ▾
+                </button>
+
+                {activeFilterDD === "assignee" && (
+                  <div style={{ position: "fixed", top: (filterAssigneeRef.current?.getBoundingClientRect().bottom || 0) + 4, left: filterAssigneeRef.current?.getBoundingClientRect().left || 0, background: "#fff", border: "1.5px solid #e2e8f0", borderRadius: 10, boxShadow: "0 8px 24px rgba(0,0,0,0.12)", zIndex: 200, minWidth: 210, padding: 10 }}>
+                    <input autoFocus placeholder="Search assignee…" value={filterAssigneeSearch} onChange={e => setFilterAssigneeSearch(e.target.value)} style={{ width: "100%", padding: "6px 9px", border: "1.5px solid #e2e8f0", borderRadius: 7, fontSize: 12, boxSizing: "border-box", fontFamily: "'DM Sans',sans-serif", outline: "none" }} />
+                    <div style={{ maxHeight: 160, overflowY: "auto", marginTop: 6 }}>
+                      {(Array.isArray(users) ? users : []).filter(u => u.active && (!filterAssigneeSearch || u.name?.toLowerCase().includes(filterAssigneeSearch.toLowerCase()))).map(u => {
+                        const sel = filterAssignee.includes(u.name);
                         return (
-                          <div key={v.id} onClick={() => setActiveQuickFilters(prev => active ? prev.filter(x => x !== v.id) : [...prev, v.id])}
-                            style={{ display: "flex", alignItems: "center", gap: 8, padding: "7px 10px", borderRadius: 6, cursor: "pointer", background: active ? "#eff6ff" : "transparent", color: active ? "#1d4ed8" : "#374151", fontSize: 13, fontWeight: active ? 600 : 400 }}>
-                            <span style={{ fontSize: 14, width: 18, textAlign: "center", border: `1.5px solid ${active ? "#3b82f6" : "#cbd5e1"}`, borderRadius: 4, background: active ? "#3b82f6" : "#fff", color: active ? "#fff" : "transparent", lineHeight: "16px", display: "inline-block" }}>✓</span>
-                            <span>{v.icon}</span>{v.label}
+                          <div key={u.id} onClick={() => setFilterAssignee(p => sel ? p.filter(x => x !== u.name) : [...p, u.name])} style={{ display: "flex", alignItems: "center", gap: 8, padding: "5px 4px", fontSize: 13, cursor: "pointer", borderRadius: 5, color: sel ? "#1d4ed8" : "#374151", background: sel ? "#eff6ff" : "transparent", fontWeight: sel ? 600 : 400 }}>
+                            <span style={{ width: 14, height: 14, border: `1.5px solid ${sel ? "#3b82f6" : "#cbd5e1"}`, borderRadius: 3, background: sel ? "#3b82f6" : "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, color: "#fff", flexShrink: 0 }}>{sel ? "✓" : ""}</span>
+                            {u.name}
                           </div>
                         );
                       })}
-                      {activeQuickFilters.length > 0 && (
-                        <div onClick={() => setActiveQuickFilters([])} style={{ marginTop: 6, borderTop: "1px solid #f1f5f9", paddingTop: 6, padding: "6px 10px", color: "#ef4444", fontSize: 12, fontWeight: 600, cursor: "pointer" }}>✕ Clear filters</div>
-                      )}
                     </div>
-                  </>
+                    {filterAssignee.length > 0 && <div onClick={() => { setFilterAssignee([]); setFilterAssigneeSearch(""); }} style={{ borderTop: "1px solid #f1f5f9", marginTop: 4, paddingTop: 6, color: "#ef4444", fontSize: 11, fontWeight: 600, cursor: "pointer" }}>✕ Clear</div>}
+                  </div>
                 )}
               </div>
+
+              {/* CATEGORY */}
+              <div style={{ position: "relative" }} ref={filterCategoryRef}>
+                <button onClick={() => setActiveFilterDD(v => v === "category" ? null : "category")} style={{ display: "flex", alignItems: "center", gap: 4, padding: "5px 10px", borderRadius: 8, border: `1.5px solid ${filterCategory ? "#3b82f6" : "#e2e8f0"}`, background: filterCategory ? "#eff6ff" : "#f8fafc", color: filterCategory ? "#1d4ed8" : "#64748b", fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: "'DM Sans',sans-serif", whiteSpace: "nowrap" }}>
+                  Category{filterCategory ? `: ${filterCategory}` : ""} ▾
+                </button>
+                {activeFilterDD === "category" && (
+                  <div style={{ position: "fixed", top: (filterCategoryRef.current?.getBoundingClientRect().bottom || 0) + 4, left: filterCategoryRef.current?.getBoundingClientRect().left || 0, background: "#fff", border: "1.5px solid #e2e8f0", borderRadius: 10, boxShadow: "0 8px 24px rgba(0,0,0,0.12)", zIndex: 200, minWidth: 210, padding: 10 }}>
+                    <input autoFocus placeholder="Search category…" value={filterCategory} onChange={e => setFilterCategory(e.target.value)} style={{ width: "100%", padding: "6px 9px", border: "1.5px solid #e2e8f0", borderRadius: 7, fontSize: 12, boxSizing: "border-box", fontFamily: "'DM Sans',sans-serif", outline: "none" }} />
+                    <div style={{ maxHeight: 160, overflowY: "auto", marginTop: 6 }}>
+                      {(Array.isArray(categories) ? categories : []).filter(c => !filterCategory || c.name?.toLowerCase().includes(filterCategory.toLowerCase())).map(c => (
+                        <div key={c.id} onClick={() => { setFilterCategory(c.name); setActiveFilterDD(null); }} style={{ padding: "5px 4px", fontSize: 13, cursor: "pointer", borderRadius: 5, color: filterCategory === c.name ? "#1d4ed8" : "#374151", background: filterCategory === c.name ? "#eff6ff" : "transparent", fontWeight: filterCategory === c.name ? 600 : 400 }}>
+                          {c.name}
+                        </div>
+                      ))}
+                    </div>
+                    {filterCategory && <div onClick={() => setFilterCategory("")} style={{ borderTop: "1px solid #f1f5f9", marginTop: 4, paddingTop: 6, color: "#ef4444", fontSize: 11, fontWeight: 600, cursor: "pointer" }}>✕ Clear</div>}
+                  </div>
+                )}
+              </div>
+
+              {/* PRIORITY */}
+              <div style={{ position: "relative" }} ref={filterPriorityRef}>
+                <button onClick={() => setActiveFilterDD(v => v === "priority" ? null : "priority")} style={{ display: "flex", alignItems: "center", gap: 4, padding: "5px 10px", borderRadius: 8, border: `1.5px solid ${priorityF !== "All" ? "#3b82f6" : "#e2e8f0"}`, background: priorityF !== "All" ? "#eff6ff" : "#f8fafc", color: priorityF !== "All" ? "#1d4ed8" : "#64748b", fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: "'DM Sans',sans-serif", whiteSpace: "nowrap" }}>
+                  Priority{priorityF !== "All" ? `: ${priorityF}` : ""} ▾
+                </button>
+                {activeFilterDD === "priority" && (
+                  <div style={{ position: "fixed", top: (filterPriorityRef.current?.getBoundingClientRect().bottom || 0) + 4, left: filterPriorityRef.current?.getBoundingClientRect().left || 0, background: "#fff", border: "1.5px solid #e2e8f0", borderRadius: 10, boxShadow: "0 8px 24px rgba(0,0,0,0.12)", zIndex: 200, minWidth: 160, padding: 10 }}>
+                    {["Critical","High","Standard","Medium"].map(p => (
+                      <label key={p} style={{ display: "flex", alignItems: "center", gap: 8, padding: "5px 4px", cursor: "pointer", fontSize: 13 }}>
+                        <input type="radio" name="priorityFilterDD" checked={priorityF === p} onChange={() => setPriorityF(p)} />
+                        {p}
+                      </label>
+                    ))}
+                    {priorityF !== "All" && <div onClick={() => { setPriorityF("All"); setActiveFilterDD(null); }} style={{ borderTop: "1px solid #f1f5f9", marginTop: 4, paddingTop: 6, color: "#ef4444", fontSize: 11, fontWeight: 600, cursor: "pointer" }}>✕ Clear</div>}
+                  </div>
+                )}
+              </div>
+
+              {/* Clear all if any active */}
+              {(filterStatus.length > 0 || filterAssignment.length > 0 || filterAssignee.length > 0 || filterCategory || priorityF !== "All") && (
+                <span onClick={() => { setFilterStatus([]); setFilterAssignment([]); setFilterAssignee([]); setFilterAssigneeSearch(""); setFilterCategory(""); setPriorityF("All"); }} style={{ padding: "5px 8px", fontSize: 11, color: "#ef4444", cursor: "pointer", fontWeight: 600, borderRadius: 6, border: "1px solid #fecaca", background: "#fff1f2" }}>✕ Clear all</span>
+              )}
               <div style={{ marginLeft: "auto", display: "flex", gap: 8, alignItems: "center" }}>
+                <div style={{ position: "relative" }}>
+                  <button ref={ticketExportBtnRef} onClick={() => setShowTicketExport(v => !v)} style={{ ...bG, padding: "5px 11px", fontSize: 12 }}>⬇ Export</button>
+                  {showTicketExport && (
+                    <>
+                      <div style={{ position: "fixed", inset: 0, zIndex: 499 }} onClick={() => setShowTicketExport(false)} />
+                      <div style={{ position: "fixed", top: (ticketExportBtnRef.current?.getBoundingClientRect().bottom || 0) + 4, right: window.innerWidth - (ticketExportBtnRef.current?.getBoundingClientRect().right || 0), background: "#fff", border: "1.5px solid #e2e8f0", borderRadius: 10, boxShadow: "0 8px 24px rgba(0,0,0,0.12)", zIndex: 500, minWidth: 160, padding: 8 }}>
+                        <div onClick={() => { setShowTicketExport(false); setTicketExportCols(new Set(ALL_TICKET_COLS)); setShowTicketColExport(true); setTicketExportMode("csv"); }} style={{ padding: "7px 12px", fontSize: 13, cursor: "pointer", borderRadius: 6, color: "#374151" }}>📄 Export CSV</div>
+                        <div onClick={() => { exportJSON(allSortedTickets); setShowTicketExport(false); }} style={{ padding: "7px 12px", fontSize: 13, cursor: "pointer", borderRadius: 6, color: "#374151" }}>📦 Export JSON</div>
+                        <div onClick={() => { setShowTicketExport(false); setTicketExportCols(new Set(ALL_TICKET_COLS)); setShowTicketColExport(true); setTicketExportMode("print"); }} style={{ padding: "7px 12px", fontSize: 13, cursor: "pointer", borderRadius: 6, color: "#374151" }}>🖨 Print</div>
+                      </div>
+                    </>
+                  )}
+                </div>
                 <div style={{ position: "relative" }}>
                   <button ref={ticketColBtnRef} onClick={() => { const r = ticketColBtnRef.current?.getBoundingClientRect(); if (r) setTicketColDDPos({ top: r.bottom + 4, right: window.innerWidth - r.right }); setShowTicketColPicker(v => !v); }} style={{ ...bG, padding: "5px 11px", fontSize: 12 }}>⚙ Columns</button>
                   {showTicketColPicker && <>
@@ -5897,7 +6122,6 @@ const WebcastFields = ({ f, setF, isProject = false }) => {
                   {visibleTicketCols.has("summary") && <FilterableHeader label="Summary" field="summary" data={filtered} filters={ticketSort} onFilter={setTicketSort} style={thStyle} />}
                   {visibleTicketCols.has("org") && <FilterableHeader label="Org" field="org" data={filtered} filters={ticketSort} onFilter={setTicketSort} style={thStyle} />}
                   {visibleTicketCols.has("department") && <FilterableHeader label="Dept" field="department" data={filtered} filters={ticketSort} onFilter={setTicketSort} style={thStyle} />}
-                  {visibleTicketCols.has("vendor") && <FilterableHeader label="Vendor" field="vendor" data={filtered} filters={ticketSort} onFilter={setTicketSort} style={thStyle} />}
                   {visibleTicketCols.has("reportedBy") && <FilterableHeader label="Reported By" field="reportedBy" data={filtered} filters={ticketSort} onFilter={setTicketSort} style={thStyle} />}
                   {visibleTicketCols.has("assignees") && <FilterableHeader label="Assignees" field="assignees" data={filtered} filters={ticketSort} onFilter={setTicketSort} style={thStyle} />}
                   {visibleTicketCols.has("priority") && <FilterableHeader label="Priority" field="priority" data={filtered} filters={ticketSort} onFilter={setTicketSort} style={thStyle} />}
@@ -5916,7 +6140,6 @@ const WebcastFields = ({ f, setF, isProject = false }) => {
                     {visibleTicketCols.has("summary") && <td style={{ ...tdStyle, maxWidth: 180 }} onClick={() => setSelTicket(t)}><div style={{ fontWeight: 500, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{t.summary}</div></td>}
                     {visibleTicketCols.has("org") && <td style={tdStyle} onClick={() => setSelTicket(t)}><div style={{ fontSize: 12, fontWeight: 500 }}>{t.org}</div></td>}
                     {visibleTicketCols.has("department") && <td style={tdStyle} onClick={() => setSelTicket(t)}><div style={{ fontSize: 12, color: "#64748b" }}>{t.department || "—"}</div></td>}
-                    {visibleTicketCols.has("vendor") && <td style={tdStyle} onClick={() => setSelTicket(t)}><div style={{ fontSize: 12, color: "#64748b" }}>{t.vendor || "—"}</div></td>}
                     {visibleTicketCols.has("reportedBy") && <td style={tdStyle} onClick={() => setSelTicket(t)}><span style={{ fontSize: 12, color: "#64748b" }} title={t.reportedBy || "—"}>{t.reportedBy ? t.reportedBy.split(" ")[0] : "—"}</span></td>}
                     {visibleTicketCols.has("assignees") && <td style={tdStyle} onClick={() => setSelTicket(t)}>
                       <div style={{ display: "flex", alignItems: "center", gap: 4, flexWrap: "wrap" }}>
@@ -6047,29 +6270,124 @@ const WebcastFields = ({ f, setF, isProject = false }) => {
             <div style={{ padding: "11px 14px", borderBottom: "1px solid #f1f5f9", display: "flex", gap: 9, alignItems: "center", flexWrap: "wrap" }}>
               <input placeholder="Search projects…" value={projSearch} onChange={e => setProjSearch(e.target.value)} style={{ ...iS, width: 200, fontSize: 13, padding: "7px 10px" }} />
               <span style={{ fontSize: 12, color: "#64748b" }}>{applySort(filteredProjects, projSort).length} projects</span>
-              <div ref={projFilterRef} style={{ position: "relative" }}>
-                <button onClick={() => setShowProjFilterDD(v => !v)} style={{ display: "flex", alignItems: "center", gap: 6, padding: "5px 12px", borderRadius: 8, border: `1.5px solid ${pvFilter !== "all" ? "#8b5cf6" : "#e2e8f0"}`, background: pvFilter !== "all" ? "#f5f3ff" : "#f8fafc", color: pvFilter !== "all" ? "#6d28d9" : "#64748b", fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: "'DM Sans',sans-serif", whiteSpace: "nowrap" }}>
-                  🔽 {PROJECT_VIEWS.find(v => v.id === pvFilter)?.label || "All Projects"}
+              {activeProjFilterDD && <div style={{ position: "fixed", inset: 0, zIndex: 199 }} onClick={() => setActiveProjFilterDD(null)} />}
+
+              {/* STATUS */}
+              <div style={{ position: "relative" }} ref={projFilterStatusRef}>
+                <button onClick={() => setActiveProjFilterDD(v => v === "status" ? null : "status")} style={{ display: "flex", alignItems: "center", gap: 4, padding: "5px 10px", borderRadius: 8, border: `1.5px solid ${projFilterStatus.length ? "#3b82f6" : "#e2e8f0"}`, background: projFilterStatus.length ? "#eff6ff" : "#f8fafc", color: projFilterStatus.length ? "#1d4ed8" : "#64748b", fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: "'DM Sans',sans-serif", whiteSpace: "nowrap" }}>
+                  Status{projFilterStatus.length ? ` (${projFilterStatus.length})` : ""} ▾
                 </button>
-                {showProjFilterDD && (() => {
-                  const rect = projFilterRef.current?.getBoundingClientRect();
-                  return (
-                    <div style={{ position: "fixed", top: rect ? rect.bottom + 4 : 0, left: rect ? rect.left : 0, background: "#fff", border: "1.5px solid #e2e8f0", borderRadius: 10, boxShadow: "0 8px 24px rgba(0,0,0,0.12)", zIndex: 9999, minWidth: 190, padding: 8 }}>
-                      {PROJECT_VIEWS.map(v => {
-                        const active = pvFilter === v.id;
+                {activeProjFilterDD === "status" && (
+                  <div style={{ position: "fixed", top: (projFilterStatusRef.current?.getBoundingClientRect().bottom || 0) + 4, left: projFilterStatusRef.current?.getBoundingClientRect().left || 0, background: "#fff", border: "1.5px solid #e2e8f0", borderRadius: 10, boxShadow: "0 8px 24px rgba(0,0,0,0.12)", zIndex: 200, minWidth: 160, padding: 10 }}>
+                    {[{id:"open",label:"🟢 Open"},{id:"closed",label:"✅ Closed"},{id:"pastdue",label:"🔴 Past Due"}].map(f => (
+                      <label key={f.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "5px 4px", cursor: "pointer", fontSize: 13 }}>
+                        <input type="checkbox" checked={projFilterStatus.includes(f.id)} onChange={() => setProjFilterStatus(p => p.includes(f.id) ? p.filter(x => x !== f.id) : [...p, f.id])} />
+                        {f.label}
+                      </label>
+                    ))}
+                    {projFilterStatus.length > 0 && <div onClick={() => setProjFilterStatus([])} style={{ borderTop: "1px solid #f1f5f9", marginTop: 4, paddingTop: 6, color: "#ef4444", fontSize: 11, fontWeight: 600, cursor: "pointer" }}>✕ Clear</div>}
+                  </div>
+                )}
+              </div>
+
+              {/* ASSIGNMENT */}
+              <div style={{ position: "relative" }} ref={projFilterAssignmentRef}>
+                <button onClick={() => setActiveProjFilterDD(v => v === "assignment" ? null : "assignment")} style={{ display: "flex", alignItems: "center", gap: 4, padding: "5px 10px", borderRadius: 8, border: `1.5px solid ${projFilterAssignment.length ? "#3b82f6" : "#e2e8f0"}`, background: projFilterAssignment.length ? "#eff6ff" : "#f8fafc", color: projFilterAssignment.length ? "#1d4ed8" : "#64748b", fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: "'DM Sans',sans-serif", whiteSpace: "nowrap" }}>
+                  Assignment{projFilterAssignment.length ? ` (${projFilterAssignment.length})` : ""} ▾
+                </button>
+                {activeProjFilterDD === "assignment" && (
+                  <div style={{ position: "fixed", top: (projFilterAssignmentRef.current?.getBoundingClientRect().bottom || 0) + 4, left: projFilterAssignmentRef.current?.getBoundingClientRect().left || 0, background: "#fff", border: "1.5px solid #e2e8f0", borderRadius: 10, boxShadow: "0 8px 24px rgba(0,0,0,0.12)", zIndex: 200, minWidth: 180, padding: 10 }}>
+                    {[{id:"assigned",label:"🙋 Assigned"},{id:"unassigned",label:"🔸 Unassigned"}].map(f => (
+                      <label key={f.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "5px 4px", cursor: "pointer", fontSize: 13 }}>
+                        <input type="checkbox" checked={projFilterAssignment.includes(f.id)} onChange={() => setProjFilterAssignment(p => p.includes(f.id) ? p.filter(x => x !== f.id) : [...p, f.id])} />
+                        {f.label}
+                      </label>
+                    ))}
+                    {projFilterAssignment.length > 0 && <div onClick={() => setProjFilterAssignment([])} style={{ borderTop: "1px solid #f1f5f9", marginTop: 4, paddingTop: 6, color: "#ef4444", fontSize: 11, fontWeight: 600, cursor: "pointer" }}>✕ Clear</div>}
+                  </div>
+                )}
+              </div>
+
+              {/* ASSIGNEE */}
+              <div style={{ position: "relative" }} ref={projFilterAssigneeRef}>
+                <button onClick={() => setActiveProjFilterDD(v => v === "assignee" ? null : "assignee")} style={{ display: "flex", alignItems: "center", gap: 4, padding: "5px 10px", borderRadius: 8, border: `1.5px solid ${projFilterAssignee.length ? "#3b82f6" : "#e2e8f0"}`, background: projFilterAssignee.length ? "#eff6ff" : "#f8fafc", color: projFilterAssignee.length ? "#1d4ed8" : "#64748b", fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: "'DM Sans',sans-serif", whiteSpace: "nowrap" }}>
+                  Assignee{projFilterAssignee.length ? ` (${projFilterAssignee.length})` : ""} ▾
+                </button>
+                {activeProjFilterDD === "assignee" && (
+                  <div style={{ position: "fixed", top: (projFilterAssigneeRef.current?.getBoundingClientRect().bottom || 0) + 4, left: projFilterAssigneeRef.current?.getBoundingClientRect().left || 0, background: "#fff", border: "1.5px solid #e2e8f0", borderRadius: 10, boxShadow: "0 8px 24px rgba(0,0,0,0.12)", zIndex: 200, minWidth: 210, padding: 10 }}>
+                    <input autoFocus placeholder="Search assignee…" value={projFilterAssigneeSearch} onChange={e => setProjFilterAssigneeSearch(e.target.value)} style={{ width: "100%", padding: "6px 9px", border: "1.5px solid #e2e8f0", borderRadius: 7, fontSize: 12, boxSizing: "border-box", fontFamily: "'DM Sans',sans-serif", outline: "none" }} />
+                    <div style={{ maxHeight: 160, overflowY: "auto", marginTop: 6 }}>
+                      {(Array.isArray(users) ? users : []).filter(u => u.active && (!projFilterAssigneeSearch || u.name?.toLowerCase().includes(projFilterAssigneeSearch.toLowerCase()))).map(u => {
+                        const sel = projFilterAssignee.includes(u.name);
                         return (
-                          <div key={v.id} onClick={() => { setPvFilter(v.id); setProjStatusF("All"); setProjPriorityF("All"); setShowProjFilterDD(false); }}
-                            style={{ display: "flex", alignItems: "center", gap: 8, padding: "7px 10px", borderRadius: 6, cursor: "pointer", background: active ? "#f5f3ff" : "transparent", color: active ? "#6d28d9" : "#374151", fontSize: 13, fontWeight: active ? 600 : 400 }}>
-                            <span>{v.icon}</span>{v.label}
-                            {active && <span style={{ marginLeft: "auto", color: "#8b5cf6", fontWeight: 700 }}>✓</span>}
+                          <div key={u.id} onClick={() => setProjFilterAssignee(p => sel ? p.filter(x => x !== u.name) : [...p, u.name])} style={{ display: "flex", alignItems: "center", gap: 8, padding: "5px 4px", fontSize: 13, cursor: "pointer", borderRadius: 5, color: sel ? "#1d4ed8" : "#374151", background: sel ? "#eff6ff" : "transparent", fontWeight: sel ? 600 : 400 }}>
+                            <span style={{ width: 14, height: 14, border: `1.5px solid ${sel ? "#3b82f6" : "#cbd5e1"}`, borderRadius: 3, background: sel ? "#3b82f6" : "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, color: "#fff", flexShrink: 0 }}>{sel ? "✓" : ""}</span>
+                            {u.name}
                           </div>
                         );
                       })}
                     </div>
-                  );
-                })()}
+                    {projFilterAssignee.length > 0 && <div onClick={() => { setProjFilterAssignee([]); setProjFilterAssigneeSearch(""); }} style={{ borderTop: "1px solid #f1f5f9", marginTop: 4, paddingTop: 6, color: "#ef4444", fontSize: 11, fontWeight: 600, cursor: "pointer" }}>✕ Clear</div>}
+                  </div>
+                )}
               </div>
+
+              {/* CATEGORY */}
+              <div style={{ position: "relative" }} ref={projFilterCategoryRef}>
+                <button onClick={() => setActiveProjFilterDD(v => v === "category" ? null : "category")} style={{ display: "flex", alignItems: "center", gap: 4, padding: "5px 10px", borderRadius: 8, border: `1.5px solid ${projFilterCategory ? "#3b82f6" : "#e2e8f0"}`, background: projFilterCategory ? "#eff6ff" : "#f8fafc", color: projFilterCategory ? "#1d4ed8" : "#64748b", fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: "'DM Sans',sans-serif", whiteSpace: "nowrap" }}>
+                  Category{projFilterCategory ? `: ${projFilterCategory}` : ""} ▾
+                </button>
+                {activeProjFilterDD === "category" && (
+                  <div style={{ position: "fixed", top: (projFilterCategoryRef.current?.getBoundingClientRect().bottom || 0) + 4, left: projFilterCategoryRef.current?.getBoundingClientRect().left || 0, background: "#fff", border: "1.5px solid #e2e8f0", borderRadius: 10, boxShadow: "0 8px 24px rgba(0,0,0,0.12)", zIndex: 200, minWidth: 210, padding: 10 }}>
+                    <input autoFocus placeholder="Search category…" value={projFilterCategory} onChange={e => setProjFilterCategory(e.target.value)} style={{ width: "100%", padding: "6px 9px", border: "1.5px solid #e2e8f0", borderRadius: 7, fontSize: 12, boxSizing: "border-box", fontFamily: "'DM Sans',sans-serif", outline: "none" }} />
+                    <div style={{ maxHeight: 160, overflowY: "auto", marginTop: 6 }}>
+                      {(Array.isArray(categories) ? categories : []).filter(c => !projFilterCategory || c.name?.toLowerCase().includes(projFilterCategory.toLowerCase())).map(c => (
+                        <div key={c.id} onClick={() => { setProjFilterCategory(c.name); setActiveProjFilterDD(null); }} style={{ padding: "5px 4px", fontSize: 13, cursor: "pointer", borderRadius: 5, color: projFilterCategory === c.name ? "#1d4ed8" : "#374151", background: projFilterCategory === c.name ? "#eff6ff" : "transparent", fontWeight: projFilterCategory === c.name ? 600 : 400 }}>
+                          {c.name}
+                        </div>
+                      ))}
+                    </div>
+                    {projFilterCategory && <div onClick={() => setProjFilterCategory("")} style={{ borderTop: "1px solid #f1f5f9", marginTop: 4, paddingTop: 6, color: "#ef4444", fontSize: 11, fontWeight: 600, cursor: "pointer" }}>✕ Clear</div>}
+                  </div>
+                )}
+              </div>
+
+              {/* PRIORITY */}
+              <div style={{ position: "relative" }} ref={projFilterPriorityRef}>
+                <button onClick={() => setActiveProjFilterDD(v => v === "priority" ? null : "priority")} style={{ display: "flex", alignItems: "center", gap: 4, padding: "5px 10px", borderRadius: 8, border: `1.5px solid ${projFilterPriority !== "All" ? "#3b82f6" : "#e2e8f0"}`, background: projFilterPriority !== "All" ? "#eff6ff" : "#f8fafc", color: projFilterPriority !== "All" ? "#1d4ed8" : "#64748b", fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: "'DM Sans',sans-serif", whiteSpace: "nowrap" }}>
+                  Priority{projFilterPriority !== "All" ? `: ${projFilterPriority}` : ""} ▾
+                </button>
+                {activeProjFilterDD === "priority" && (
+                  <div style={{ position: "fixed", top: (projFilterPriorityRef.current?.getBoundingClientRect().bottom || 0) + 4, left: projFilterPriorityRef.current?.getBoundingClientRect().left || 0, background: "#fff", border: "1.5px solid #e2e8f0", borderRadius: 10, boxShadow: "0 8px 24px rgba(0,0,0,0.12)", zIndex: 200, minWidth: 160, padding: 10 }}>
+                    {["Critical","High","Standard","Medium"].map(p => (
+                      <label key={p} style={{ display: "flex", alignItems: "center", gap: 8, padding: "5px 4px", cursor: "pointer", fontSize: 13 }}>
+                        <input type="radio" name="projPriorityFilterDD" checked={projFilterPriority === p} onChange={() => setProjFilterPriority(p)} />
+                        {p}
+                      </label>
+                    ))}
+                    {projFilterPriority !== "All" && <div onClick={() => { setProjFilterPriority("All"); setActiveProjFilterDD(null); }} style={{ borderTop: "1px solid #f1f5f9", marginTop: 4, paddingTop: 6, color: "#ef4444", fontSize: 11, fontWeight: 600, cursor: "pointer" }}>✕ Clear</div>}
+                  </div>
+                )}
+              </div>
+
+              {/* Clear all */}
+              {(projFilterStatus.length > 0 || projFilterAssignment.length > 0 || projFilterAssignee.length > 0 || projFilterCategory || projFilterPriority !== "All") && (
+                <span onClick={() => { setProjFilterStatus([]); setProjFilterAssignment([]); setProjFilterAssignee([]); setProjFilterAssigneeSearch(""); setProjFilterCategory(""); setProjFilterPriority("All"); }} style={{ padding: "5px 8px", fontSize: 11, color: "#ef4444", cursor: "pointer", fontWeight: 600, borderRadius: 6, border: "1px solid #fecaca", background: "#fff1f2" }}>✕ Clear all</span>
+              )}
               <div style={{ marginLeft: "auto", display: "flex", gap: 8, alignItems: "center" }}>
+                <div style={{ position: "relative" }}>
+                  <button ref={projExportBtnRef} onClick={() => setShowProjExportDD(v => !v)} style={{ ...bG, padding: "5px 11px", fontSize: 12 }}>⬇ Export</button>
+                  {showProjExportDD && (
+                    <>
+                      <div style={{ position: "fixed", inset: 0, zIndex: 499 }} onClick={() => setShowProjExportDD(false)} />
+                      <div style={{ position: "fixed", top: (projExportBtnRef.current?.getBoundingClientRect().bottom || 0) + 4, right: window.innerWidth - (projExportBtnRef.current?.getBoundingClientRect().right || 0), background: "#fff", border: "1.5px solid #e2e8f0", borderRadius: 10, boxShadow: "0 8px 24px rgba(0,0,0,0.12)", zIndex: 500, minWidth: 160, padding: 8 }}>
+                        <div onClick={() => { setShowProjExportDD(false); setProjExportCols(new Set(ALL_PROJ_COLS)); setShowProjColExport(true); setProjExportMode("csv"); }} style={{ padding: "7px 12px", fontSize: 13, cursor: "pointer", borderRadius: 6, color: "#374151" }}>📄 Export CSV</div>
+                        <div onClick={() => { exportJSON(applySort(filteredProjects, projSort)); setShowProjExportDD(false); }} style={{ padding: "7px 12px", fontSize: 13, cursor: "pointer", borderRadius: 6, color: "#374151" }}>📦 Export JSON</div>
+                        <div onClick={() => { setShowProjExportDD(false); setProjExportCols(new Set(ALL_PROJ_COLS)); setShowProjColExport(true); setProjExportMode("print"); }} style={{ padding: "7px 12px", fontSize: 13, cursor: "pointer", borderRadius: 6, color: "#374151" }}>🖨 Print</div>
+                      </div>
+                    </>
+                  )}
+                </div>
                 <div style={{ position: "relative" }}>
                   <button ref={projColBtnRef} onClick={() => { const r = projColBtnRef.current?.getBoundingClientRect(); if (r) setProjColDDPos({ top: r.bottom + 4, right: window.innerWidth - r.right }); setShowProjColPicker(v => !v); }} style={{ ...bG, padding: "5px 11px", fontSize: 12 }}>⚙ Columns</button>
                   {showProjColPicker && <>
@@ -8928,6 +9246,7 @@ const WebcastFields = ({ f, setF, isProject = false }) => {
           </div>
         </div>
       )}
+    <iframe ref={printFrameRef} style={{ display:"none" }} title="print-frame" />
     </div>
   );
 }
