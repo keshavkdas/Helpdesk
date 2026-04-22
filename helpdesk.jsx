@@ -1079,7 +1079,10 @@ export default function HelpDesk() {
   // ── Navigation ──
   const [view, setView] = useState(() => {
     try {
-      return localStorage.getItem("deskflow_view") || "dashboard";
+      const saved = localStorage.getItem("deskflow_view") || "dashboard";
+      const session = loadSession();
+      if (session?.role === "Agent" && saved === "settings") return "dashboard";
+      return saved;
     } catch {
       return "dashboard";
     }
@@ -3873,6 +3876,8 @@ export default function HelpDesk() {
       // 4. Cache in session and local state
       saveSession(onDutyUser);
       setCurrentUser(onDutyUser);
+      setView("dashboard");
+      localStorage.setItem("deskflow_view", "dashboard");
 
       // 5. Show welcome popup with On Duty status
       setCustomAlert({
@@ -5430,15 +5435,40 @@ const WebcastFields = ({ f, setF, isProject = false }) => {
                 <button
                   onClick={async () => {
                     try {
+                      const isDeactivating = userEditModal.user.active;
                       const updated = { ...userEditModal.user, active: !userEditModal.user.active, status: !userEditModal.user.active ? userEditModal.user.status : "Logged-Out" };
                       await axios.put(`${USERS_API}/${userEditModal.user.id}`, updated);
                       setUsers(users.map(x => x.id === userEditModal.user.id ? updated : x));
-                      if (userEditModal.user.id === currentUser.id && !userEditModal.user.active) {
+
+                      // Unassign open tickets from deactivated user
+                      if (isDeactivating) {
+                        const deactivatedId = userEditModal.user.id;
+                        const affectedTickets = tickets.filter(t =>
+                          t.status === "Open" && (t.assignees || []).some(a => a.id === deactivatedId)
+                        );
+                        const affectedProjects = projects.filter(p =>
+                          p.status === "Open" && (p.assignees || []).some(a => a.id === deactivatedId)
+                        );
+                        const nowISO = new Date().toISOString();
+                        await Promise.all([
+                          ...affectedTickets.map(t => {
+                            const unassigned = { ...t, assignees: (t.assignees || []).filter(a => a.id !== deactivatedId), updated: nowISO, timeline: [...(t.timeline || []), { action: `Assignee removed: ${userEditModal.user.name}`, by: currentUser.name, date: nowISO, note: "User deactivated" }] };
+                            return axios.put(`${TICKETS_API}/${t.id}`, unassigned).then(() => setTickets(prev => prev.map(x => x.id === t.id ? { ...unassigned, updated: new Date(nowISO) } : x)));
+                          }),
+                          ...affectedProjects.map(p => {
+                            const unassigned = { ...p, assignees: (p.assignees || []).filter(a => a.id !== deactivatedId), updated: nowISO, timeline: [...(p.timeline || []), { action: `Assignee removed: ${userEditModal.user.name}`, by: currentUser.name, date: nowISO, note: "User deactivated" }] };
+                            return axios.put(`${PROJECTS_API}/${p.id}`, unassigned).then(() => setProjects(prev => prev.map(x => x.id === p.id ? { ...unassigned, updated: new Date(nowISO) } : x)));
+                          }),
+                        ]);
+                      }
+
+                      if (userEditModal.user.id === currentUser.id && isDeactivating) {
                         clearSession(); setCurrentUser(null);
                         setCustomAlert({ show: true, message: "❌ You've been deactivated. Logged out.", type: "error" });
                         setTimeout(() => window.location.reload(), 2000);
                       } else {
-                        setCustomAlert({ show: true, message: `✅ ${userEditModal.user.name} ${!userEditModal.user.active ? "deactivated" : "activated"}.`, type: "success" });
+                        const unassignedCount = isDeactivating ? tickets.filter(t => t.status === "Open" && (t.assignees || []).some(a => a.id === userEditModal.user.id)).length + projects.filter(p => p.status === "Open" && (p.assignees || []).some(a => a.id === userEditModal.user.id)).length : 0;
+                        setCustomAlert({ show: true, message: `✅ ${userEditModal.user.name} deactivated${unassignedCount > 0 ? ` — ${unassignedCount} open item(s) moved to pool` : ""}.`, type: "success" });
                       }
                       setUserEditModal({ show: false, user: null, newRole: null, editName: "", editEmail: "", editPhone: "", editPassword: "" });
                     } catch (err) { setCustomAlert({ show: true, message: "Failed to update user status", type: "error" }); }
@@ -5864,7 +5894,7 @@ const WebcastFields = ({ f, setF, isProject = false }) => {
                   <div style={{ position: "fixed", top: (filterAssigneeRef.current?.getBoundingClientRect().bottom || 0) + 4, left: filterAssigneeRef.current?.getBoundingClientRect().left || 0, background: "#fff", border: "1.5px solid #e2e8f0", borderRadius: 10, boxShadow: "0 8px 24px rgba(0,0,0,0.12)", zIndex: 200, minWidth: 210, padding: 10 }}>
                     <input autoFocus placeholder="Search assignee…" value={filterAssigneeSearch} onChange={e => setFilterAssigneeSearch(e.target.value)} style={{ width: "100%", padding: "6px 9px", border: "1.5px solid #e2e8f0", borderRadius: 7, fontSize: 12, boxSizing: "border-box", fontFamily: "'DM Sans',sans-serif", outline: "none" }} />
                     <div style={{ maxHeight: 160, overflowY: "auto", marginTop: 6 }}>
-                      {(Array.isArray(users) ? users : []).filter(u => u.active && (!filterAssigneeSearch || u.name?.toLowerCase().includes(filterAssigneeSearch.toLowerCase()))).map(u => {
+                      {(Array.isArray(users) ? users : []).filter(u => (!filterAssigneeSearch || u.name?.toLowerCase().includes(filterAssigneeSearch.toLowerCase()))).map(u => {
                         const sel = filterAssignee.includes(u.name);
                         return (
                           <div key={u.id} onClick={() => setFilterAssignee(p => sel ? p.filter(x => x !== u.name) : [...p, u.name])} style={{ display: "flex", alignItems: "center", gap: 8, padding: "5px 4px", fontSize: 13, cursor: "pointer", borderRadius: 5, color: sel ? "#1d4ed8" : "#374151", background: sel ? "#eff6ff" : "transparent", fontWeight: sel ? 600 : 400 }}>
@@ -6289,7 +6319,7 @@ const WebcastFields = ({ f, setF, isProject = false }) => {
                   <div style={{ position: "fixed", top: (projFilterAssigneeRef.current?.getBoundingClientRect().bottom || 0) + 4, left: projFilterAssigneeRef.current?.getBoundingClientRect().left || 0, background: "#fff", border: "1.5px solid #e2e8f0", borderRadius: 10, boxShadow: "0 8px 24px rgba(0,0,0,0.12)", zIndex: 200, minWidth: 210, padding: 10 }}>
                     <input autoFocus placeholder="Search assignee…" value={projFilterAssigneeSearch} onChange={e => setProjFilterAssigneeSearch(e.target.value)} style={{ width: "100%", padding: "6px 9px", border: "1.5px solid #e2e8f0", borderRadius: 7, fontSize: 12, boxSizing: "border-box", fontFamily: "'DM Sans',sans-serif", outline: "none" }} />
                     <div style={{ maxHeight: 160, overflowY: "auto", marginTop: 6 }}>
-                      {(Array.isArray(users) ? users : []).filter(u => u.active && (!projFilterAssigneeSearch || u.name?.toLowerCase().includes(projFilterAssigneeSearch.toLowerCase()))).map(u => {
+                      {(Array.isArray(users) ? users : []).filter(u => (!projFilterAssigneeSearch || u.name?.toLowerCase().includes(projFilterAssigneeSearch.toLowerCase()))).map(u => {
                         const sel = projFilterAssignee.includes(u.name);
                         return (
                           <div key={u.id} onClick={() => setProjFilterAssignee(p => sel ? p.filter(x => x !== u.name) : [...p, u.name])} style={{ display: "flex", alignItems: "center", gap: 8, padding: "5px 4px", fontSize: 13, cursor: "pointer", borderRadius: 5, color: sel ? "#1d4ed8" : "#374151", background: sel ? "#eff6ff" : "transparent", fontWeight: sel ? 600 : 400 }}>
@@ -6792,7 +6822,7 @@ const WebcastFields = ({ f, setF, isProject = false }) => {
                         <label style={{ fontSize: 12, fontWeight: 600, color: "#475569", display: "block", marginBottom: 6 }}>ASSIGNEE</label>
                         <select value={reportFilters.assignee} onChange={e => setReportFilters(f => ({ ...f, assignee: e.target.value }))} style={{ width: "100%", padding: "7px 10px", border: "1px solid #e2e8f0", borderRadius: 7, fontSize: 13, background: "#fff", color: "#334155" }}>
                           <option value="">All Assignees</option>
-                          {users.filter(u => u.active).map(u => <option key={u.id} value={u.name}>{u.name}</option>)}
+                          {users.map(u => <option key={u.id} value={u.name}>{u.name}{!u.active ? " (inactive)" : ""}</option>)}
                         </select>
                       </div>
                       <div>
