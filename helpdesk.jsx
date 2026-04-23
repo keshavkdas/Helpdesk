@@ -1096,7 +1096,8 @@ export default function HelpDesk() {
   const [filterAssignment, setFilterAssignment] = useState([]); // "assigned","unassigned","vendor"
   const [filterAssignee, setFilterAssignee] = useState([]);
   const [filterAssigneeSearch, setFilterAssigneeSearch] = useState("");
-  const [filterCategory, setFilterCategory] = useState("");    // search string
+  const [filterCategory, setFilterCategory] = useState("");
+  const [filterCategorySearch, setFilterCategorySearch] = useState("");
   const [activeFilterDD, setActiveFilterDD] = useState(null); // "status"|"assignment"|"assignee"|"category"|"priority"
   const filterStatusRef = useRef(null);
   const filterAssignmentRef = useRef(null);
@@ -1220,6 +1221,24 @@ export default function HelpDesk() {
     const handler = (e) => {
       if (ticketFilterRef.current && !ticketFilterRef.current.contains(e.target)) setShowQuickFilterDD(false);
       if (projFilterRef.current && !projFilterRef.current.contains(e.target)) setShowProjFilterDD(false);
+      if (filterAssigneeRef.current && !filterAssigneeRef.current.contains(e.target) &&
+        filterCategoryRef.current && !filterCategoryRef.current.contains(e.target) &&
+        filterStatusRef.current && !filterStatusRef.current.contains(e.target) &&
+        filterPriorityRef.current && !filterPriorityRef.current.contains(e.target)) {
+      setActiveFilterDD(prev => {
+        if (prev === "assignee") setFilterAssigneeSearch("");
+        if (prev === "category") setFilterCategorySearch("");
+        return null;
+      });
+    }
+    if (projFilterAssigneeRef.current && !projFilterAssigneeRef.current.contains(e.target) &&
+        projFilterCategoryRef.current && !projFilterCategoryRef.current.contains(e.target)) {
+      setActiveProjFilterDD(prev => {
+        if (prev === "assignee") setProjFilterAssigneeSearch("");
+        if (prev === "category") setProjFilterCategorySearch("");
+        return null;
+      });
+    }
     };
     document.addEventListener("mousedown", handler);
     return () => document.removeEventListener("mousedown", handler);
@@ -1246,6 +1265,10 @@ export default function HelpDesk() {
   const [projFilterAssignee, setProjFilterAssignee] = useState([]);
   const [projFilterAssigneeSearch, setProjFilterAssigneeSearch] = useState("");
   const [projFilterCategory, setProjFilterCategory] = useState("");
+  const [projFilterCategorySearch, setProjFilterCategorySearch] = useState("");
+  const [reportCategorySearch, setReportCategorySearch] = useState("");
+  const [reportAssigneeSearch, setReportAssigneeSearch] = useState("");
+  const [activeReportFilterDD, setActiveReportFilterDD] = useState(null);
   const [projFilterPriority, setProjFilterPriority] = useState("All");
   const [activeProjFilterDD, setActiveProjFilterDD] = useState(null);
   const projFilterStatusRef = useRef(null);
@@ -2273,7 +2296,7 @@ export default function HelpDesk() {
   // ✅ NEW: Dashboard stats (filtered by organization)
   const dashboardStats = useMemo(() => {
   const isAgent = currentUser?.role === "Agent" || currentUser?.role === "Viewer";
-  let base = dashboardOrg !== "all" ? tickets.filter(t => t.org === dashboardOrg) : tickets;
+  let base = tickets;
   if (isAgent) base = base.filter(t => t.assignees?.some(a => a.id === currentUser?.id));
   return {
     total: base.filter(x => x.status !== "Bin").length,
@@ -5755,7 +5778,7 @@ const WebcastFields = ({ f, setF, isProject = false }) => {
               <div style={{ display: "grid", gridTemplateColumns: "repeat(6,1fr)", gap: 9, marginBottom: 20 }}>
                 {[
                   { label: "Open", value: dashboardStats.open, bg: "#fef3c7", accent: "#f59e0b", icon: "", action: () => { switchView("tickets"); setTvFilter("all"); setFilterStatus(["open"]); setFilterAssignment([]); setPriorityF("All"); } },
-                  ...((currentUser?.role === "Admin" || currentUser?.role === "Manager") ? [{ label: "Unassigned", value: dashboardData.filter(t => (!t.assignees || t.assignees.length === 0) && t.status !== "Closed" && t.status !== "Bin").length, bg: "#f3e8ff", accent: "#a855f7", icon: "", action: () => { switchView("tickets"); setTvFilter("all"); setFilterAssignment(["unassigned"]); setFilterStatus(["open"]); setPriorityF("All"); } }] : []),
+                  ...((currentUser?.role === "Admin" || currentUser?.role === "Manager") ? [{ label: "Unassigned", value: tickets.filter(t => (!t.assignees || t.assignees.length === 0) && t.status !== "Closed" && t.status !== "Bin").length, bg: "#f3e8ff", accent: "#a855f7", icon: "", action: () => { switchView("tickets"); setTvFilter("all"); setFilterAssignment(["unassigned"]); setFilterStatus(["open"]); setPriorityF("All"); } }] : []),
                   { label: "Critical", value: dashboardStats.critical, bg: "#fee2e2", accent: "#ef4444", icon: "", action: () => { switchView("tickets"); setTvFilter("all"); setFilterStatus(["open"]); setPriorityF("Critical"); setFilterAssignment([]); } },
                   { label: "Closed", value: dashboardStats.closed, bg: "#dcfce7", accent: "#22c55e", icon: "", action: () => { switchView("tickets"); setTvFilter("all"); setFilterStatus(["closed"]); setFilterAssignment([]); setPriorityF("All"); } },
                   { label: "Total", value: dashboardStats.total, bg: "#dbeafe", accent: "#3b82f6", icon: "", action: () => { switchView("tickets"); setTvFilter("all"); setStatusF("All"); setPriorityF("All"); } },
@@ -5784,14 +5807,14 @@ const WebcastFields = ({ f, setF, isProject = false }) => {
                         <div style={{ fontSize: 13, fontWeight: 600, color: "#374151" }}>Category Breakdown</div>
                         <button onClick={() => setCatBreakdownExpanded(v => !v)} style={{ fontSize: 11, fontWeight: 600, color: "#3b82f6", background: "none", border: "none", cursor: "pointer", padding: 0 }}>{catBreakdownExpanded ? "Show Less ↑" : "View All ↓"}</button>
                       </div>
-                      <HorizontalBarChart data={catBreakdownExpanded ? categoryDistFull : categoryDistFull.slice(0, 6)} />
+                      <HorizontalBarChart data={catBreakdownExpanded ? categoryDistFull : categoryDistFull.slice(0, 10)} />
                     </div>
                     <div style={{ background: "#fff", borderRadius: 12, padding: 18, boxShadow: "0 1px 4px rgba(0,0,0,0.06)" }}>
                       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
                         <div style={{ fontSize: 13, fontWeight: 600, color: "#374151" }}>Closures by Person</div>
                         <button onClick={() => setClosuresByPersonExpanded(v => !v)} style={{ fontSize: 11, fontWeight: 600, color: "#3b82f6", background: "none", border: "none", cursor: "pointer", padding: 0 }}>{closuresByPersonExpanded ? "Show Less ↑" : "View All ↓"}</button>
                       </div>
-                      <HorizontalBarChart data={closuresByPersonExpanded ? dashboardClosingUsersFull : dashboardClosingUsersFull.slice(0, 6)} />
+                      <HorizontalBarChart data={closuresByPersonExpanded ? dashboardClosingUsersFull : dashboardClosingUsersFull.slice(0, 10)} />
                     </div>
                   </div>
 
@@ -5894,7 +5917,7 @@ const WebcastFields = ({ f, setF, isProject = false }) => {
                   <div style={{ position: "fixed", top: (filterAssigneeRef.current?.getBoundingClientRect().bottom || 0) + 4, left: filterAssigneeRef.current?.getBoundingClientRect().left || 0, background: "#fff", border: "1.5px solid #e2e8f0", borderRadius: 10, boxShadow: "0 8px 24px rgba(0,0,0,0.12)", zIndex: 200, minWidth: 210, padding: 10 }}>
                     <input autoFocus placeholder="Search assignee…" value={filterAssigneeSearch} onChange={e => setFilterAssigneeSearch(e.target.value)} style={{ width: "100%", padding: "6px 9px", border: "1.5px solid #e2e8f0", borderRadius: 7, fontSize: 12, boxSizing: "border-box", fontFamily: "'DM Sans',sans-serif", outline: "none" }} />
                     <div style={{ maxHeight: 160, overflowY: "auto", marginTop: 6 }}>
-                      {(Array.isArray(users) ? users : []).filter(u => (!filterAssigneeSearch || u.name?.toLowerCase().includes(filterAssigneeSearch.toLowerCase()))).map(u => {
+                      {(Array.isArray(users) ? users : []).filter(u => (!filterAssigneeSearch || u.name?.toLowerCase().includes(filterAssigneeSearch.toLowerCase()))).sort((a,b) => (a.name||"").localeCompare(b.name||"")).map(u => {
                         const sel = filterAssignee.includes(u.name);
                         return (
                           <div key={u.id} onClick={() => setFilterAssignee(p => sel ? p.filter(x => x !== u.name) : [...p, u.name])} style={{ display: "flex", alignItems: "center", gap: 8, padding: "5px 4px", fontSize: 13, cursor: "pointer", borderRadius: 5, color: sel ? "#1d4ed8" : "#374151", background: sel ? "#eff6ff" : "transparent", fontWeight: sel ? 600 : 400 }}>
@@ -5911,14 +5934,14 @@ const WebcastFields = ({ f, setF, isProject = false }) => {
 
               {/* CATEGORY */}
               <div style={{ position: "relative" }} ref={filterCategoryRef}>
-                <button onClick={() => setActiveFilterDD(v => v === "category" ? null : "category")} style={{ display: "flex", alignItems: "center", gap: 4, padding: "5px 10px", borderRadius: 8, border: `1.5px solid ${filterCategory ? "#3b82f6" : "#e2e8f0"}`, background: filterCategory ? "#eff6ff" : "#f8fafc", color: filterCategory ? "#1d4ed8" : "#64748b", fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: "'DM Sans',sans-serif", whiteSpace: "nowrap" }}>
+                <button onClick={() => setActiveFilterDD(v => { if (v !== "category") setFilterCategorySearch(""); return v === "category" ? null : "category"; })} style={{ display: "flex", alignItems: "center", gap: 4, padding: "5px 10px", borderRadius: 8, border: `1.5px solid ${filterCategory ? "#3b82f6" : "#e2e8f0"}`, background: filterCategory ? "#eff6ff" : "#f8fafc", color: filterCategory ? "#1d4ed8" : "#64748b", fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: "'DM Sans',sans-serif", whiteSpace: "nowrap" }}>
                   Category{filterCategory ? `: ${filterCategory}` : ""} ▾
                 </button>
                 {activeFilterDD === "category" && (
                   <div style={{ position: "fixed", top: (filterCategoryRef.current?.getBoundingClientRect().bottom || 0) + 4, left: filterCategoryRef.current?.getBoundingClientRect().left || 0, background: "#fff", border: "1.5px solid #e2e8f0", borderRadius: 10, boxShadow: "0 8px 24px rgba(0,0,0,0.12)", zIndex: 200, minWidth: 210, padding: 10 }}>
-                    <input autoFocus placeholder="Search category…" value={filterCategory} onChange={e => setFilterCategory(e.target.value)} style={{ width: "100%", padding: "6px 9px", border: "1.5px solid #e2e8f0", borderRadius: 7, fontSize: 12, boxSizing: "border-box", fontFamily: "'DM Sans',sans-serif", outline: "none" }} />
+                    <input autoFocus placeholder="Search category…" value={filterCategorySearch} onChange={e => setFilterCategorySearch(e.target.value)} style={{ width: "100%", padding: "6px 9px", border: "1.5px solid #e2e8f0", borderRadius: 7, fontSize: 12, boxSizing: "border-box", fontFamily: "'DM Sans',sans-serif", outline: "none" }} />
                     <div style={{ maxHeight: 160, overflowY: "auto", marginTop: 6 }}>
-                      {(Array.isArray(categories) ? categories : []).filter(c => !filterCategory || c.name?.toLowerCase().includes(filterCategory.toLowerCase())).map(c => (
+                      {(Array.isArray(categories) ? categories : []).filter(c => !filterCategorySearch || c.name?.toLowerCase().includes(filterCategorySearch.toLowerCase())).sort((a,b) => (a.name||"").localeCompare(b.name||"")).map(c => (
                         <div key={c.id} onClick={() => { setFilterCategory(c.name); setActiveFilterDD(null); }} style={{ padding: "5px 4px", fontSize: 13, cursor: "pointer", borderRadius: 5, color: filterCategory === c.name ? "#1d4ed8" : "#374151", background: filterCategory === c.name ? "#eff6ff" : "transparent", fontWeight: filterCategory === c.name ? 600 : 400 }}>
                           {c.name}
                         </div>
@@ -6319,7 +6342,7 @@ const WebcastFields = ({ f, setF, isProject = false }) => {
                   <div style={{ position: "fixed", top: (projFilterAssigneeRef.current?.getBoundingClientRect().bottom || 0) + 4, left: projFilterAssigneeRef.current?.getBoundingClientRect().left || 0, background: "#fff", border: "1.5px solid #e2e8f0", borderRadius: 10, boxShadow: "0 8px 24px rgba(0,0,0,0.12)", zIndex: 200, minWidth: 210, padding: 10 }}>
                     <input autoFocus placeholder="Search assignee…" value={projFilterAssigneeSearch} onChange={e => setProjFilterAssigneeSearch(e.target.value)} style={{ width: "100%", padding: "6px 9px", border: "1.5px solid #e2e8f0", borderRadius: 7, fontSize: 12, boxSizing: "border-box", fontFamily: "'DM Sans',sans-serif", outline: "none" }} />
                     <div style={{ maxHeight: 160, overflowY: "auto", marginTop: 6 }}>
-                      {(Array.isArray(users) ? users : []).filter(u => (!projFilterAssigneeSearch || u.name?.toLowerCase().includes(projFilterAssigneeSearch.toLowerCase()))).map(u => {
+                      {(Array.isArray(users) ? users : []).filter(u => (!projFilterAssigneeSearch || u.name?.toLowerCase().includes(projFilterAssigneeSearch.toLowerCase()))).sort((a,b) => (a.name||"").localeCompare(b.name||"")).map(u => {
                         const sel = projFilterAssignee.includes(u.name);
                         return (
                           <div key={u.id} onClick={() => setProjFilterAssignee(p => sel ? p.filter(x => x !== u.name) : [...p, u.name])} style={{ display: "flex", alignItems: "center", gap: 8, padding: "5px 4px", fontSize: 13, cursor: "pointer", borderRadius: 5, color: sel ? "#1d4ed8" : "#374151", background: sel ? "#eff6ff" : "transparent", fontWeight: sel ? 600 : 400 }}>
@@ -6336,14 +6359,14 @@ const WebcastFields = ({ f, setF, isProject = false }) => {
 
               {/* CATEGORY */}
               <div style={{ position: "relative" }} ref={projFilterCategoryRef}>
-                <button onClick={() => setActiveProjFilterDD(v => v === "category" ? null : "category")} style={{ display: "flex", alignItems: "center", gap: 4, padding: "5px 10px", borderRadius: 8, border: `1.5px solid ${projFilterCategory ? "#3b82f6" : "#e2e8f0"}`, background: projFilterCategory ? "#eff6ff" : "#f8fafc", color: projFilterCategory ? "#1d4ed8" : "#64748b", fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: "'DM Sans',sans-serif", whiteSpace: "nowrap" }}>
+                <button onClick={() => setActiveProjFilterDD(v => { if (v !== "category") setProjFilterCategorySearch(""); return v === "category" ? null : "category"; })} style={{ display: "flex", alignItems: "center", gap: 4, padding: "5px 10px", borderRadius: 8, border: `1.5px solid ${projFilterCategory ? "#3b82f6" : "#e2e8f0"}`, background: projFilterCategory ? "#eff6ff" : "#f8fafc", color: projFilterCategory ? "#1d4ed8" : "#64748b", fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: "'DM Sans',sans-serif", whiteSpace: "nowrap" }}>
                   Category{projFilterCategory ? `: ${projFilterCategory}` : ""} ▾
                 </button>
                 {activeProjFilterDD === "category" && (
                   <div style={{ position: "fixed", top: (projFilterCategoryRef.current?.getBoundingClientRect().bottom || 0) + 4, left: projFilterCategoryRef.current?.getBoundingClientRect().left || 0, background: "#fff", border: "1.5px solid #e2e8f0", borderRadius: 10, boxShadow: "0 8px 24px rgba(0,0,0,0.12)", zIndex: 200, minWidth: 210, padding: 10 }}>
-                    <input autoFocus placeholder="Search category…" value={projFilterCategory} onChange={e => setProjFilterCategory(e.target.value)} style={{ width: "100%", padding: "6px 9px", border: "1.5px solid #e2e8f0", borderRadius: 7, fontSize: 12, boxSizing: "border-box", fontFamily: "'DM Sans',sans-serif", outline: "none" }} />
+                    <input autoFocus placeholder="Search category…" value={projFilterCategorySearch} onChange={e => setProjFilterCategorySearch(e.target.value)} style={{ width: "100%", padding: "6px 9px", border: "1.5px solid #e2e8f0", borderRadius: 7, fontSize: 12, boxSizing: "border-box", fontFamily: "'DM Sans',sans-serif", outline: "none" }} />
                     <div style={{ maxHeight: 160, overflowY: "auto", marginTop: 6 }}>
-                      {(Array.isArray(categories) ? categories : []).filter(c => !projFilterCategory || c.name?.toLowerCase().includes(projFilterCategory.toLowerCase())).map(c => (
+                      {(Array.isArray(categories) ? categories : []).filter(c => !projFilterCategorySearch || c.name?.toLowerCase().includes(projFilterCategorySearch.toLowerCase())).sort((a,b) => (a.name||"").localeCompare(b.name||"")).map(c => (
                         <div key={c.id} onClick={() => { setProjFilterCategory(c.name); setActiveProjFilterDD(null); }} style={{ padding: "5px 4px", fontSize: 13, cursor: "pointer", borderRadius: 5, color: projFilterCategory === c.name ? "#1d4ed8" : "#374151", background: projFilterCategory === c.name ? "#eff6ff" : "transparent", fontWeight: projFilterCategory === c.name ? 600 : 400 }}>
                           {c.name}
                         </div>
@@ -6723,12 +6746,24 @@ const WebcastFields = ({ f, setF, isProject = false }) => {
                     <h2 style={{ margin: 0, fontSize: 20, fontWeight: 700, color: "#0f172a" }}>📊 Reports</h2>
                     <p style={{ margin: "4px 0 0", fontSize: 13, color: "#64748b" }}>Build, save, and export reports from your data.</p>
                   </div>
-                  {btn("＋ New Report", () => {
-                    setReportPreview([]);
-                    setReportName("");
-                    setReportFilters({ dataSource: "tickets", status: [], priority: [], category: [], assignee: "", org: dashboardOrg === "all" ? "" : dashboardOrg, dateFrom: "", dateTo: "", columns: getDefaultCols("tickets", []) });
-                    setReportBuilderOpen(true);
-                  })}
+                  <div style={{ display: "flex", gap: 8 }}>
+                    {btn("＋ New Report", () => {
+                      setReportPreview([]);
+                      setReportName("");
+                      setReportFilters({ dataSource: "tickets", status: [], priority: [], category: [], assignee: "", org: dashboardOrg === "all" ? "" : dashboardOrg, dateFrom: "", dateTo: "", columns: getDefaultCols("tickets", []) });
+                      setReportCategorySearch(""); setReportAssigneeSearch(""); setActiveReportFilterDD(null);
+                      setReportBuilderOpen(true);
+                    })}
+                    {reportBuilderOpen && (
+                      <button onClick={() => {
+                        setReportFilters({ dataSource: "tickets", status: [], priority: [], category: [], assignee: "", org: dashboardOrg === "all" ? "" : dashboardOrg, dateFrom: "", dateTo: "", columns: getDefaultCols("tickets", []) });
+                        setReportCategorySearch(""); setReportAssigneeSearch(""); setActiveReportFilterDD(null);
+                        setReportPreview([]);
+                      }} style={{ padding: "7px 14px", borderRadius: 8, border: "1.5px solid #fca5a5", background: "#fff1f2", color: "#ef4444", cursor: "pointer", fontSize: 13, fontWeight: 600, fontFamily: "'DM Sans',sans-serif" }}>
+                        ↺ Reset Filters
+                      </button>
+                    )}
+                  </div>
                 </div>
 
                 {/* Saved Reports History */}
@@ -6811,19 +6846,51 @@ const WebcastFields = ({ f, setF, isProject = false }) => {
                           {(reportFilters.dataSource === "projects" ? PROJECT_PRIORITIES : PRIORITIES).map(p => <option key={p} value={p}>{p}</option>)}
                         </select>
                       </div>
-                      <div>
+                      <div style={{ position: "relative" }}>
                         <label style={{ fontSize: 12, fontWeight: 600, color: "#475569", display: "block", marginBottom: 6 }}>CATEGORY</label>
-                        <select value={reportFilters.category[0] || ""} onChange={e => setReportFilters(f => ({ ...f, category: e.target.value ? [e.target.value] : [] }))} style={{ width: "100%", padding: "7px 10px", border: "1px solid #e2e8f0", borderRadius: 7, fontSize: 13, background: "#fff", color: "#334155" }}>
-                          <option value="">All Categories</option>
-                          {categories.map(c => <option key={c.id} value={c.name}>{c.name}</option>)}
-                        </select>
+                        <button onClick={() => setActiveReportFilterDD(v => { if (v !== "category") setReportCategorySearch(""); return v === "category" ? null : "category"; })} style={{ width: "100%", padding: "7px 10px", border: `1px solid ${reportFilters.category[0] ? "#3b82f6" : "#e2e8f0"}`, borderRadius: 7, fontSize: 13, background: reportFilters.category[0] ? "#eff6ff" : "#fff", color: reportFilters.category[0] ? "#1d4ed8" : "#334155", cursor: "pointer", textAlign: "left", fontFamily: "'DM Sans',sans-serif", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                          <span>{reportFilters.category[0] || "All Categories"}</span>
+                          <span>▾</span>
+                        </button>
+                        {activeReportFilterDD === "category" && (
+                          <>
+                            <div style={{ position: "fixed", inset: 0, zIndex: 199 }} onClick={() => { setActiveReportFilterDD(null); setReportCategorySearch(""); }} />
+                            <div style={{ position: "absolute", top: "100%", left: 0, right: 0, background: "#fff", border: "1.5px solid #e2e8f0", borderRadius: 10, boxShadow: "0 8px 24px rgba(0,0,0,0.12)", zIndex: 200, padding: 10, marginTop: 2 }}>
+                              <input autoFocus placeholder="Search category…" value={reportCategorySearch} onChange={e => setReportCategorySearch(e.target.value)} style={{ width: "100%", padding: "6px 9px", border: "1.5px solid #e2e8f0", borderRadius: 7, fontSize: 12, boxSizing: "border-box", fontFamily: "'DM Sans',sans-serif", outline: "none" }} />
+                              <div style={{ maxHeight: 160, overflowY: "auto", marginTop: 6 }}>
+                                {[...categories].filter(c => !reportCategorySearch || c.name?.toLowerCase().includes(reportCategorySearch.toLowerCase())).sort((a,b) => (a.name||"").localeCompare(b.name||"")).map(c => (
+                                  <div key={c.id} onClick={() => { setReportFilters(f => ({ ...f, category: [c.name] })); setActiveReportFilterDD(null); setReportCategorySearch(""); }} style={{ padding: "5px 4px", fontSize: 13, cursor: "pointer", borderRadius: 5, color: reportFilters.category[0] === c.name ? "#1d4ed8" : "#374151", background: reportFilters.category[0] === c.name ? "#eff6ff" : "transparent", fontWeight: reportFilters.category[0] === c.name ? 600 : 400 }}>
+                                    {c.name}
+                                  </div>
+                                ))}
+                              </div>
+                              {reportFilters.category[0] && <div onClick={() => { setReportFilters(f => ({ ...f, category: [] })); setActiveReportFilterDD(null); setReportCategorySearch(""); }} style={{ borderTop: "1px solid #f1f5f9", marginTop: 4, paddingTop: 6, color: "#ef4444", fontSize: 11, fontWeight: 600, cursor: "pointer" }}>✕ Clear</div>}
+                            </div>
+                          </>
+                        )}
                       </div>
-                      <div>
+                      <div style={{ position: "relative" }}>
                         <label style={{ fontSize: 12, fontWeight: 600, color: "#475569", display: "block", marginBottom: 6 }}>ASSIGNEE</label>
-                        <select value={reportFilters.assignee} onChange={e => setReportFilters(f => ({ ...f, assignee: e.target.value }))} style={{ width: "100%", padding: "7px 10px", border: "1px solid #e2e8f0", borderRadius: 7, fontSize: 13, background: "#fff", color: "#334155" }}>
-                          <option value="">All Assignees</option>
-                          {users.map(u => <option key={u.id} value={u.name}>{u.name}{!u.active ? " (inactive)" : ""}</option>)}
-                        </select>
+                        <button onClick={() => setActiveReportFilterDD(v => { if (v !== "assignee") setReportAssigneeSearch(""); return v === "assignee" ? null : "assignee"; })} style={{ width: "100%", padding: "7px 10px", border: `1px solid ${reportFilters.assignee ? "#3b82f6" : "#e2e8f0"}`, borderRadius: 7, fontSize: 13, background: reportFilters.assignee ? "#eff6ff" : "#fff", color: reportFilters.assignee ? "#1d4ed8" : "#334155", cursor: "pointer", textAlign: "left", fontFamily: "'DM Sans',sans-serif", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                          <span>{reportFilters.assignee || "All Assignees"}</span>
+                          <span>▾</span>
+                        </button>
+                        {activeReportFilterDD === "assignee" && (
+                          <>
+                            <div style={{ position: "fixed", inset: 0, zIndex: 199 }} onClick={() => { setActiveReportFilterDD(null); setReportAssigneeSearch(""); }} />
+                            <div style={{ position: "absolute", top: "100%", left: 0, right: 0, background: "#fff", border: "1.5px solid #e2e8f0", borderRadius: 10, boxShadow: "0 8px 24px rgba(0,0,0,0.12)", zIndex: 200, padding: 10, marginTop: 2 }}>
+                              <input autoFocus placeholder="Search assignee…" value={reportAssigneeSearch} onChange={e => setReportAssigneeSearch(e.target.value)} style={{ width: "100%", padding: "6px 9px", border: "1.5px solid #e2e8f0", borderRadius: 7, fontSize: 12, boxSizing: "border-box", fontFamily: "'DM Sans',sans-serif", outline: "none" }} />
+                              <div style={{ maxHeight: 160, overflowY: "auto", marginTop: 6 }}>
+                                {[...users].filter(u => !reportAssigneeSearch || u.name?.toLowerCase().includes(reportAssigneeSearch.toLowerCase())).sort((a,b) => (a.name||"").localeCompare(b.name||"")).map(u => (
+                                  <div key={u.id} onClick={() => { setReportFilters(f => ({ ...f, assignee: u.name })); setActiveReportFilterDD(null); setReportAssigneeSearch(""); }} style={{ padding: "5px 4px", fontSize: 13, cursor: "pointer", borderRadius: 5, color: reportFilters.assignee === u.name ? "#1d4ed8" : "#374151", background: reportFilters.assignee === u.name ? "#eff6ff" : "transparent", fontWeight: reportFilters.assignee === u.name ? 600 : 400 }}>
+                                    {u.name}{!u.active ? " (inactive)" : ""}
+                                  </div>
+                                ))}
+                              </div>
+                              {reportFilters.assignee && <div onClick={() => { setReportFilters(f => ({ ...f, assignee: "" })); setActiveReportFilterDD(null); setReportAssigneeSearch(""); }} style={{ borderTop: "1px solid #f1f5f9", marginTop: 4, paddingTop: 6, color: "#ef4444", fontSize: 11, fontWeight: 600, cursor: "pointer" }}>✕ Clear</div>}
+                            </div>
+                          </>
+                        )}
                       </div>
                       <div>
                         <label style={{ fontSize: 12, fontWeight: 600, color: "#475569", display: "block", marginBottom: 6 }}>ORGANIZATION</label>
