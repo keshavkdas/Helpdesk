@@ -803,8 +803,12 @@ app.get("/api/notifications", async (req, res) => {
         const { userId } = req.query;
         if (userId == null || userId === "") return res.status(400).json({ error: "userId query param required" });
 
+        const oneDayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
         const items = await Notification.findAll({
-            where: { userId: parseInt(userId, 10) },
+            where: {
+                userId: parseInt(userId, 10),
+                createdAt: { [Op.gte]: oneDayAgo }
+            },
             order: [["createdAt", "DESC"]],
             limit: 300,
         });
@@ -879,7 +883,6 @@ app.put("/api/notifications/:id", async (req, res) => {
         const notif = await Notification.findByPk(req.params.id);
         if (!notif) return res.status(404).json({ error: "Notification not found" });
 
-        // Only allow updating safe fields — never allow changing userId or type
         const { read, alerted, resolved, status } = req.body;
         const updates = {};
         if (read !== undefined) updates.read = read;
@@ -888,6 +891,20 @@ app.put("/api/notifications/:id", async (req, res) => {
         if (status !== undefined) updates.status = status;
 
         await notif.update(updates);
+
+        // If resolving a forward_request, resolve all other pending ones for same ticket
+        if (resolved && notif.type === "forward_request" && notif.ticketId) {
+            await Notification.update(
+                { resolved, read: true, alerted: true },
+                { where: { type: "forward_request", ticketId: notif.ticketId, resolved: null, id: { [Op.ne]: notif.id } } }
+            );
+            // Push SSE to all admins so their popups dismiss instantly
+            const affected = await Notification.findAll({
+                where: { type: "forward_request", ticketId: notif.ticketId }
+            });
+            affected.forEach(n => pushSSE(n.userId, { event: "forward_resolved", ticketId: notif.ticketId, resolved }));
+        }
+
         res.json(fmt(notif));
     } catch (err) {
         console.error("PUT /api/notifications/:id error:", err.message);
@@ -1402,7 +1419,7 @@ async function cleanupOldNotifications() {
         // 2. Inbox rows: keep forward_request items until they are resolved.
         //    Delete all other inbox items (responses, assignments) after 30 days.
         //    Delete resolved forward_request items after 30 days too.
-        const inboxCutoff = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+        const inboxCutoff = new Date(Date.now() - 24 * 60 * 60 * 1000);
         const deletedInbox = await Notification.destroy({
             where: {
                 type: { [Op.notIn]: ["activity"] },
@@ -1424,6 +1441,24 @@ async function cleanupOldNotifications() {
 // ─── HEALTH ───────────────────────────────────────────────────────────────────
 
 app.get("/", (req, res) => res.json({ msg: "🚀 DeskFlow API v1" }));
+
+// ── SSE: real-time push to browser clients ──
+const sseClients = new Map();
+
+app.get("/api/sse/:userId", (req, res) => {
+  const uid = String(req.params.userId);
+  res.setHeader("Content-Type", "text/event-stream");
+  res.setHeader("Cache-Control", "no-cache");
+  res.setHeader("Connection", "keep-alive");
+  res.flushHeaders();
+  sseClients.set(uid, res);
+  req.on("close", () => sseClients.delete(uid));
+});
+
+function pushSSE(userId, data) {
+  const client = sseClients.get(String(userId));
+  if (client) client.write(`data: ${JSON.stringify(data)}\n\n`);
+}
 
 // ─── ✅ WEBCAST MIGRATION FUNCTION ────────────────────────────────────────────
 // Automatic Webcast Migration on Server Startup

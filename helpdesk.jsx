@@ -19,6 +19,7 @@ const IMPORT_API = `${BASE_URL}/import`;
 const PROJECTS_API = `${BASE_URL}/projects`;
 const VALIDATE_SESSIONS_API = `${BASE_URL}/validate-sessions`;
 const NOTIFICATIONS_API = `${BASE_URL}/notifications`;
+const SSE_URL = `http://${SERVER_IP}:5000/api/sse`;
 const DEVICES_API = `${BASE_URL}/devices`;
 
 // ─── CONSTANTS ────────────────────────────────────────────────────────────────
@@ -1899,13 +1900,17 @@ export default function HelpDesk() {
     const isAdminOrManager = ["Admin", "Manager"].includes(currentUser.role);
     try {
       // Personal notifications (forward requests, responses, ticket assignments for agents)
-      const personalRes = await axios.get(`${NOTIFICATIONS_API}?userId=${currentUser.id}`);
+      const oneDayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
+      const since = oneDayAgo.toISOString();
+
+      const personalRes = await axios.get(`${NOTIFICATIONS_API}?userId=${currentUser.id}&since=${since}`);
+
       const personalItems = personalRes.data || [];
 
       // Global activity log (userId=0) — only admins/managers pull this
       let globalItems = [];
       if (isAdminOrManager) {
-        const globalRes = await axios.get(`${NOTIFICATIONS_API}?userId=0`);
+        const globalRes = await axios.get(`${NOTIFICATIONS_API}?userId=0&since=${since}`);
         globalItems = globalRes.data || [];
       }
 
@@ -1936,9 +1941,8 @@ export default function HelpDesk() {
 
       setDailyNotifs(bellItems);
 
-      const tenDaysAgo = new Date(); tenDaysAgo.setDate(tenDaysAgo.getDate() - 10);
       const alertNotifs = allActivityItems
-        .filter(a => new Date(a.createdAt) >= tenDaysAgo)
+        .filter(a => new Date(a.createdAt) >= oneDayAgo)
         .map(a => ({
           id: `db-${a.id}`,
           dbId: a.id,
@@ -1964,6 +1968,13 @@ export default function HelpDesk() {
       const inboxOnlyItems = personalItems.filter(i => i.type !== "activity");
       setInboxItems(inboxOnlyItems);
       setInboxUnread(inboxOnlyItems.filter(i => !i.read).length);
+
+      // Auto-dismiss floating alerts for forward_requests resolved by another admin
+      setFloatingAlerts(prev => prev.filter(a => {
+        if (a.type !== "forward_request") return true;
+        const live = inboxOnlyItems.find(i => i.id === a.id);
+        return live ? !live.resolved : true; // remove if resolved
+      }));
 
       inboxOnlyItems
         .filter(i => !i.read && (i.type === "forward_request" || i.type === "forward_response") && (i.type !== "forward_request" || !i.resolved))
@@ -1993,13 +2004,33 @@ export default function HelpDesk() {
     }
   };
 
-  useEffect(() => {
+   useEffect(() => {
     if (!currentUser) return;
     // ✅ REMOVED: seenActivityIds.current = new Set(); // Don't reset - keep persistent across reloads
     fetchInbox();
     const interval = setInterval(fetchInbox, 10000);
     return () => clearInterval(interval);
   }, [currentUser]);
+
+  // SSE: instant popup dismiss when another admin approves a forward request
+  useEffect(() => {
+    if (!currentUser) return;
+    const es = new EventSource(`${SSE_URL}/${currentUser.id}`);
+    es.onmessage = (e) => {
+      const data = JSON.parse(e.data);
+      if (data.event === "forward_resolved") {
+        setFloatingAlerts(prev => prev.filter(a =>
+          !(a.type === "forward_request" && a.ticketId === data.ticketId)
+        ));
+        setInboxItems(prev => prev.map(i =>
+          i.type === "forward_request" && i.ticketId === data.ticketId && !i.resolved
+            ? { ...i, resolved: data.resolved, read: true }
+            : i
+        ));
+      }
+    };
+    return () => es.close();
+  }, [currentUser])
 
 
 
@@ -3142,6 +3173,25 @@ export default function HelpDesk() {
           ticketId: request.ticketId, from: currentUser.name, createdAt: nowISO
         });
       } catch { }
+
+      // Resolve all other admins' pending forward_request notifications for this ticket
+      try {
+        const otherAdminNotifs = inboxItems.filter(i =>
+          i.type === "forward_request" &&
+          i.ticketId === request.ticketId &&
+          !i.resolved &&
+          i.id !== request.id
+        );
+        await Promise.all(otherAdminNotifs.map(n =>
+          axios.put(`${NOTIFICATIONS_API}/${n.id}`, { ...n, resolved: "Approved", read: true, alerted: true })
+        ));
+        setInboxItems(prev => prev.map(i =>
+          i.type === "forward_request" && i.ticketId === request.ticketId && !i.resolved
+            ? { ...i, resolved: "Approved", read: true }
+            : i
+        ));
+      } catch { }
+
     } catch (e) {
       setCustomAlert({ show: true, message: "Failed to approve forward", type: "error" });
     }
@@ -4427,7 +4477,23 @@ export default function HelpDesk() {
       await axios.put(`${TICKETS_API}/${ticket.id}`, update);
       setTickets(p => p.map(x => x.id === ticket.id ? { ...update, updated: new Date(nowISO) } : x));
       await axios.put(`${NOTIFICATIONS_API}/${item.id}`, { ...item, read: true, alerted: true, resolved: "Approved" });
-      setInboxItems(prev => prev.map(i => i.id === item.id ? { ...i, read: true, resolved: "Approved" } : i));
+      // Resolve all other admins' pending forward_request notifications for same ticket
+      try {
+        const otherNotifs = inboxItems.filter(i =>
+          i.type === "forward_request" &&
+          i.ticketId === item.ticketId &&
+          !i.resolved &&
+          i.id !== item.id
+        );
+        await Promise.all(otherNotifs.map(n =>
+          axios.put(`${NOTIFICATIONS_API}/${n.id}`, { ...n, resolved: "Approved", read: true, alerted: true })
+        ));
+      } catch { }
+      setInboxItems(prev => prev.map(i =>
+        i.type === "forward_request" && i.ticketId === item.ticketId && !i.resolved
+          ? { ...i, read: true, resolved: "Approved" }
+          : i
+      ));
       addDailyNotif({ type: "forward_approved", icon: "✅", text: `${currentUser.name} approved forward of ${item.ticketId} to ${agent.name}`, ticketId: item.ticketId, by: currentUser.name });
       // Notify requester
       const requesterId = users.find(u => u.name === item.fromUser)?.id;
@@ -6222,7 +6288,7 @@ const WebcastFields = ({ f, setF, isProject = false }) => {
                 <div style={{ padding: "12px 16px", borderBottom: "1px solid #f1f5f9", display: "flex", alignItems: "center", gap: 8 }}>
                   <span style={{ fontSize: 16 }}>🔔</span>
                   <span style={{ fontWeight: 700, fontSize: 14, color: "#0f172a" }}>Notifications</span>
-                  <span style={{ marginLeft: "auto", fontSize: 12, color: "#94a3b8" }}>Last 10 days</span>
+                  <span style={{ marginLeft: "auto", fontSize: 12, color: "#94a3b8" }}>Today</span>
                 </div>
                 <div style={{ maxHeight: 260, overflowY: "auto", padding: "8px 0" }}>
                   {alertNotifs.length === 0 ? (
@@ -8735,19 +8801,29 @@ const WebcastFields = ({ f, setF, isProject = false }) => {
                   <div style={{ fontSize: 12, color: "#475569", lineHeight: 1.5 }}>{alert.message}</div>
                   {alert.ticketId && <div style={{ fontSize: 11, color: "#3b82f6", fontFamily: "monospace", marginTop: 4 }}>{alert.ticketId}</div>}
                   {/* Accept / Reject buttons only for forward_request type and admins/managers and not yet resolved */}
-                  {alert.type === "forward_request" && !alert.resolved && (currentUser?.role === "Admin" || currentUser?.role === "Manager") && (
-                    <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
-                      <button onClick={() => { acceptInboxForwardRequest(alert); setFloatingAlerts(prev => prev.filter(a => a.alertId !== alert.alertId)); }}
-                        style={{ flex: 1, padding: "7px 12px", fontSize: 12, fontWeight: 700, background: "linear-gradient(135deg,#10b981,#059669)", color: "#fff", border: "none", borderRadius: 8, cursor: "pointer" }}>✓ Approve</button>
-                      <button onClick={() => { rejectInboxForwardRequest(alert); setFloatingAlerts(prev => prev.filter(a => a.alertId !== alert.alertId)); }}
-                        style={{ flex: 1, padding: "7px 12px", fontSize: 12, fontWeight: 700, background: "linear-gradient(135deg,#ef4444,#dc2626)", color: "#fff", border: "none", borderRadius: 8, cursor: "pointer" }}>✕ Reject</button>
-                    </div>
-                  )}
-                  {alert.type === "forward_request" && alert.resolved && (
-                    <div style={{ marginTop: 10, padding: "6px 10px", borderRadius: 6, background: alert.resolved === "Approved" ? "#dcfce7" : "#fee2e2", color: alert.resolved === "Approved" ? "#15803d" : "#991b1b", fontSize: 12, fontWeight: 600, textAlign: "center" }}>
-                      ✓ Already {alert.resolved}
-                    </div>
-                  )}
+                  {alert.type === "forward_request" && (() => {
+                    // Always use live inboxItems resolved state, not the frozen alert snapshot
+                    const liveItem = inboxItems.find(i => i.id === alert.id);
+                    const liveResolved = liveItem?.resolved || alert.resolved;
+                    if (liveResolved) {
+                      return (
+                        <div style={{ marginTop: 10, padding: "6px 10px", borderRadius: 6, background: liveResolved === "Approved" ? "#dcfce7" : "#fee2e2", color: liveResolved === "Approved" ? "#15803d" : "#991b1b", fontSize: 12, fontWeight: 600, textAlign: "center" }}>
+                          ✓ Already {liveResolved}
+                        </div>
+                      );
+                    }
+                    if (!liveResolved && (currentUser?.role === "Admin" || currentUser?.role === "Manager")) {
+                      return (
+                        <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
+                          <button onClick={() => { acceptInboxForwardRequest(alert); setFloatingAlerts(prev => prev.filter(a => a.alertId !== alert.alertId)); }}
+                            style={{ flex: 1, padding: "7px 12px", fontSize: 12, fontWeight: 700, background: "linear-gradient(135deg,#10b981,#059669)", color: "#fff", border: "none", borderRadius: 8, cursor: "pointer" }}>✓ Approve</button>
+                          <button onClick={() => { rejectInboxForwardRequest(alert); setFloatingAlerts(prev => prev.filter(a => a.alertId !== alert.alertId)); }}
+                            style={{ flex: 1, padding: "7px 12px", fontSize: 12, fontWeight: 700, background: "linear-gradient(135deg,#ef4444,#dc2626)", color: "#fff", border: "none", borderRadius: 8, cursor: "pointer" }}>✕ Reject</button>
+                        </div>
+                      );
+                    }
+                    return null;
+                  })()}
                 </div>
                 <button onClick={() => setFloatingAlerts(prev => prev.filter(a => a.alertId !== alert.alertId))}
                   style={{ background: "none", border: "none", cursor: "pointer", color: "#94a3b8", fontSize: 16, flexShrink: 0, padding: 0 }}>×</button>
