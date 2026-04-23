@@ -1142,7 +1142,7 @@ export default function HelpDesk() {
   }, [dashboardOrg]);
   const [showDashboardOrgDD, setShowDashboardOrgDD] = useState(false);
   // ✅ NEW: Dashboard time period filter
-  const [dashboardTimePeriod, setDashboardTimePeriod] = useState("1m");  // 1d, 7d, 1m, 3m, 6m, 1y, all
+  const [dashboardTimePeriod, setDashboardTimePeriod] = useState("all");  // 1d, 7d, 1m, 3m, 6m, 1y, all
 
   // ✅ NEW: Departments and filters
   const [departments, setDepartments] = useState([]);
@@ -2327,7 +2327,7 @@ export default function HelpDesk() {
   // ✅ NEW: Dashboard stats (filtered by organization)
   const dashboardStats = useMemo(() => {
   const isAgent = currentUser?.role === "Agent" || currentUser?.role === "Viewer";
-  let base = tickets;
+  let base = dashboardData;
   if (isAgent) base = base.filter(t => t.assignees?.some(a => a.id === currentUser?.id));
   return {
     total: base.filter(x => x.status !== "Bin").length,
@@ -2358,22 +2358,21 @@ export default function HelpDesk() {
   }, [tickets, prbr, users, dashboardOrg]);
   const dailyData = useMemo(() => { const days = parseInt(range) <= 7 ? parseInt(range) : 7; return Array.from({ length: days }, (_, i) => { const d = new Date(now - (days - 1 - i) * dayMs); return { label: d.toLocaleDateString("en", { weekday: "short" }), value: fbr.filter(t => t.created.getDate() === d.getDate() && t.created.getMonth() === d.getMonth()).length }; }); }, [fbr, range, now, dayMs]);
   const priorityDist = useMemo(() => {
-    const isAgent = currentUser?.role === "Agent" || currentUser?.role === "Viewer";
-    let base = dashboardOrg !== "all" ? tickets.filter(t => t.org === dashboardOrg) : tickets;
-    if (isAgent) base = base.filter(t => t.assignees?.some(a => a.id === currentUser?.id));
-    return PRIORITIES.map(p => ({ label: p, value: base.filter(t => t.priority === p && t.status !== "Bin").length, color: PRIORITY_COLOR[p] }));
-  }, [tickets, dashboardOrg, currentUser]);
+  const isAgent = currentUser?.role === "Agent" || currentUser?.role === "Viewer";
+  let base = dashboardData;
+  if (isAgent) base = base.filter(t => t.assignees?.some(a => a.id === currentUser?.id));
+  return PRIORITIES.map(p => ({ label: p, value: base.filter(t => t.priority === p && t.status !== "Bin").length, color: PRIORITY_COLOR[p] }));
+}, [dashboardData, currentUser]);
   const categoryDist = useMemo(() => categories.slice(0, 6).map(c => ({ label: c.name, value: dashboardData.filter(t => t.category === c.name).length, color: c.color })), [dashboardData, categories]);
   const categoryDistFull = useMemo(() => {
-    const base = tickets.filter(t => t.status !== "Bin" && (dashboardOrg === "all" || t.org === dashboardOrg));
+    const base = dashboardData.filter(t => t.status !== "Bin");
     const rows = [...categories].sort((a, b) => {
       const av = base.filter(t => t.category === a.name).length;
       const bv = base.filter(t => t.category === b.name).length;
       return bv - av;
     }).map(c => ({ label: c.name, value: base.filter(t => t.category === c.name).length, color: c.color }));
     return rows;
-  }, [tickets, categories, dashboardOrg]);
-
+  }, [dashboardData, categories]);
 
   // ✅ NEW: Dashboard-specific chart data (with org filter)
   const dashboardDailyData = useMemo(() => {
@@ -2416,18 +2415,18 @@ export default function HelpDesk() {
   const dashboardClosingUsers = useMemo(() => {
   return users.map((u, i) => ({
     label: u.name,
-    value: tickets.filter(t => t.assignees?.some(a => a.id === u.id) && t.status === "Closed" && (dashboardOrg === "all" || t.org === dashboardOrg)).length,
+    value: dashboardData.filter(t => t.assignees?.some(a => a.id === u.id) && t.status === "Closed").length,
     color: PIE_COLORS[i % PIE_COLORS.length]
   })).sort((a, b) => b.value - a.value).slice(0, 6);
-}, [tickets, users, dashboardOrg]);
+}, [dashboardData, users]);
 
   const dashboardClosingUsersFull = useMemo(() => {
   return users.map((u, i) => ({
     label: u.name,
-    value: tickets.filter(t => t.assignees?.some(a => a.id === u.id) && t.status === "Closed" && (dashboardOrg === "all" || t.org === dashboardOrg)).length,
+    value: dashboardData.filter(t => t.assignees?.some(a => a.id === u.id) && t.status === "Closed").length,
     color: PIE_COLORS[i % PIE_COLORS.length]
   })).sort((a, b) => b.value - a.value);
-}, [tickets, users, dashboardOrg]);
+}, [dashboardData, users]);
 
   // ✅ NEW: Yearly data for reports (30+ days)
   const yearlyData = useMemo(() => {
@@ -5706,15 +5705,22 @@ const WebcastFields = ({ f, setF, isProject = false }) => {
             {view === "dashboard" && (
               <>
                 {/* Time Period Dropdown */}
-                <select value={dashboardTimePeriod} onChange={e => setDashboardTimePeriod(e.target.value)} style={{ ...sS, width: 160, fontSize: 13, padding: "7px 10px" }}>
-                  <option value="1d">📅 Today</option>
-                  <option value="7d">📅 Last 7 Days</option>
-                  <option value="1m">📊 Last Month</option>
-                  <option value="3m">📊 Last 3 Months</option>
-                  <option value="6m">📊 Last 6 Months</option>
-                  <option value="1y">📊 Last Year</option>
-                  <option value="all">📊 All Time</option>
-                </select>
+                <div style={{ position: "relative", display: "inline-flex", alignItems: "center" }}>
+                  <select value={dashboardTimePeriod} onChange={e => setDashboardTimePeriod(e.target.value)} style={{ ...sS, width: 170, fontSize: 13, padding: "7px 30px 7px 10px", appearance: "none", WebkitAppearance: "none", borderColor: dashboardTimePeriod !== "all" ? "#3b82f6" : "#e2e8f0", background: dashboardTimePeriod !== "all" ? "#eff6ff" : "#fafafa", color: dashboardTimePeriod !== "all" ? "#1d4ed8" : "#1e293b", fontWeight: dashboardTimePeriod !== "all" ? 600 : 400 }}>
+                    <option value="all">📊 All Time</option>
+                    <option value="1d">📅 Today</option>
+                    <option value="7d">📅 Last 7 Days</option>
+                    <option value="1m">📊 Last Month</option>
+                    <option value="3m">📊 Last 3 Months</option>
+                    <option value="6m">📊 Last 6 Months</option>
+                    <option value="1y">📊 Last Year</option>
+                  </select>
+                  {dashboardTimePeriod !== "all" ? (
+                    <span onClick={() => setDashboardTimePeriod("all")} style={{ position: "absolute", right: 8, top: "50%", transform: "translateY(-50%)", cursor: "pointer", color: "#3b82f6", fontSize: 14, fontWeight: 700, lineHeight: 1, zIndex: 1 }}>×</span>
+                  ) : (
+                    <span style={{ position: "absolute", right: 8, top: "50%", transform: "translateY(-50%)", color: "#94a3b8", fontSize: 12, pointerEvents: "none" }}>▾</span>
+                  )}
+                </div>
               </>
             )}
             {/* Bell + Inbox Icons */}
@@ -5866,7 +5872,13 @@ const WebcastFields = ({ f, setF, isProject = false }) => {
               {/* Dashboard Graphs - Different layouts for different roles */}
               {(currentUser?.role === "Admin" || currentUser?.role === "Manager") ? (
                 <>
-                  {/* Row 1: Category Breakdown + Closures by Person */}
+                  {/* Row 1: Tickets Over Time + Priority */}
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 12 }}>
+                    <SmartChart title="Daily Ticket count (Over a Week)" data={dashboardDailyData} defaultColor="#3b82f6" />
+                    <SmartChart title="Priority Distribution" data={priorityDist} defaultType="pie" />
+                  </div>
+
+                  {/* Row 2: Category Breakdown + Closures by Person */}
                   <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 12 }}>
                     <div style={{ background: "#fff", borderRadius: 12, padding: 18, boxShadow: "0 1px 4px rgba(0,0,0,0.06)" }}>
                       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
@@ -5882,12 +5894,6 @@ const WebcastFields = ({ f, setF, isProject = false }) => {
                       </div>
                       <HorizontalBarChart data={closuresByPersonExpanded ? dashboardClosingUsersFull : dashboardClosingUsersFull.slice(0, 10)} />
                     </div>
-                  </div>
-
-                  {/* Row 2: Tickets Over Time + Priority */}
-                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 12 }}>
-                    <SmartChart title="Daily Ticket count (Over a Week)" data={dashboardDailyData} defaultColor="#3b82f6" />
-                    <SmartChart title="Priority Distribution" data={priorityDist} defaultType="pie" />
                   </div>
 
                   {/* Recent Tickets for Admin/Manager */}
