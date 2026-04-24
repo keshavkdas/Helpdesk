@@ -983,10 +983,22 @@ const SmartChart = ({ title, data, defaultType = "bar", defaultColor = "#3b82f6"
           )}
         </div>
       </div>
-      <div style={{ position: "relative", paddingTop: 8 }}>
-        {hov !== null && type !== "pie" && <div style={{ position: "absolute", top: -2, left: "50%", transform: "translateX(-50%)", background: "#0f172a", color: "#fff", borderRadius: 7, padding: "4px 10px", fontSize: 11, fontWeight: 600, whiteSpace: "nowrap", zIndex: 20, pointerEvents: "none", boxShadow: "0 4px 12px rgba(0,0,0,0.25)" }}>
-          {data[hov]?.label}: <span style={{ color: "#93c5fd" }}>{data[hov]?.value}</span>
-        </div>}
+       <div style={{ position: "relative", paddingTop: 8 }}>
+        {hov !== null && type !== "pie" && (() => {
+          const isBar = type === "bar" || type === "histogram";
+          const isLine = type === "line" || type === "area";
+          const isScatter = type === "scatter";
+          let leftPct;
+          if (isBar) leftPct = ((toXb(hov) + bw / 2) / W) * 100;
+          else if (isLine) leftPct = (toX(hov) / W) * 100;
+          else if (isScatter) leftPct = ((PL + 10 + (hov / (data.length - 1 || 1)) * IW * 0.85) / W) * 100;
+          else leftPct = 50;
+          return (
+            <div style={{ position: "absolute", top: -2, left: `${leftPct}%`, transform: "translateX(-50%)", background: "#0f172a", color: "#fff", borderRadius: 7, padding: "4px 10px", fontSize: 11, fontWeight: 600, whiteSpace: "nowrap", zIndex: 20, pointerEvents: "none", boxShadow: "0 4px 12px rgba(0,0,0,0.25)" }}>
+              {data[hov]?.label}: <span style={{ color: "#93c5fd" }}>{data[hov]?.value}</span>
+            </div>
+          );
+        })()}
         {renderChart()}
       </div>
     </div>
@@ -1225,6 +1237,7 @@ export default function HelpDesk() {
       if (filterAssigneeRef.current && !filterAssigneeRef.current.contains(e.target) &&
         filterCategoryRef.current && !filterCategoryRef.current.contains(e.target) &&
         filterStatusRef.current && !filterStatusRef.current.contains(e.target) &&
+        filterAssignmentRef.current && !filterAssignmentRef.current.contains(e.target) &&
         filterPriorityRef.current && !filterPriorityRef.current.contains(e.target)) {
       setActiveFilterDD(prev => {
         if (prev === "assignee") setFilterAssigneeSearch("");
@@ -2317,6 +2330,7 @@ export default function HelpDesk() {
       if (!p.category?.toLowerCase().includes(projFilterCategory.toLowerCase())) return false;
     }
     if (projFilterPriority !== "All" && p.priority !== projFilterPriority) return false;
+    if (dashboardOrg !== "all" && p.org !== dashboardOrg) return false;
     if (projSearch && !p.title.toLowerCase().includes(projSearch.toLowerCase()) && !p.id.toLowerCase().includes(projSearch.toLowerCase()) && !p.org.toLowerCase().includes(projSearch.toLowerCase())) return false;
     return true;
   }), [projects, cpv, currentUser, dashboardOrg, projStatusF, projPriorityF, projSearch, projFilterStatus, projFilterAssignment, projFilterAssignee, projFilterCategory, projFilterPriority]);
@@ -2386,6 +2400,7 @@ export default function HelpDesk() {
       return slots.map(slot => ({
         label: slot.label,
         value: dashboardData.filter(t => {
+          if (t.status === "Bin") return false;
           const d = t.created instanceof Date ? t.created : new Date(t.created);
           return d >= todayStart && d.getHours() >= slot.start && d.getHours() < slot.end;
         }).length
@@ -2397,6 +2412,7 @@ export default function HelpDesk() {
       return {
         label: d.toLocaleDateString("en", { weekday: "short" }),
         value: dashboardData.filter(t => {
+          if (t.status === "Bin") return false;
           const td = t.created instanceof Date ? t.created : new Date(t.created);
           return td.getDate() === d.getDate() && td.getMonth() === d.getMonth() && td.getFullYear() === d.getFullYear();
         }).length
