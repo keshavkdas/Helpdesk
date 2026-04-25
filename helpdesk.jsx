@@ -1149,12 +1149,29 @@ export default function HelpDesk() {
   const [closuresByPersonExpanded, setClosuresByPersonExpanded] = useState(false);
 
   const [dashboardOrgSearch, setDashboardOrgSearch] = useState("");
-  useEffect(() => {
-    setReportFilters(f => ({ ...f, org: dashboardOrg === "all" ? "" : dashboardOrg }));
-  }, [dashboardOrg]);
   const [showDashboardOrgDD, setShowDashboardOrgDD] = useState(false);
   // ✅ NEW: Dashboard time period filter
   const [dashboardTimePeriod, setDashboardTimePeriod] = useState("all");  // 1d, 7d, 1m, 3m, 6m, 1y, all
+  useEffect(() => {
+    const now = new Date();
+    let dateFrom = "";
+    if (dashboardTimePeriod !== "all") {
+      const d = new Date();
+      if (dashboardTimePeriod === "1d") d.setHours(0, 0, 0, 0);
+      else if (dashboardTimePeriod === "7d") d.setDate(d.getDate() - 7);
+      else if (dashboardTimePeriod === "1m") d.setMonth(d.getMonth() - 1);
+      else if (dashboardTimePeriod === "3m") d.setMonth(d.getMonth() - 3);
+      else if (dashboardTimePeriod === "6m") d.setMonth(d.getMonth() - 6);
+      else if (dashboardTimePeriod === "1y") d.setFullYear(d.getFullYear() - 1);
+      dateFrom = d.toISOString().split("T")[0];
+    }
+    setReportFilters(f => ({
+      ...f,
+      org: dashboardOrg === "all" ? "" : dashboardOrg,
+      dateFrom,
+      dateTo: dashboardTimePeriod !== "all" ? now.toISOString().split("T")[0] : "",
+    }));
+  }, [dashboardOrg, dashboardTimePeriod]);
 
   // ✅ NEW: Departments and filters
   const [departments, setDepartments] = useState([]);
@@ -2180,8 +2197,10 @@ export default function HelpDesk() {
     }
 
     return data.filter(t => {
-      const td = t.created instanceof Date ? t.created : new Date(t.created);
-      return td >= cutoffDate;
+      const dateField = t.status === "Closed"
+        ? (t.closedAt ? new Date(t.closedAt) : (() => { const e = (t.timeline||[]).slice().reverse().find(e=>e.action?.includes("Status changed to Closed")); return e?.date ? new Date(e.date) : (t.created instanceof Date ? t.created : new Date(t.created)); })())
+        : (t.created instanceof Date ? t.created : new Date(t.created));
+      return dateField >= cutoffDate;
     });
   }, [fbr, dashboardOrg, dashboardTimePeriod]);
 
@@ -2234,6 +2253,21 @@ export default function HelpDesk() {
     if (orgFilter !== "all" && t.org !== orgFilter) return false;
     if (deptFilter !== "all" && t.department !== deptFilter) return false;
     if (categoryFilter !== "all" && t.category !== categoryFilter) return false;
+    if (dashboardTimePeriod !== "all") {
+      const cutoff = new Date();
+      if (dashboardTimePeriod === "1d") cutoff.setHours(0, 0, 0, 0);
+      else if (dashboardTimePeriod === "7d") cutoff.setDate(cutoff.getDate() - 7);
+      else if (dashboardTimePeriod === "1m") cutoff.setMonth(cutoff.getMonth() - 1);
+      else if (dashboardTimePeriod === "3m") cutoff.setMonth(cutoff.getMonth() - 3);
+      else if (dashboardTimePeriod === "6m") cutoff.setMonth(cutoff.getMonth() - 6);
+      else if (dashboardTimePeriod === "1y") cutoff.setFullYear(cutoff.getFullYear() - 1);
+      const isClosed = t.status === "Closed";
+      const closedDate = isClosed
+        ? (t.closedAt ? new Date(t.closedAt) : (() => { const e = (t.timeline||[]).slice().reverse().find(e=>e.action?.includes("Status changed to Closed")); return e?.date ? new Date(e.date) : null; })())
+        : null;
+      const tc = (isClosed && closedDate) ? closedDate : (t.created instanceof Date ? t.created : new Date(t.created));
+      if (tc < cutoff) return false;
+    }
     if (filterStatus.length > 0) {
       const statusPass = filterStatus.some(f => {
         if (f === "open") return t.status === "Open";
@@ -2268,7 +2302,7 @@ export default function HelpDesk() {
       if (!t.summary.toLowerCase().includes(search.toLowerCase()) && !t.id.toLowerCase().includes(search.toLowerCase()) && !t.org.toLowerCase().includes(search.toLowerCase())) return false;
     }
     return true;
-  }), [tickets, cvd, currentUser, statusF, priorityF, search, orgFilter, deptFilter, categoryFilter, filterStatus, filterAssignment, filterAssignee, filterCategory]);
+  }), [tickets, cvd, currentUser, statusF, priorityF, search, orgFilter, deptFilter, categoryFilter, filterStatus, filterAssignment, filterAssignee, filterCategory, dashboardTimePeriod]);
 
   // ✅ NEW: Filter for webcast tickets only
   const webcastFiltered = useMemo(() => tickets.filter(t => {
@@ -5866,7 +5900,7 @@ const WebcastFields = ({ f, setF, isProject = false }) => {
               <div style={{ display: "grid", gridTemplateColumns: "repeat(6,1fr)", gap: 9, marginBottom: 20 }}>
                 {[
                   { label: "Open", value: dashboardStats.open, bg: "#fef3c7", accent: "#f59e0b", icon: "", action: () => { switchView("tickets"); setTvFilter("all"); setFilterStatus(["open"]); setFilterAssignment([]); setPriorityF("All"); } },
-                  ...((currentUser?.role === "Admin" || currentUser?.role === "Manager") ? [{ label: "Unassigned", value: tickets.filter(t => (!t.assignees || t.assignees.length === 0) && t.status !== "Closed" && t.status !== "Bin").length, bg: "#f3e8ff", accent: "#a855f7", icon: "", action: () => { switchView("tickets"); setTvFilter("all"); setFilterAssignment(["unassigned"]); setFilterStatus(["open"]); setPriorityF("All"); } }] : []),
+                  ...((currentUser?.role === "Admin" || currentUser?.role === "Manager") ? [{ label: "Unassigned", value: dashboardData.filter(t => (!t.assignees || t.assignees.length === 0) && t.status !== "Closed" && t.status !== "Bin").length, bg: "#f3e8ff", accent: "#a855f7", icon: "", action: () => { switchView("tickets"); setTvFilter("all"); setFilterAssignment(["unassigned"]); setFilterStatus(["open"]); setPriorityF("All"); } }] : []),
                   { label: "Critical", value: dashboardStats.critical, bg: "#fee2e2", accent: "#ef4444", icon: "", action: () => { switchView("tickets"); setTvFilter("all"); setFilterStatus(["open"]); setPriorityF("Critical"); setFilterAssignment([]); } },
                   { label: "Closed", value: dashboardStats.closed, bg: "#dcfce7", accent: "#22c55e", icon: "", action: () => { switchView("tickets"); setTvFilter("all"); setFilterStatus(["closed"]); setFilterAssignment([]); setPriorityF("All"); } },
                   { label: "Total", value: dashboardStats.total, bg: "#dbeafe", accent: "#3b82f6", icon: "", action: () => { switchView("tickets"); setTvFilter("all"); setStatusF("All"); setPriorityF("All"); } },
@@ -6059,8 +6093,8 @@ const WebcastFields = ({ f, setF, isProject = false }) => {
               </div>
 
               {/* Clear all if any active */}
-              {(filterStatus.length > 0 || filterAssignment.length > 0 || filterAssignee.length > 0 || filterCategory || priorityF !== "All") && (
-                <span onClick={() => { setFilterStatus([]); setFilterAssignment([]); setFilterAssignee([]); setFilterAssigneeSearch(""); setFilterCategory(""); setPriorityF("All"); }} style={{ padding: "5px 8px", fontSize: 11, color: "#ef4444", cursor: "pointer", fontWeight: 600, borderRadius: 6, border: "1px solid #fecaca", background: "#fff1f2" }}>✕ Clear all</span>
+              {(filterStatus.length > 0 || filterAssignment.length > 0 || filterAssignee.length > 0 || filterCategory || priorityF !== "All" || search || statusF !== "All" || dashboardTimePeriod !== "all") && (
+                <span onClick={() => { setFilterStatus([]); setFilterAssignment([]); setFilterAssignee([]); setFilterAssigneeSearch(""); setFilterCategory(""); setPriorityF("All"); setSearch(""); setStatusF("All"); setActiveFilterDD(null); setDashboardTimePeriod("all"); }} style={{ padding: "5px 8px", fontSize: 11, color: "#ef4444", cursor: "pointer", fontWeight: 600, borderRadius: 6, border: "1px solid #fecaca", background: "#fff1f2" }}>✕ Clear all</span>
               )}
               <div style={{ marginLeft: "auto", display: "flex", gap: 8, alignItems: "center" }}>
                 <div style={{ position: "relative" }}>
@@ -6708,24 +6742,26 @@ const WebcastFields = ({ f, setF, isProject = false }) => {
             const sourceData = reportFilters.dataSource === "projects" ? projects : tickets;
 
             const getClosedDate = (row) => {
+              if (row.closedAt) return new Date(row.closedAt);
               const e = (row.timeline || []).slice().reverse().find(e => e.action?.includes("Status changed to Closed"));
               return e?.date ? new Date(e.date) : null;
             };
 
             const applyFilters = (data) => {
               let result = data.filter(r => r.status !== "Bin");
-              if (reportFilters.status.length) result = result.filter(r => reportFilters.status.includes(r.status));
+              if (reportFilters.org) result = result.filter(r => r.org === reportFilters.org);
+              if (reportFilters.status.length) result = result.filter(r => reportFilters.status.includes(r.status));              
               if (reportFilters.priority.length) result = result.filter(r => reportFilters.priority.includes(r.priority));
               if (reportFilters.category.length) result = result.filter(r => reportFilters.category.includes(r.category));
               if (reportFilters.assignee) result = result.filter(r => (r.assignees || []).some(a => a.name?.toLowerCase().includes(reportFilters.assignee.toLowerCase())));
               const onlyClosed = reportFilters.status.length === 1 && reportFilters.status[0] === "Closed";
               if (reportFilters.dateFrom) {
                 if (onlyClosed) result = result.filter(r => { const d = getClosedDate(r); return d && d >= new Date(reportFilters.dateFrom); });
-                else result = result.filter(r => new Date(r.createdAt) >= new Date(reportFilters.dateFrom));
+                else result = result.filter(r => { const d = r.created instanceof Date ? r.created : new Date(r.created); return d >= new Date(reportFilters.dateFrom); });
               }
               if (reportFilters.dateTo) {
                 if (onlyClosed) result = result.filter(r => { const d = getClosedDate(r); return d && d <= new Date(reportFilters.dateTo + "T23:59:59"); });
-                else result = result.filter(r => new Date(r.createdAt) <= new Date(reportFilters.dateTo + "T23:59:59"));
+                else result = result.filter(r => { const d = r.created instanceof Date ? r.created : new Date(r.created); return d <= new Date(reportFilters.dateTo + "T23:59:59"); });
               }
               return result;
             };
@@ -8084,6 +8120,7 @@ const WebcastFields = ({ f, setF, isProject = false }) => {
 
           {editMode && editTicket ? (
             /* ── EDIT MODE ── */
+            <>
             <div>
               <div style={{ marginBottom: 14 }}>
                 <label style={{ fontSize: 11, fontWeight: 600, color: "#94a3b8", textTransform: "uppercase", display: "block", marginBottom: 5 }}>Summary *</label>
@@ -8151,6 +8188,26 @@ const WebcastFields = ({ f, setF, isProject = false }) => {
                 </div>
               </div>
             </div>
+            {/* Attachment management */}
+            <div style={{ marginTop: 14, padding: "11px 13px", background: "#f8fafc", borderRadius: 9, border: "1px solid #e2e8f0" }}>
+              <div style={{ fontSize: 10, fontWeight: 600, color: "#94a3b8", textTransform: "uppercase", marginBottom: 8 }}>Attachment</div>
+              {editTicket.image ? (
+                <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+                  <img src={editTicket.image} style={{ height: 48, width: 48, objectFit: "cover", borderRadius: 7, border: "1px solid #e2e8f0" }} alt="current" />
+                  <label style={{ cursor: "pointer", padding: "6px 12px", borderRadius: 6, border: "1.5px dashed #3b82f6", background: "#eff6ff", color: "#1d4ed8", fontSize: 12, fontWeight: 600, display: "inline-flex", alignItems: "center", gap: 4 }}>
+                    🔄 Replace
+                    <input type="file" accept="image/*" style={{ display: "none" }} onChange={e => { const file = e.target.files?.[0]; if (file) compressImage(file, compressed => setEditTicket({ ...editTicket, image: compressed })); }} />
+                  </label>
+                  <button onClick={() => setEditTicket({ ...editTicket, image: null })} style={{ padding: "6px 12px", borderRadius: 6, border: "1px solid #fca5a5", background: "#fef2f2", color: "#ef4444", fontSize: 12, fontWeight: 600, cursor: "pointer" }}>🗑 Remove</button>
+                </div>
+              ) : (
+                <label style={{ cursor: "pointer", padding: "6px 12px", borderRadius: 6, border: "1.5px dashed #3b82f6", background: "#eff6ff", color: "#1d4ed8", fontSize: 12, fontWeight: 600, display: "inline-flex", alignItems: "center", gap: 4 }}>
+                  📷 Add Image
+                  <input type="file" accept="image/*" style={{ display: "none" }} onChange={e => { const file = e.target.files?.[0]; if (file) compressImage(file, compressed => setEditTicket({ ...editTicket, image: compressed })); }} />
+                </label>
+              )}
+            </div>
+            </>
           ) : (
             /* ── VIEW MODE ── */
             <div>
@@ -8166,11 +8223,6 @@ const WebcastFields = ({ f, setF, isProject = false }) => {
               <p style={{ margin: "0 0 16px", color: "#64748b", fontSize: 14, lineHeight: 1.6 }}>
                 {selTicket.description}
               </p>
-              {selTicket.image && (
-                <div style={{ marginBottom: 16, borderRadius: 12, overflow: "hidden", border: "1.5px solid #e2e8f0" }}>
-                  <img src={selTicket.image} style={{ width: "100%", maxHeight: 300, objectFit: "contain", background: "#f8fafc", display: "block" }} alt="ticket attachment" />
-                </div>
-              )}
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 9, marginBottom: 14 }}>
                 {[
                   { l: "Organization", v: selTicket.org },
@@ -8477,26 +8529,38 @@ const WebcastFields = ({ f, setF, isProject = false }) => {
             )}
             <textarea style={{ ...iS, height: 68, resize: "none", borderColor: commentVisibility === "internal" ? "#c4b5fd" : undefined }} placeholder={commentVisibility === "internal" ? "Add an internal note (not visible to ticket creator)…" : "Add a note or reply…"} value={newComment} onChange={e => setNewComment(e.target.value)} />
             {/* Image attachment */}
-            <div style={{ display: "flex", gap: 8, marginTop: 8, alignItems: "center" }}>
-              <label style={{ cursor: "pointer", padding: "6px 12px", borderRadius: 6, border: "1.5px dashed #3b82f6", background: "#eff6ff", color: "#1d4ed8", fontSize: 12, fontWeight: 600, display: "inline-flex", alignItems: "center", gap: 4 }}>
-                📷 Add Image
-                <input
-                  type="file"
-                  accept="image/*"
-                  style={{ display: "none" }}
-                  onChange={e => {
-                    const file = e.target.files?.[0];
-                    if (file) {
-                      compressImage(file, (compressed) => {
-                        setCommentImage(compressed);
-                        setCommentImagePreview(compressed);
-                      });
-                    }
-                  }}
-                />
-              </label>
-              {commentImagePreview && (
+            <div style={{ display: "flex", gap: 8, marginTop: 8, alignItems: "center", flexWrap: "wrap" }}>
+              {selTicket.image ? (
+                <div title="Ticket already has an attachment. Use Edit Ticket to replace or remove it." style={{ cursor: "not-allowed", padding: "6px 12px", borderRadius: 6, border: "1.5px dashed #cbd5e1", background: "#f1f5f9", color: "#94a3b8", fontSize: 12, fontWeight: 600, display: "inline-flex", alignItems: "center", gap: 4, userSelect: "none" }}>
+                  📷 Add Image
+                </div>
+              ) : !commentImagePreview ? (
+                <label style={{ cursor: "pointer", padding: "6px 12px", borderRadius: 6, border: "1.5px dashed #3b82f6", background: "#eff6ff", color: "#1d4ed8", fontSize: 12, fontWeight: 600, display: "inline-flex", alignItems: "center", gap: 4 }}>
+                  📷 Add Image
+                  <input
+                    type="file"
+                    accept="image/*"
+                    style={{ display: "none" }}
+                    onChange={async e => {
+                      const file = e.target.files?.[0];
+                      if (file) {
+                        compressImage(file, async (compressed) => {
+                          const updated = { ...selTicket, image: compressed, updated: new Date().toISOString() };
+                          try {
+                            await axios.put(`${TICKETS_API}/${selTicket.id}`, updated);
+                            setTickets(t => t.map(x => x.id === selTicket.id ? { ...updated, updated: new Date() } : x));
+                            setSelTicket({ ...updated, updated: new Date() });
+                          } catch (e) { showToast("Failed to attach image", "error"); }
+                        });
+                      }
+                    }}
+                  />
+                </label>
+              ) : (
                 <button onClick={() => { setCommentImage(null); setCommentImagePreview(null); }} style={{ padding: "4px 8px", borderRadius: 4, border: "1px solid #e2e8f0", background: "#fff", color: "#ef4444", fontSize: 11, fontWeight: 600, cursor: "pointer" }}>✕ Remove</button>
+              )}
+              {selTicket.image && (
+                <span style={{ fontSize: 11, color: "#94a3b8", fontStyle: "italic" }}>Use Edit Ticket to replace or remove attachment</span>
               )}
             </div>
             {/* Image preview */}
@@ -8530,6 +8594,11 @@ const WebcastFields = ({ f, setF, isProject = false }) => {
               {commentVisibility === "internal" ? "🔒 Post Internal Note" : "🌐 Post Comment"}
             </button>
           </div>
+          {selTicket.image && (
+            <a href={selTicket.image} download={`${selTicket.id}-attachment.jpg`} style={{ display: "inline-flex", alignItems: "center", gap: 8, padding: "7px 13px", borderRadius: 7, background: "#eff6ff", border: "1.5px solid #bfdbfe", color: "#1d4ed8", fontSize: 13, fontWeight: 600, textDecoration: "none", marginTop: 10 }}>
+              📎 {selTicket.id}-attachment.jpg <span style={{ fontSize: 11, color: "#3b82f6", fontWeight: 400 }}>↓ Download</span>
+            </a>
+          )}
         </div>}
       </Modal>
 
