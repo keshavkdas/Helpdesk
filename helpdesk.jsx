@@ -1430,6 +1430,9 @@ export default function HelpDesk() {
   // ── Forward ticket ──
   const [showForward, setShowForward] = useState(false);
   const [showVendor, setShowVendor] = useState(false);
+  const [showVendorReturn, setShowVendorReturn] = useState(false);
+  const [vendorReturnOutcome, setVendorReturnOutcome] = useState("fixed");
+  const [vendorReturnNote, setVendorReturnNote] = useState("");
   const [fwdType, setFwdType] = useState("Agent");
   const [fwdReason, setFwdReason] = useState("");
   const [fwdTargetAgent, setFwdTargetAgent] = useState("");
@@ -3276,11 +3279,41 @@ export default function HelpDesk() {
     const t = selTicket;
     try {
       const nowISO = new Date().toISOString();
+      if (t.status === "Closed") {
+        setCustomAlert({ show: true, message: "⚠️ Ticket is closed. Reopen it before sending to vendor.", type: "error" });
+        return;
+      }
       const update = { ...t, status: "Pending", updated: nowISO, timeline: [...(t.timeline || []), { action: `Sent for Repair: ${vendorName}`, by: currentUser.name, date: nowISO, note: `Contact: ${contactInfo}\nReason: ${fwdReason}`, visibility: "internal" }] };
       await axios.put(`${TICKETS_API}/${t.id}`, update);
       setTickets(p => p.map(x => x.id === t.id ? { ...update, updated: new Date(nowISO) } : x));
       setSelTicket({ ...update, updated: new Date(nowISO) });
     } catch (e) { setCustomAlert({ show: true, message: "Repair update failed", type: "error" }); }
+  };
+
+  const handleVendorReturn = async () => {
+    const t = selTicket;
+    const nowISO = new Date().toISOString();
+    const resolved = vendorReturnOutcome === "fixed";
+    const newStatus = resolved ? "Closed" : "Open";
+    const timelineEntry = {
+      action: `Item Returned from Vendor`,
+      by: currentUser.name,
+      date: nowISO,
+      note: `Outcome: ${vendorReturnOutcome === "fixed" ? "✅ Fixed" : "❌ Not Fixed"}\n${vendorReturnNote ? `Note: ${vendorReturnNote}` : ""}`,
+      visibility: "internal"
+    };
+    const update = {
+      ...t, status: newStatus, updated: nowISO,
+      closedAt: resolved ? nowISO : null,
+      timeline: [...(t.timeline || []), timelineEntry]
+    };
+    try {
+      await axios.put(`${TICKETS_API}/${t.id}`, update);
+      setTickets(p => p.map(x => x.id === t.id ? { ...update, updated: new Date(nowISO) } : x));
+      setSelTicket({ ...update, updated: new Date(nowISO) });
+      setShowVendorReturn(false); setVendorReturnNote(""); setVendorReturnOutcome("fixed");
+      showToast(resolved ? "✅ Ticket closed — item fixed" : "🔄 Ticket reopened — item not fixed", "success");
+    } catch (e) { setCustomAlert({ show: true, message: "Failed to update return", type: "error" }); }
   };
 
   const handleForward = () => {
@@ -8416,6 +8449,32 @@ const WebcastFields = ({ f, setF, isProject = false }) => {
                 <button onClick={() => { setShowVendor(false); setVendorName(""); setVendorEmail(""); setFwdReason(""); }} style={bG}>Cancel</button>
                 <button onClick={() => { handleSendForRepair(vendorName, vendorEmail); setShowVendor(false); setVendorName(""); setVendorEmail(""); setFwdReason(""); }} style={{ ...bP, background: "#ea580c", boxShadow: "0 2px 6px rgba(234,88,12,0.3)" }}>Confirm Send</button>
               </div>
+            </div>
+          )}
+
+          {/* Vendor Return */}
+          {selTicket.status === "Pending" && selTicket.timeline?.some(ev => ev.action?.includes("Sent for Repair")) && (currentUser?.role === "Admin" || currentUser?.role === "Manager") && (
+            <div style={{ marginBottom: 14 }}>
+              {!showVendorReturn ? (
+                <button onClick={() => setShowVendorReturn(true)} style={{ padding: "6px 14px", borderRadius: 7, border: "none", cursor: "pointer", fontSize: 12, fontWeight: 600, background: "#22c55e", color: "#fff" }}>📦 Mark as Returned from Vendor</button>
+              ) : (
+                <div style={{ padding: "14px", background: "#f0fdf4", borderRadius: 9, border: "1px solid #bbf7d0" }}>
+                  <div style={{ fontSize: 12, fontWeight: 700, color: "#15803d", marginBottom: 10 }}>📦 Item Returned from Vendor</div>
+                  <FF label="Outcome" required>
+                    <select style={iS} value={vendorReturnOutcome} onChange={e => setVendorReturnOutcome(e.target.value)}>
+                      <option value="fixed">✅ Fixed — Close ticket</option>
+                      <option value="not_fixed">❌ Not Fixed — Reopen ticket</option>
+                    </select>
+                  </FF>
+                  <FF label="Return Note">
+                    <textarea style={{ ...iS, height: 50, resize: "none" }} value={vendorReturnNote} onChange={e => setVendorReturnNote(e.target.value)} placeholder="Any notes about the return or repair outcome…" />
+                  </FF>
+                  <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 8 }}>
+                    <button onClick={() => { setShowVendorReturn(false); setVendorReturnNote(""); setVendorReturnOutcome("fixed"); }} style={bG}>Cancel</button>
+                    <button onClick={handleVendorReturn} style={{ ...bP, background: "#22c55e" }}>Confirm Return</button>
+                  </div>
+                </div>
+              )}
             </div>
           )}
 
