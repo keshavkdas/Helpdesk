@@ -61,6 +61,7 @@ const TICKET_VIEWS = [
   { id: "all", label: "All Tickets", desc: "Every ticket in the system", filter: () => true },
   { id: "pastdue", label: "Past Due", desc: "Open tickets with past due date", filter: t => t.status === "Open" && t.dueDate && new Date(String(t.dueDate)) < new Date() },
   { id: "vendor", label: "By Vendor", desc: "Tickets sent to vendors for repair", filter: t => t.status === "Pending" && t.timeline?.some(ev => ev.action?.includes("Sent for Repair")) },
+  { id: "reopened", label: "Reopened Tickets", desc: "Tickets that were reopened", filter: t => (t.timeline || []).some(e => e.action === "Reopened" || (e.action?.includes("Status changed to Open") && (t.timeline||[]).some(prev => prev.action?.includes("Status changed to Closed")))) },
 ];
 
 const PROJECT_VIEWS = [
@@ -1550,6 +1551,7 @@ export default function HelpDesk() {
   const [closingTicketId, setClosingTicketId] = useState(null);
   const [ticketRemark, setTicketRemark] = useState("");
   const [closedBy, setClosedBy] = useState(null);
+  const [closedDate, setClosedDate] = useState("");
 
   // ✅ NEW: Confirmation Modal State
   const [confirmModal, setConfirmModal] = useState({ show: false, title: "", message: "", onConfirm: null, onCancel: null });
@@ -2154,7 +2156,12 @@ export default function HelpDesk() {
       const start6mo = new Date(d); start6mo.setMonth(start6mo.getMonth() - 6);
       inRange = tickets.filter(t => t.created.getTime() >= start6mo.getTime());
     } else {
-      inRange = tickets.filter(t => now - t.created.getTime() <= rangeMs);
+      inRange = tickets.filter(t => {
+        const dateField = t.status === "Closed" && t.closedAt
+          ? new Date(t.closedAt)
+          : (t.created instanceof Date ? t.created : new Date(t.created));
+        return now - dateField.getTime() <= rangeMs;
+      });
     }
     if (currentUser?.role === "Admin" || currentUser?.role === "Manager") {
       inRange = inRange;
@@ -2384,7 +2391,8 @@ export default function HelpDesk() {
     total: base.filter(x => x.status !== "Bin").length,
     open: base.filter(x => x.status === "Open").length,
     closed: base.filter(x => x.status === "Closed").length,
-    critical: base.filter(x => x.priority === "Critical" && x.status === "Open").length
+    critical: base.filter(x => x.priority === "Critical" && x.status === "Open").length,
+    reopened: base.filter(x => (x.timeline || []).some(e => e.action === "Reopened" || (e.action?.includes("Status changed to Open") && (x.timeline||[]).some(prev => prev.action?.includes("Status changed to Closed"))))).length
   };
 }, [dashboardData, currentUser]);
 
@@ -2407,7 +2415,12 @@ export default function HelpDesk() {
       projAssigned: orgProjects.filter(p => p.assignees?.some(a => a.id === u.id)).length
     }));
   }, [tickets, prbr, users, dashboardOrg]);
-  const dailyData = useMemo(() => { const days = parseInt(range) <= 7 ? parseInt(range) : 7; return Array.from({ length: days }, (_, i) => { const d = new Date(now - (days - 1 - i) * dayMs); return { label: d.toLocaleDateString("en", { weekday: "short" }), value: fbr.filter(t => t.created.getDate() === d.getDate() && t.created.getMonth() === d.getMonth()).length }; }); }, [fbr, range, now, dayMs]);
+  const dailyData = useMemo(() => { const days = parseInt(range) <= 7 ? parseInt(range) : 7; return Array.from({ length: days }, (_, i) => { const d = new Date(now - (days - 1 - i) * dayMs); return { label: d.toLocaleDateString("en", { weekday: "short" }), value: fbr.filter(t => {
+  const dateField = t.status === "Closed" && t.closedAt
+    ? new Date(t.closedAt)
+    : (t.created instanceof Date ? t.created : new Date(t.created));
+  return dateField.getDate() === d.getDate() && dateField.getMonth() === d.getMonth();
+}).length }; }); }, [fbr, range, now, dayMs]);
   const priorityDist = useMemo(() => {
   const isAgent = currentUser?.role === "Agent" || currentUser?.role === "Viewer";
   let base = dashboardData;
@@ -2427,6 +2440,15 @@ export default function HelpDesk() {
 
   // ✅ NEW: Dashboard-specific chart data (with org filter)
   const dashboardDailyData = useMemo(() => {
+    const getChartDate = (t) => {
+      if (t.status === "Closed") {
+        if (t.closedAt) return new Date(t.closedAt);
+        const e = (t.timeline||[]).slice().reverse().find(e => e.action?.includes("Status changed to Closed"));
+        if (e?.date) return new Date(e.date);
+      }
+      return t.created instanceof Date ? t.created : new Date(t.created);
+    };
+    const base = fbr.filter(t => t.status !== "Bin" && (dashboardOrg === "all" || t.org === dashboardOrg));
     if (range === "1") {
       const todayStart = new Date(); todayStart.setHours(0, 0, 0, 0);
       const slots = [
@@ -2436,26 +2458,26 @@ export default function HelpDesk() {
       ];
       return slots.map(slot => ({
         label: slot.label,
-        value: dashboardData.filter(t => {
-          if (t.status === "Bin") return false;
-          const d = t.created instanceof Date ? t.created : new Date(t.created);
+        value: base.filter(t => {
+          const d = getChartDate(t);
           return d >= todayStart && d.getHours() >= slot.start && d.getHours() < slot.end;
         }).length
       }));
     }
     const days = 7;
     return Array.from({ length: days }, (_, i) => {
-      const d = new Date(now - (days - 1 - i) * dayMs);
+      const today = new Date(); today.setHours(0, 0, 0, 0);
+      const d = new Date(today); d.setDate(today.getDate() - (days - 1 - i));
+      const dEnd = new Date(d); dEnd.setHours(23, 59, 59, 999);
       return {
         label: d.toLocaleDateString("en", { weekday: "short" }),
-        value: dashboardData.filter(t => {
-          if (t.status === "Bin") return false;
-          const td = t.created instanceof Date ? t.created : new Date(t.created);
-          return td.getDate() === d.getDate() && td.getMonth() === d.getMonth() && td.getFullYear() === d.getFullYear();
+        value: base.filter(t => {
+          const td = getChartDate(t);
+          return td >= d && td <= dEnd;
         }).length
       };
     });
-  }, [dashboardData, range, now, dayMs]);
+  }, [fbr, dashboardOrg, range, now, dayMs]);
 
   const dashboardStatusDist = useMemo(() => {
   const base = dashboardData.filter(t => t.status !== "Bin");
@@ -2861,29 +2883,42 @@ export default function HelpDesk() {
     }
 
     // ✅ Regular ticket creation
+    // ✅ Regular ticket creation
+    // If multiple assignees, create one ticket per assignee
+    const assignees = Array.isArray(newT.assignees) ? newT.assignees : [];
+    const ticketsToCreate = assignees.length > 1
+      ? assignees.map(a => ({ ...newT, assignees: [a] }))
+      : [newT];
+
     try {
-      const res = await axios.post(TICKETS_API, newT);
-      const created = res.data;
-      const ticketWithDates = {
-        ...created,
-        created: new Date(created.createdAt || created.created || new Date()),
-        updated: new Date(created.updatedAt || created.updated || new Date())
-      };
-      setTickets(prev => [ticketWithDates, ...prev]);
-      setSelTicket(ticketWithDates);  // ✅ Auto-open ticket details
+      const createdTickets = [];
+      for (const ticketData of ticketsToCreate) {
+        const res = await axios.post(TICKETS_API, ticketData);
+        const created = res.data;
+        createdTickets.push({
+          ...created,
+          created: new Date(created.createdAt || created.created || new Date()),
+          updated: new Date(created.updatedAt || created.updated || new Date())
+        });
+      }
+      setTickets(prev => [...createdTickets, ...prev]);
+      setSelTicket(createdTickets[0]);
       setShowNewTicket(false);
       setForm(emptyForm());
       setTicketImage(null);
       setTicketImagePreview(null);
       setAssigneeSearch("");
       setShowAssigneeDD(false);
-      setCustomAlert({ show: true, message: "✅ Ticket created successfully!", type: "success" });
-      addDailyNotif({ type: "ticket_created", icon: "🎫", text: `${currentUser.name} created ticket ${ticketWithDates.id}`, ticketId: ticketWithDates.id, by: currentUser.name });
-      // ✅ Animation handles fade-out automatically (3.5s)
+      const msg = createdTickets.length > 1
+        ? `✅ ${createdTickets.length} tickets created (one per assignee)`
+        : "✅ Ticket created successfully!";
+      setCustomAlert({ show: true, message: msg, type: "success" });
+      createdTickets.forEach(t => addDailyNotif({ type: "ticket_created", icon: "🎫", text: `${currentUser.name} created ticket ${t.id}`, ticketId: t.id, by: currentUser.name }));
     } catch (e) {
       setCustomAlert({ show: true, message: "Failed to save ticket: " + (e.response?.data?.error || e.message), type: "error" });
     }
   };
+
 
   const deleteTicket = async (id) => {
     moveTicketToBin(id);
@@ -2897,6 +2932,8 @@ export default function HelpDesk() {
     if (status === "Closed" || status === "Open") {
       setClosingTicketId(id);
       setTicketRemark("");
+      const now = new Date(); now.setMinutes(now.getMinutes() - now.getTimezoneOffset());
+      setClosedDate(now.toISOString().slice(0, 16));
       setShowRemarkModal(true);
       return;
     }
@@ -2957,6 +2994,10 @@ export default function HelpDesk() {
     }
     const t = tickets.find(x => x.id === closingTicketId);
     const isReopening = t?.status === "Closed";
+    if (!isReopening && !closedDate) {
+      setCustomAlert({ show: true, message: "⚠️ Closed date is mandatory before closing the ticket", type: "error" });
+      return;
+    }
     if (!isReopening && !closedBy) {
       setCustomAlert({ show: true, message: "⚠️ Please select who closed this ticket", type: "error" });
       return;
@@ -2967,8 +3008,8 @@ export default function HelpDesk() {
       const nowISO = new Date().toISOString();
       const newStatus = t.status === "Closed" ? "Open" : "Closed";
       const closedByName = closedBy ? closedBy.name : currentUser.name;
-      const newTimelineEvent = { action: `Status changed to ${newStatus}`, by: currentUser.name, date: nowISO, note: `Reason: ${ticketRemark}${closedBy ? ` · Closed by: ${closedBy.name}` : ""}` };
-      const updatedT = { ...t, status: newStatus, updated: nowISO, closedBy: newStatus === "Closed" ? closedByName : null, timeline: [...(t.timeline || []), newTimelineEvent] };
+      const newTimelineEvent = { action: `Status changed to ${newStatus}`, by: currentUser.name, date: nowISO, note: `Reason: ${ticketRemark}${closedBy ? ` · Closed by: ${closedBy.name}` : ""}${newStatus === "Closed" && closedDate ? ` · Closed Date: ${new Date(closedDate).toLocaleString()}` : ""}` };
+      const updatedT = { ...t, status: newStatus, updated: nowISO, closedBy: newStatus === "Closed" ? closedByName : null, closedAt: newStatus === "Closed" ? (closedDate ? new Date(closedDate).toISOString() : nowISO) : null, timeline: [...(t.timeline || []), newTimelineEvent] };
       const apiUrl = isTrueWebcast(t) ? `${BASE_URL}/webcasts/${closingTicketId}` : `${TICKETS_API}/${closingTicketId}`;
       await axios.put(apiUrl, updatedT);
       setTickets(p => p.map(x => x.id === closingTicketId ? { ...updatedT, updated: new Date(nowISO) } : x));
@@ -3002,6 +3043,7 @@ export default function HelpDesk() {
       setClosingTicketId(null);
       setTicketRemark("");
       setClosedBy(null);
+      setClosedDate("");
       setCustomAlert({ show: true, message: newStatus === "Closed" ? "✅ Ticket successfully closed" : "✅ Ticket successfully reopened", type: "success" });
       // Close the ticket details modal after 1 second to show the success message
       setTimeout(() => setSelTicket(null), 1000);
@@ -3305,6 +3347,7 @@ export default function HelpDesk() {
     const update = {
       ...t, status: newStatus, updated: nowISO,
       closedAt: resolved ? nowISO : null,
+      closedBy: resolved ? currentUser.name : null,
       timeline: [...(t.timeline || []), timelineEntry]
     };
     try {
@@ -5930,13 +5973,14 @@ const WebcastFields = ({ f, setF, isProject = false }) => {
               <div style={{ marginBottom: 6 }}>
                 <span style={{ fontSize: 14, fontWeight: 900, color: "#1e293b", textTransform: "uppercase", letterSpacing: "0.1em", marginLeft: 2 }}>🎫 TICKETS</span>
               </div>
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(6,1fr)", gap: 9, marginBottom: 20 }}>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(7,1fr)", gap: 9, marginBottom: 20 }}>
                 {[
                   { label: "Open", value: dashboardStats.open, bg: "#fef3c7", accent: "#f59e0b", icon: "", action: () => { switchView("tickets"); setTvFilter("all"); setFilterStatus(["open"]); setFilterAssignment([]); setPriorityF("All"); } },
                   ...((currentUser?.role === "Admin" || currentUser?.role === "Manager") ? [{ label: "Unassigned", value: dashboardData.filter(t => (!t.assignees || t.assignees.length === 0) && t.status !== "Closed" && t.status !== "Bin").length, bg: "#f3e8ff", accent: "#a855f7", icon: "", action: () => { switchView("tickets"); setTvFilter("all"); setFilterAssignment(["unassigned"]); setFilterStatus(["open"]); setPriorityF("All"); } }] : []),
                   { label: "Critical", value: dashboardStats.critical, bg: "#fee2e2", accent: "#ef4444", icon: "", action: () => { switchView("tickets"); setTvFilter("all"); setFilterStatus(["open"]); setPriorityF("Critical"); setFilterAssignment([]); } },
                   { label: "Closed", value: dashboardStats.closed, bg: "#dcfce7", accent: "#22c55e", icon: "", action: () => { switchView("tickets"); setTvFilter("all"); setFilterStatus(["closed"]); setFilterAssignment([]); setPriorityF("All"); } },
                   { label: "Total", value: dashboardStats.total, bg: "#dbeafe", accent: "#3b82f6", icon: "", action: () => { switchView("tickets"); setTvFilter("all"); setStatusF("All"); setPriorityF("All"); } },
+                  { label: "Reopened", value: dashboardStats.reopened, bg: "#fff7ed", accent: "#f97316", icon: "", action: () => { switchView("tickets"); setTvFilter("reopened"); setFilterStatus([]); setPriorityF("All"); } },
                 ].map(s => (
                   <div key={s.label} onClick={s.action} style={{ background: s.bg, borderRadius: 12, padding: "16px 16px", boxShadow: "0 2px 6px rgba(0,0,0,0.1)", borderLeft: `5px solid ${s.accent}`, cursor: "pointer", transition: "all 0.2s ease" }}
                     onMouseEnter={e => { e.currentTarget.style.boxShadow = "0 6px 20px rgba(0,0,0,0.15)"; e.currentTarget.style.transform = "translateY(-2px)"; }}
@@ -6744,6 +6788,7 @@ const WebcastFields = ({ f, setF, isProject = false }) => {
                 { key: "updatedAt", label: "Updated Date" },
                 { key: "dueDate", label: "Due Date" },
                 { key: "closedAt", label: "Closed Date" },
+                { key: "closedBy", label: "Closed By" },
               ],
               projects: [
                 { key: "id", label: "ID" }, { key: "title", label: "Title" },
@@ -6752,6 +6797,7 @@ const WebcastFields = ({ f, setF, isProject = false }) => {
                 { key: "department", label: "Department" }, { key: "reportedBy", label: "Reported By" },
                 { key: "assignees", label: "Assignees" }, { key: "progress", label: "Progress" },
                 { key: "dueDate", label: "Due Date" }, { key: "createdAt", label: "Created" },
+                { key: "closedAt", label: "Closed Date" },{ key: "closedBy", label: "Closed By" },
               ],
             };
             
@@ -6772,7 +6818,7 @@ const WebcastFields = ({ f, setF, isProject = false }) => {
               return ALL_COLUMNS[src].filter(c => !ALWAYS_EXCLUDE.includes(c.key)).map(c => c.key);
             };
             const availableCols = ALL_COLUMNS[reportFilters.dataSource] || ALL_COLUMNS.tickets;
-            const sourceData = reportFilters.dataSource === "projects" ? projects : tickets;
+            const sourceData = reportFilters.dataSource === "projects" ? prbr : fbr;
 
             const getClosedDate = (row) => {
               if (row.closedAt) return new Date(row.closedAt);
@@ -6788,13 +6834,19 @@ const WebcastFields = ({ f, setF, isProject = false }) => {
               if (reportFilters.category.length) result = result.filter(r => reportFilters.category.includes(r.category));
               if (reportFilters.assignee) result = result.filter(r => (r.assignees || []).some(a => a.name?.toLowerCase().includes(reportFilters.assignee.toLowerCase())));
               const onlyClosed = reportFilters.status.length === 1 && reportFilters.status[0] === "Closed";
+              const getRelevantDate = (r) => {
+                if (r.status === "Closed") { const d = getClosedDate(r); if (d) return d; }
+                return r.created instanceof Date ? r.created : new Date(r.created);
+              };
               if (reportFilters.dateFrom) {
-                if (onlyClosed) result = result.filter(r => { const d = getClosedDate(r); return d && d >= new Date(reportFilters.dateFrom); });
-                else result = result.filter(r => { const d = r.created instanceof Date ? r.created : new Date(r.created); return d >= new Date(reportFilters.dateFrom); });
+                const from = new Date(reportFilters.dateFrom + "T00:00:00");
+                if (onlyClosed) result = result.filter(r => { const d = getClosedDate(r); return d && d >= from; });
+                else result = result.filter(r => getRelevantDate(r) >= from);
               }
               if (reportFilters.dateTo) {
-                if (onlyClosed) result = result.filter(r => { const d = getClosedDate(r); return d && d <= new Date(reportFilters.dateTo + "T23:59:59"); });
-                else result = result.filter(r => { const d = r.created instanceof Date ? r.created : new Date(r.created); return d <= new Date(reportFilters.dateTo + "T23:59:59"); });
+                const to = new Date(reportFilters.dateTo + "T23:59:59");
+                if (onlyClosed) result = result.filter(r => { const d = getClosedDate(r); return d && d <= to; });
+                else result = result.filter(r => getRelevantDate(r) <= to);
               }
               return result;
             };
@@ -6803,9 +6855,11 @@ const WebcastFields = ({ f, setF, isProject = false }) => {
               if (key === "assignees") return (row.assignees || []).map(a => a.name).join(", ");
               if (key === "createdAt" || key === "updatedAt" || key === "dueDate") return row[key] ? new Date(row[key]).toLocaleDateString() : "—";
               if (key === "closedAt") {
+                if (row.closedAt) return new Date(row.closedAt).toLocaleDateString();
                 const closeEvent = (row.timeline || []).slice().reverse().find(e => e.action?.includes("Status changed to Closed"));
                 return closeEvent?.date ? new Date(closeEvent.date).toLocaleDateString() : "—";
               }
+              if (key === "closedBy") return row.closedBy || "—";
               if (key === "progress") return row[key] != null ? `${row[key]}%` : "—";
               return row[key] || "—";
             };
@@ -6978,8 +7032,8 @@ const WebcastFields = ({ f, setF, isProject = false }) => {
                           </span>
                         </label>                        
                         <div style={{ display: "flex", gap: 8 }}>
-                          <input type="date" value={reportFilters.dateFrom} max={new Date().toISOString().split("T")[0]} onChange={e => setReportFilters(f => ({ ...f, dateFrom: e.target.value }))} style={{ flex: 1, padding: "7px 10px", border: "1px solid #e2e8f0", borderRadius: 7, fontSize: 13 }} />
-                          <input type="date" value={reportFilters.dateTo} max={new Date().toISOString().split("T")[0]} onChange={e => setReportFilters(f => ({ ...f, dateTo: e.target.value }))} style={{ flex: 1, padding: "7px 10px", border: "1px solid #e2e8f0", borderRadius: 7, fontSize: 13 }} />
+                          <input type="date" value={reportFilters.dateFrom} max={reportFilters.dateTo || new Date().toISOString().split("T")[0]} onChange={e => setReportFilters(f => ({ ...f, dateFrom: e.target.value }))} style={{ flex: 1, padding: "7px 10px", border: "1px solid #e2e8f0", borderRadius: 7, fontSize: 13 }} />
+                          <input type="date" value={reportFilters.dateTo} min={reportFilters.dateFrom || undefined} max={new Date().toISOString().split("T")[0]} onChange={e => setReportFilters(f => ({ ...f, dateTo: e.target.value }))} style={{ flex: 1, padding: "7px 10px", border: "1px solid #e2e8f0", borderRadius: 7, fontSize: 13 }} />
                         </div>
                       </div>
                     </div>
@@ -7879,8 +7933,8 @@ const WebcastFields = ({ f, setF, isProject = false }) => {
               </>}
             </div>
           </FF>
-          <FF label="POC(Point of Contact)"><input style={iS} placeholder="Ticket Requestor" value={form.contact} onChange={e => setForm({ ...form, contact: e.target.value })} /></FF>
-          <FF label="Reported By"><input style={iS} placeholder="Who is raising this ticket?" value={form.reportedBy} onChange={e => setForm({ ...form, reportedBy: e.target.value })} /></FF>
+          <FF label="POC(Point of Contact from Dept)"><input style={iS} placeholder="Ticket Requestor" value={form.contact} onChange={e => setForm({ ...form, contact: e.target.value })} /></FF>
+          <FF label="Reported By (from Dept)"><input style={iS} placeholder="Who is raising this ticket?" value={form.reportedBy} onChange={e => setForm({ ...form, reportedBy: e.target.value })} /></FF>
           <FF label="Priority" required><select style={sS} value={form.priority} onChange={e => setForm({ ...form, priority: e.target.value })}><option value="">Select Priority…</option>{PRIORITIES.map(p => <option key={p}>{p}</option>)}</select></FF>
           <FF label="Category" required>
             <div style={{ position: "relative" }}>
@@ -8060,7 +8114,7 @@ const WebcastFields = ({ f, setF, isProject = false }) => {
               </>}
             </div>
           </FF>
-          <FF label="Reported By"><input style={iS} value={projForm.reportedBy} onChange={e => setProjForm({ ...projForm, reportedBy: e.target.value })} /></FF>
+          <FF label="Reported By (from Dept)"><input style={iS} value={projForm.reportedBy} onChange={e => setProjForm({ ...projForm, reportedBy: e.target.value })} /></FF>
           <FF label="Priority"><select style={sS} value={projForm.priority} onChange={e => setProjForm({ ...projForm, priority: e.target.value })}>{PROJECT_PRIORITIES.map(p => <option key={p}>{p}</option>)}</select></FF>
           <FF label="Category">
             <div style={{ position: "relative" }}>
@@ -8265,7 +8319,11 @@ const WebcastFields = ({ f, setF, isProject = false }) => {
                   { l: "Category", v: selTicket.category || "—" },
                   { l: "Location", v: selTicket.location || "—" },
                   { l: "Due Date", v: selTicket.dueDate ? new Date(selTicket.dueDate).toLocaleDateString() : "—" },
-                  { l: "Priority", v: selTicket.priority }
+                  { l: "Priority", v: selTicket.priority },
+                  ...(selTicket.status === "Closed" ? [
+                    { l: "Closed Date", v: selTicket.closedAt ? new Date(selTicket.closedAt).toLocaleDateString() : ((() => { const e = (selTicket.timeline||[]).slice().reverse().find(e=>e.action?.includes("Status changed to Closed")); return e?.date ? new Date(e.date).toLocaleDateString() : "—"; })()) },
+                    { l: "Closed By", v: selTicket.closedBy || "—" }
+                    ] : [])
                 ].map(f => (
                   <div key={f.l} style={{ background: "#f8fafc", padding: "9px 13px", borderRadius: 9 }}>
                     <div style={{ fontSize: 10, fontWeight: 600, color: "#94a3b8", textTransform: "uppercase", marginBottom: 3 }}>{f.l}</div>
@@ -9128,6 +9186,20 @@ const WebcastFields = ({ f, setF, isProject = false }) => {
               <div style={{ marginTop: 8, fontSize: 11, color: "#ef4444" }}>{closingTicketId && tickets.find(x => x.id === closingTicketId)?.status === "Closed" ? "⚠️ Reason is mandatory before reopening" : "⚠️ Remark is mandatory before closing"}</div>
             )}
           </div>
+          
+          {/* Closed Date — only shown when closing (not reopening) */}
+          {!(closingTicketId && tickets.find(x => x.id === closingTicketId)?.status === "Closed") && (
+            <div>
+              <label style={{ fontSize: 12, fontWeight: 600, color: "#374151", marginBottom: 8, display: "block" }}>📅 Closed Date <span style={{ color: "#ef4444" }}>*</span></label>
+              <input
+                type="datetime-local"
+                value={closedDate}
+                onChange={e => setClosedDate(e.target.value)}
+                style={{ ...iS }}
+              />
+              {!closedDate && <div style={{ marginTop: 6, fontSize: 11, color: "#ef4444" }}>⚠️ Closed date is mandatory</div>}
+            </div>
+          )}
 
           {/* Closed By — only shown when closing (not reopening) */}
           {!(closingTicketId && tickets.find(x => x.id === closingTicketId)?.status === "Closed") && (
@@ -9184,6 +9256,7 @@ const WebcastFields = ({ f, setF, isProject = false }) => {
                 setShowRemarkModal(false);
                 setTicketRemark("");
                 setClosedBy(null);
+                setClosedDate("");
               }}
               style={{
                 flex: 1,

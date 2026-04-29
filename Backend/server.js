@@ -1055,7 +1055,7 @@ app.put("/api/tickets/:id", async (req, res) => {
         const ticket = await Ticket.findByPk(req.params.id);
         if (!ticket) return res.status(404).json({ error: "Ticket not found" });
         const updateData = { ...req.body };
-        if (updateData.status === "Closed" && !ticket.closedAt) updateData.closedAt = new Date();
+        if (updateData.status === "Closed" && !ticket.closedAt && !updateData.closedAt) updateData.closedAt = new Date();
         if (updateData.status && updateData.status !== "Closed") updateData.closedAt = null;
         await ticket.update(updateData);
         res.json(fmt(ticket));
