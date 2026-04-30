@@ -1054,8 +1054,40 @@ app.post("/api/tickets", async (req, res) => {
             }
         }
 
-        const ticket = await Ticket.create(ticketData);
-        res.status(201).json(fmt(ticket));
+        const assignees = Array.isArray(ticketData.assignees) ? ticketData.assignees : [];
+
+        if (assignees.length <= 1) {
+            // 0 or 1 assignee — original behavior
+            const ticket = await Ticket.create(ticketData);
+            return res.status(201).json(fmt(ticket));
+        }
+
+        // Multiple assignees — one ticket per assignee
+        // Re-fetch latest ticket ID to avoid collision with parallel requests
+        const allTickets2 = await Ticket.findAll({
+            where: { id: { [Op.like]: "TKT-%" } },
+            order: [['createdAt', 'DESC']]
+        });
+        const seqTickets2 = allTickets2.filter(t => {
+            const p = t.id.split("-");
+            return p.length === 2 && /^\d{4}$/.test(p[1]);
+        });
+        let counter = seqTickets2.length > 0
+            ? Math.max(...seqTickets2.map(t => parseInt(t.id.split("-")[1], 10))) + 1
+            : nextIdNum;
+
+        const createdTickets = [];
+        for (const assignee of assignees) {
+            let tid = `TKT-${String(counter).padStart(4, "0")}`;
+            while (await Ticket.findByPk(tid)) {
+                counter++;
+                tid = `TKT-${String(counter).padStart(4, "0")}`;
+            }
+            const t = await Ticket.create({ ...ticketData, id: tid, assignees: [assignee] });
+            createdTickets.push(fmt(t));
+            counter++;
+        }
+        return res.status(201).json(createdTickets);
     } catch (err) {
         console.error("Ticket creation error:", err.message, err.errors);
         res.status(500).json({ error: err.message || "Failed to create ticket" });
