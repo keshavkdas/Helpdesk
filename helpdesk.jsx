@@ -533,59 +533,39 @@ const SearchableSelect = ({ field, fieldValues, setFieldValues }) => {
 // Click header → searchable dropdown of unique values for that column.
 // Active filter shown with blue highlight + ✕ to clear.
 const FilterableHeader = ({ label, field, data, filters, onFilter, style = {} }) => {
-  const [open, setOpen] = React.useState(false);
   const active = filters._sortField === field;
   const dir = active ? filters._sortDir : null;
 
-  const choose = (opt) => {
-    if (opt === "all") {
-      onFilter({ ...filters, _sortField: null, _sortDir: null });
+  const toggle = () => {
+    if (!active || dir === "desc") {
+      onFilter({ ...filters, _sortField: field, _sortDir: active && dir === "asc" ? "desc" : "asc" });
     } else {
-      onFilter({ ...filters, _sortField: field, _sortDir: opt });
+      onFilter({ ...filters, _sortField: field, _sortDir: "desc" });
     }
-    setOpen(false);
+    // cycle: none → asc → desc → asc ...
+    if (!active) {
+      onFilter({ ...filters, _sortField: field, _sortDir: "asc" });
+    } else if (dir === "asc") {
+      onFilter({ ...filters, _sortField: field, _sortDir: "desc" });
+    } else {
+      onFilter({ ...filters, _sortField: field, _sortDir: "asc" });
+    }
   };
 
   return (
-    <th style={{ ...style, position: "relative", userSelect: "none", whiteSpace: "nowrap" }}>
+    <th style={{ ...style, userSelect: "none", whiteSpace: "nowrap" }}>
       <div
-        onClick={() => setOpen(o => !o)}
+        onClick={toggle}
         style={{
           display: "inline-flex", alignItems: "center", gap: 5, cursor: "pointer", padding: "2px 4px", borderRadius: 5,
           background: active ? "#eff6ff" : "transparent", color: active ? "#3b82f6" : "inherit"
         }}
       >
         <span style={{ fontSize: "inherit", fontWeight: "inherit" }}>{label}</span>
-        {active
-          ? <span style={{ fontSize: 10, color: "#3b82f6", fontWeight: 700 }}>{dir === "asc" ? "↑" : "↓"}</span>
-          : <span style={{ fontSize: 10, color: "#94a3b8" }}>▾</span>
-        }
+        <span style={{ fontSize: 10, fontWeight: 700, color: active ? "#3b82f6" : "#94a3b8" }}>
+          {!active ? "↕" : dir === "asc" ? "↑" : "↓"}
+        </span>
       </div>
-      {open && <>
-        <div style={{ position: "fixed", inset: 0, zIndex: 499 }} onClick={() => setOpen(false)} />
-        <div style={{
-          position: "absolute", top: "calc(100% + 2px)", left: 0, minWidth: 160,
-          background: "#fff", border: "1.5px solid #e2e8f0", borderRadius: 10,
-          boxShadow: "0 8px 28px rgba(0,0,0,0.13)", zIndex: 500, overflow: "hidden"
-        }}>
-          {[
-            { id: "asc", label: "Sort Ascending", icon: "↑" },
-            { id: "desc", label: "Sort Descending", icon: "↓" },
-          ].map(opt => (
-            <div key={opt.id} onClick={() => choose(opt.id)}
-              style={{
-                padding: "8px 13px", fontSize: 12, cursor: "pointer", display: "flex", alignItems: "center", gap: 8,
-                background: (opt.id === dir) ? "#eff6ff" : "#fff",
-                color: (opt.id === dir) ? "#3b82f6" : "#1e293b",
-                fontWeight: (opt.id === dir) ? 600 : 400,                
-                borderBottom: "1px solid #f8fafc"
-              }}
-            >
-              <span style={{ fontSize: 13, minWidth: 16, textAlign: "center" }}>{opt.icon}</span>{opt.label}
-            </div>
-          ))}
-        </div>
-      </>}
     </th>
   );
 };
@@ -1103,7 +1083,7 @@ export default function HelpDesk() {
   });
 
   const mainContentRef = useRef(null);
-  const switchView = (v) => { setView(v); setSearch(""); setStatusF("All"); setPriorityF("All"); setFilterStatus([]); setFilterAssignment([]); setFilterAssignee(""); setFilterCategory(""); setDeptFilter("all"); setCategoryFilter("all"); setOrgFilterSearch(""); setProjSearch(""); setProjStatusF("All"); setProjPriorityF("All"); setProjFilterStatus([]); setProjFilterAssignment([]); setProjFilterAssignee(""); setProjFilterCategory(""); setProjFilterPriority("All"); setVisibleTicketCols(new Set(ALL_TICKET_COLS.filter(c => c !== "reportedBy"))); setVisibleProjCols(new Set(ALL_PROJ_COLS.filter(c => c !== "progress"))); setSettingsTab(currentUser?.role === "Agent" ? "profile" : "organisations"); setReportBuilderOpen(false);; setTimeout(() => mainContentRef.current?.scrollTo(0, 0), 0); };
+  const switchView = (v) => { setView(v); setSearch(""); setStatusF("All"); setPriorityF("All"); setFilterStatus([]); setFilterAssignment([]); setFilterAssignee(""); setFilterCategory(""); setDeptFilter("all"); setCategoryFilter("all"); setOrgFilterSearch(""); setProjSearch(""); setProjStatusF("All"); setProjPriorityF("All"); setProjFilterStatus([]); setProjFilterAssignment([]); setProjFilterAssignee(""); setProjFilterCategory(""); setProjFilterPriority("All"); setVisibleTicketCols(new Set(ALL_TICKET_COLS.filter(c => c !== "reportedBy"))); setVisibleProjCols(new Set(ALL_PROJ_COLS.filter(c => c !== "progress"))); setSettingsTab(currentUser?.role === "Agent" ? "profile" : "organisations"); setReportBuilderOpen(false); setTicketSort({}); setProjSort({}); setTimeout(() => mainContentRef.current?.scrollTo(0, 0), 0); };
   const [settingsTab, setSettingsTab] = useState("organisations");
   const [showFilterPanel, setShowFilterPanel] = useState(false);
   const [filterStatus, setFilterStatus] = useState([]);       // "open","closed","pastdue"
@@ -1342,7 +1322,7 @@ export default function HelpDesk() {
     tomorrow.setDate(tomorrow.getDate() + 1);
     return tomorrow.toISOString().split("T")[0];
   };
-  const emptyForm = () => ({ org: "", department: "", contact: "", reportedBy: "", summary: "", description: "", assignees: [], priority: "Standard", category: "", customAttrs: {}, dueDate: getDefaultDueDate(), satsangType: "", location: "" });
+  const emptyForm = () => ({ org: "", department: "", contact: "", reportedBy: "", summary: "", description: "", assignees: [], priority: "Standard", category: "", subcategory: "", customAttrs: {}, dueDate: getDefaultDueDate(), satsangType: "", location: "" });
   const [form, setForm] = useState(emptyForm);
   const [ccInput, setCcInput] = useState("");
   const [assigneeSearch, setAssigneeSearch] = useState("");
@@ -3534,9 +3514,13 @@ export default function HelpDesk() {
       message: "Are you sure you want to delete this category? All tickets associated with this category will be affected. This action cannot be undone.",
       onConfirm: async () => {
         try {
+          const deletedCatName = categories.find(c => c.id === id || c._id === id)?.name;
           await axios.delete(`${CATEGORIES_API}/${id}`);
           setCategories(prev => prev.filter(c => c.id !== id && c._id !== id));
           setTicketCategories(prev => prev.filter(c => c.id !== id && c._id !== id));
+          if (deletedCatName) {
+            setTickets(prev => prev.map(t => t.category === deletedCatName ? { ...t, category: "Uncategorised" } : t));
+          }
           setCustomAlert({ show: true, message: "Category deleted successfully", type: "success" });
           setConfirmModal({ show: false, title: "", message: "", onConfirm: null, onCancel: null });
         } catch (err) {
@@ -7228,7 +7212,7 @@ const WebcastFields = ({ f, setF, isProject = false }) => {
           {view === "settings" && <div style={{ display: "flex", gap: 18, alignItems: "flex-start" }}>
             <div style={{ width: 194, background: "#faf8f4", borderRadius: 12, padding: 9, boxShadow: "0 1px 4px rgba(0,0,0,0.06)", flexShrink: 0 }}>
               {stabs.map(t => (
-                <button key={t.id} onClick={() => setSettingsTab(t.id)} style={{ display: "flex", alignItems: "center", gap: 8, width: "100%", padding: "9px 11px", borderRadius: 7, border: "none", cursor: "pointer", background: settingsTab === t.id ? "#eff6ff" : "transparent", color: settingsTab === t.id ? "#3b82f6" : "#374151", fontSize: 12.5, fontWeight: settingsTab === t.id ? 600 : 400, textAlign: "left", fontFamily: "'DM Sans',sans-serif", marginBottom: 2 }}>
+                <button key={t.id} onClick={() => { setSettingsTab(t.id); setNewSubcategory(""); setNewSubcatCatId(""); }} style={{ display: "flex", alignItems: "center", gap: 8, width: "100%", padding: "9px 11px", borderRadius: 7, border: "none", cursor: "pointer", background: settingsTab === t.id ? "#eff6ff" : "transparent", color: settingsTab === t.id ? "#3b82f6" : "#374151", fontSize: 12.5, fontWeight: settingsTab === t.id ? 600 : 400, textAlign: "left", fontFamily: "'DM Sans',sans-serif", marginBottom: 2 }}>
                   <span>{t.icon}</span>{t.label}
                 </button>
               ))}
@@ -7445,12 +7429,25 @@ const WebcastFields = ({ f, setF, isProject = false }) => {
                         {currentUser?.role === "Admin" && <td style={{ ...tdStyle, whiteSpace: "nowrap" }}>
                           {expandedCatId === c.id ? (
                             <>
-                              <button onClick={async () => { try { await axios.put(`${CATEGORIES_API}/${c.id}`, { name: c.name }); setExpandedCatId(null); setCustomAlert({ show: true, message: "✅ Category updated!", type: "success" }); } catch { setCustomAlert({ show: true, message: "Failed to update category", type: "error" }); }}} style={{ border: "none", background: "#22c55e", color: "#fff", borderRadius: 6, padding: "4px 10px", cursor: "pointer", fontSize: 12, fontWeight: 600, marginRight: 4 }}>Save</button>
+                              <button onClick={async () => {
+                                try {
+                                  const oldName = categories.find(x => x.id === c.id)?._originalName || c.name;
+                                  await axios.put(`${CATEGORIES_API}/${c.id}`, { name: c.name });
+                                  setExpandedCatId(null);
+                                  // Update tickets in local state to reflect renamed category
+                                  setTickets(prev => prev.map(t => t.category === oldName ? { ...t, category: c.name } : t));
+                                  setCustomAlert({ show: true, message: "✅ Category updated!", type: "success" });
+                                } catch { setCustomAlert({ show: true, message: "Failed to update category", type: "error" }); }
+                              }} style={{ border: "none", background: "#22c55e", color: "#fff", borderRadius: 6, padding: "4px 10px", cursor: "pointer", fontSize: 12, fontWeight: 600, marginRight: 4 }}>Save</button>
                               <button onClick={() => setExpandedCatId(null)} style={{ border: "1px solid #e2e8f0", background: "#fff", color: "#64748b", borderRadius: 6, padding: "4px 10px", cursor: "pointer", fontSize: 12, fontWeight: 600 }}>Cancel</button>
                             </>
                           ) : (
                             <>
-                              <button onClick={() => setExpandedCatId(c.id)} style={{ border: "none", background: "#dbeafe", color: "#2563eb", borderRadius: 6, padding: "4px 10px", cursor: "pointer", fontSize: 12, fontWeight: 600, marginRight: 6 }}>Edit</button>
+                              <button onClick={() => {
+                                setExpandedCatId(c.id);
+                                // Store original name so we can propagate rename to tickets
+                                setCategories(prev => prev.map(x => x.id === c.id ? { ...x, _originalName: c.name } : x));
+                              }} style={{ border: "none", background: "#dbeafe", color: "#2563eb", borderRadius: 6, padding: "4px 10px", cursor: "pointer", fontSize: 12, fontWeight: 600, marginRight: 6 }}>Edit</button>
                               <button onClick={e => { e.stopPropagation(); deleteCat(c.id); }} style={{ border: "none", background: "none", color: "#ef4444", borderRadius: 5, padding: "3px 8px", cursor: "pointer", fontSize: 11, fontWeight: 600 }}>Delete</button>
                             </>
                           )}
@@ -7492,8 +7489,10 @@ const WebcastFields = ({ f, setF, isProject = false }) => {
                             <button onClick={async () => {
                               if (!editingLocationName.trim()) { setCustomAlert({ show: true, message: "Location name is required", type: "error" }); return; }
                               try {
+                                const oldName = l.name;
                                 const res = await axios.put(`${LOCATIONS_API}/${l.id}`, { name: editingLocationName.trim() });
                                 setLocations(locations.map(x => x.id === l.id ? res.data : x));
+                                setTickets(prev => prev.map(t => t.location === oldName ? { ...t, location: editingLocationName.trim() } : t));
                                 setEditingLocationId(null);
                                 setCustomAlert({ show: true, message: "✅ Location updated!", type: "success" });
                               } catch (err) { setCustomAlert({ show: true, message: err.response?.data?.error || "Failed to update location", type: "error" }); }
@@ -7946,7 +7945,7 @@ const WebcastFields = ({ f, setF, isProject = false }) => {
                     <input type="text" placeholder="Search categories..." value={categorySearch} onChange={e => setCategorySearch(e.target.value)} onClick={e => e.stopPropagation()} autoFocus style={{ ...iS, width: "100%", fontSize: 12 }} />
                   </div>
                   {categories.filter(c => categorySearch === "" || c.name.toLowerCase().includes(categorySearch.toLowerCase())).map(c => (
-                    <div key={c.id} onClick={() => { setForm({ ...form, category: c.name }); setShowCategoryDD(false); setCategorySearch(""); }} style={{ padding: "8px 12px", cursor: "pointer", borderBottom: "1px solid #f1f5f9" }}>
+                    <div key={c.id} onClick={() => { setForm({ ...form, category: c.name, subcategory: "" }); setShowCategoryDD(false); setCategorySearch(""); }} style={{ padding: "8px 12px", cursor: "pointer", borderBottom: "1px solid #f1f5f9" }}>
                       <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                         <div style={{ width: 12, height: 12, borderRadius: 3, background: c.color }} />
                         <div style={{ fontSize: 12, fontWeight: 600 }}>{c.name}</div>
@@ -7958,6 +7957,20 @@ const WebcastFields = ({ f, setF, isProject = false }) => {
               </>}
             </div>
           </FF>
+          {(() => {
+            const selCat = categories.find(c => c.name === form.category);
+            if (!selCat || form.category === "Webcast") return null;
+            const subs = selCat.subcategories || [];
+            if (subs.length === 0) return null;
+            return (
+              <FF label="Sub Category">
+                <select style={sS} value={form.subcategory || ""} onChange={e => setForm({ ...form, subcategory: e.target.value })}>
+                  <option value="">Select Sub Category…</option>
+                  {subs.map(s => <option key={s} value={s}>{s}</option>)}
+                </select>
+              </FF>
+            );
+          })()}
           <FF label="Location / Venue">
             <div style={{ position: "relative" }}>
               <input type="text" placeholder="Search location..." value={locationSearch ? locationSearch : (form.location ? locations.find(l => l.name === form.location)?.name || "" : "")} onChange={e => setLocationSearch(e.target.value)} onFocus={() => { setLocationSearch(""); setShowLocationDD(true); }} style={{ ...iS, width: "100%", fontSize: 12 }} />
@@ -8200,8 +8213,16 @@ const WebcastFields = ({ f, setF, isProject = false }) => {
             {editMode && (
               <>
                 <button onClick={() => { setEditMode(false); setEditTicket(null); }} style={{ padding: "6px 14px", fontSize: 12, fontWeight: 600, borderRadius: 7, border: "1.5px solid #e2e8f0", cursor: "pointer", background: "#fff", color: "#64748b" }}>Cancel</button>
-                <button onClick={async () => { try { await axios.put(`${TICKETS_API}/${selTicket.id}`, { ...editTicket, updated: new Date().toISOString() }); setTickets(t => t.map(x => x.id === selTicket.id ? { ...editTicket, updated: new Date() } : x)); setSelTicket(editTicket); setEditMode(false); setEditTicket(null); showToast("Ticket updated successfully ✓", "success"); addDailyNotif({ type: "ticket_edited", icon: "", text: `${currentUser.name} edited ticket ${selTicket.id}`, ticketId: selTicket.id, by: currentUser.name }); } catch (e) { showToast("Failed to save ticket", "error"); } }} style={{ padding: "6px 14px", fontSize: 12, fontWeight: 600, borderRadius: 7, border: "none", cursor: "pointer", background: "#22c55e", color: "#fff" }}>💾 Save Changes</button>
-              </>
+                <button onClick={async () => {
+                  const missing = [];
+                  if (!editTicket.summary?.trim()) missing.push("Summary");
+                  if (!editTicket.description?.trim()) missing.push("Description");
+                  if (!editTicket.org?.trim()) missing.push("Organization");
+                  if (!editTicket.priority) missing.push("Priority");
+                  if (!editTicket.category) missing.push("Category");
+                  if (missing.length > 0) { showToast(`Required: ${missing.join(", ")}`, "error"); return; }                  
+                  try { await axios.put(`${TICKETS_API}/${selTicket.id}`, { ...editTicket, updated: new Date().toISOString() }); setTickets(t => t.map(x => x.id === selTicket.id ? { ...editTicket, updated: new Date() } : x)); setSelTicket(editTicket); setEditMode(false); setEditTicket(null); showToast("Ticket updated successfully ✓", "success"); addDailyNotif({ type: "ticket_edited", icon: "", text: `${currentUser.name} edited ticket ${selTicket.id}`, ticketId: selTicket.id, by: currentUser.name }); } catch (e) { showToast("Failed to save ticket", "error"); }
+                }} style={{ padding: "6px 14px", fontSize: 12, fontWeight: 600, borderRadius: 7, border: "none", cursor: "pointer", background: "#22c55e", color: "#fff" }}>💾 Save Changes</button>              </>
             )}
           </div>
 
@@ -8215,7 +8236,7 @@ const WebcastFields = ({ f, setF, isProject = false }) => {
               </div>
 
               <div style={{ marginBottom: 14 }}>
-                <label style={{ fontSize: 11, fontWeight: 600, color: "#94a3b8", textTransform: "uppercase", display: "block", marginBottom: 5 }}>Description</label>
+                <label style={{ fontSize: 11, fontWeight: 600, color: "#94a3b8", textTransform: "uppercase", display: "block", marginBottom: 5 }}>Description <span style={{ color: "#ef4444" }}>*</span></label>
                 <textarea value={editTicket.description || ""} onChange={e => setEditTicket({ ...editTicket, description: e.target.value })} style={{ ...iS, width: "100%", fontSize: 13, height: 100, resize: "vertical" }} />
               </div>
 
@@ -8247,12 +8268,28 @@ const WebcastFields = ({ f, setF, isProject = false }) => {
                 </div>
 
                 <div>
-                  <label style={{ fontSize: 11, fontWeight: 600, color: "#94a3b8", textTransform: "uppercase", display: "block", marginBottom: 5 }}>Category</label>
+                  <label style={{ fontSize: 11, fontWeight: 600, color: "#94a3b8", textTransform: "uppercase", display: "block", marginBottom: 5 }}>Category <span style={{ color: "#ef4444" }}>*</span></label>
                   <select value={editTicket.category} onChange={e => setEditTicket({ ...editTicket, category: e.target.value })} style={{ ...iS, width: "100%", fontSize: 13 }}>
                     <option value="">Select…</option>
                     {categories.map(c => <option key={c.id}>{c.name}</option>)}
                   </select>
                 </div>
+
+                {(() => {
+                  const selCat = categories.find(c => c.name === editTicket.category);
+                  if (!selCat || editTicket.category === "Webcast") return null;
+                  const subs = selCat.subcategories || [];
+                  if (subs.length === 0) return null;
+                  return (
+                    <div>
+                      <label style={{ fontSize: 11, fontWeight: 600, color: "#94a3b8", textTransform: "uppercase", display: "block", marginBottom: 5 }}>Sub Category </label>
+                      <select value={editTicket.subcategory || ""} onChange={e => setEditTicket({ ...editTicket, subcategory: e.target.value })} style={{ ...iS, width: "100%", fontSize: 13 }}>
+                        <option value="">Select Sub Category…</option>
+                        {subs.map(s => <option key={s} value={s}>{s}</option>)}
+                      </select>
+                    </div>
+                  );
+                })()}
 
                 <div>
                   <label style={{ fontSize: 11, fontWeight: 600, color: "#94a3b8", textTransform: "uppercase", display: "block", marginBottom: 5 }}>Location</label>
@@ -8263,8 +8300,7 @@ const WebcastFields = ({ f, setF, isProject = false }) => {
                 </div>
 
                 <div>
-                  <label style={{ fontSize: 11, fontWeight: 600, color: "#94a3b8", textTransform: "uppercase", display: "block", marginBottom: 5 }}>Priority</label>
-                  <select value={editTicket.priority} onChange={e => setEditTicket({ ...editTicket, priority: e.target.value })} style={{ ...iS, width: "100%", fontSize: 13 }}>
+                  <label style={{ fontSize: 11, fontWeight: 600, color: "#94a3b8", textTransform: "uppercase", display: "block", marginBottom: 5 }}>Priority <span style={{ color: "#ef4444" }}>*</span></label>                  <select value={editTicket.priority} onChange={e => setEditTicket({ ...editTicket, priority: e.target.value })} style={{ ...iS, width: "100%", fontSize: 13 }}>
                     {PRIORITIES.map(p => <option key={p}>{p}</option>)}
                   </select>
                 </div>

@@ -594,14 +594,28 @@ app.put("/api/categories/:id", async (req, res) => {
     try {
         const cat = await Category.findByPk(req.params.id);
         if (!cat) return res.status(404).json({ error: "Not found" });
+        const oldName = cat.name;
+        const newName = req.body.name?.trim();
         await cat.update(req.body);
+        // Update all tickets whose category matches the old name
+        if (newName && newName !== oldName) {
+            await Ticket.update({ category: newName }, { where: { category: oldName } });
+        }
         res.json(fmt(cat));
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 app.delete("/api/categories/:id", async (req, res) => {
     try {
         const cat = await Category.findByPk(req.params.id);
-        if (cat) await cat.destroy();
+        if (cat) {
+            // Ensure "Uncategorised" exists, create if not
+            let fallback = await Category.findOne({ where: { name: "Uncategorised" } });
+            if (!fallback) {
+                fallback = await Category.create({ name: "Uncategorised", color: "#94a3b8", subcategories: [] });
+            }
+            await Ticket.update({ category: "Uncategorised" }, { where: { category: cat.name } });
+            await cat.destroy();
+        }
         res.json({ success: true });
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
@@ -773,7 +787,12 @@ app.put("/api/locations/:id", async (req, res) => {
     try {
         const location = await Location.findByPk(req.params.id);
         if (!location) return res.status(404).json({ error: "Location not found" });
-        await location.update({ name: req.body.name?.trim() || location.name });
+        const oldName = location.name;
+        const newName = req.body.name?.trim() || location.name;
+        await location.update({ name: newName });
+        if (newName !== oldName) {
+            await Ticket.update({ location: newName }, { where: { location: oldName } });
+        }
         res.json(location);
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
@@ -781,12 +800,11 @@ app.put("/api/locations/:id", async (req, res) => {
 app.delete("/api/locations/:id", async (req, res) => {
     try {
         const { id } = req.params;
-
         const loc = await Location.findByPk(id);
         if (!loc) {
             return res.status(404).json({ error: "Location not found" });
         }
-
+        await Ticket.update({ location: "" }, { where: { location: loc.name } });
         await loc.destroy();
         res.json({ success: true, message: "Location deleted" });
     } catch (err) {
