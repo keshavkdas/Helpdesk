@@ -6785,10 +6785,10 @@ const WebcastFields = ({ f, setF, isProject = false }) => {
               ],
             };
             
-            const ALWAYS_EXCLUDE = ["department", "contact", "reportedBy", "location","updatedAt"];
+            const ALWAYS_EXCLUDE = ["department", "contact", "reportedBy", "location","updatedAt","closedBy","closedAt"];
             const DEFAULT_COLS = {
               tickets: {
-                Open: ALL_COLUMNS.tickets.filter(c => !["reportedBy","closedAt","contact","department","location","updatedAt"].includes(c.key)).map(c => c.key),
+                Open: ALL_COLUMNS.tickets.filter(c => !["reportedBy","closedAt","contact","department","location","updatedAt","closedBy","closedAt"].includes(c.key)).map(c => c.key),
                 Closed: ALL_COLUMNS.tickets.filter(c => !["reportedBy","createdAt","updatedAt","dueDate","department","location","contact"].includes(c.key)).map(c => c.key),
               },
               projects: {
@@ -6947,7 +6947,7 @@ const WebcastFields = ({ f, setF, isProject = false }) => {
                     <p style={{ margin: "4px 0 0", fontSize: 13, color: "#64748b" }}>Build, save, and export reports from your data.</p>
                   </div>
                   <div style={{ display: "flex", gap: 8 }}>
-                    {btn("＋ New Report", () => {
+                    {!reportBuilderOpen && btn("＋ New Report", () => {
                       setReportPreview([]);
                       setReportName("");
                       setReportFilters({ dataSource: "tickets", status: [], priority: [], category: [], assignee: "", org: dashboardOrg === "all" ? "" : dashboardOrg, dateFrom: "", dateTo: "", columns: getDefaultCols("tickets", []) });
