@@ -2815,9 +2815,7 @@ export default function HelpDesk() {
     // ✅ NEW: If webcast, create separate entry and send to /api/webcasts
     if (form.category === "Webcast") {
       try {
-        // Let server assign a clean sequential WEB-XXXX ID
-        const webcastData = {
-          // id intentionally omitted — server will generate WEB-XXXX
+        const baseWebcastData = {
           summary: form.summary,
           description: form.description,
           satsangType: form.satsangType,
@@ -2827,7 +2825,6 @@ export default function HelpDesk() {
           org: form.org,
           department: form.department,
           priority: form.priority,
-          assignees: form.assignees,
           category: form.category,
           dueDate: form.dueDate || null,
           status: "Open",
@@ -2836,26 +2833,37 @@ export default function HelpDesk() {
           timeline: [{ action: "Created", by: currentUser.name, date: new Date().toISOString(), note: "Webcast created." + (ticketImage ? " [with image]" : "") }]
         };
 
-        // Send to webcasts API endpoint
-        const webcastRes = await axios.post(`${BASE_URL}/webcasts`, webcastData);
-        const createdWebcast = webcastRes.data;
-        const webcastWithDates = {
-          ...createdWebcast,
-          created: new Date(createdWebcast.createdAt || createdWebcast.created || new Date()),
-          updated: new Date(createdWebcast.updatedAt || createdWebcast.updated || new Date())
-        };
+        const assigneeList = Array.isArray(form.assignees) && form.assignees.length > 0
+          ? form.assignees
+          : [null];
+        const webcastsToCreate = assigneeList.length > 1
+          ? assigneeList.map(a => ({ ...baseWebcastData, assignees: [a] }))
+          : [{ ...baseWebcastData, assignees: form.assignees }];
 
-        // Update tickets list with webcast entry
-        setTickets(prev => [webcastWithDates, ...prev]);
-        setSelTicket(webcastWithDates);
+        const createdWebcasts = [];
+        for (const webcastData of webcastsToCreate) {
+          const webcastRes = await axios.post(`${BASE_URL}/webcasts`, webcastData);
+          const createdWebcast = webcastRes.data;
+          createdWebcasts.push({
+            ...createdWebcast,
+            created: new Date(createdWebcast.createdAt || createdWebcast.created || new Date()),
+            updated: new Date(createdWebcast.updatedAt || createdWebcast.updated || new Date())
+          });
+        }
+
+        setTickets(prev => [...createdWebcasts, ...prev]);
+        setSelTicket(createdWebcasts[0]);
         setShowNewTicket(false);
         setForm(emptyForm());
         setTicketImage(null);
         setTicketImagePreview(null);
         setAssigneeSearch("");
         setShowAssigneeDD(false);
-        setCustomAlert({ show: true, message: "✅ Webcast created successfully!", type: "success" });
-        addDailyNotif({ type: "webcast_created", icon: "📡", text: `${currentUser.name} created webcast ${createdWebcast.id}`, ticketId: createdWebcast.id, by: currentUser.name });
+        const msg = createdWebcasts.length > 1
+          ? `✅ ${createdWebcasts.length} webcasts created (one per assignee)`
+          : "✅ Webcast created successfully!";
+        setCustomAlert({ show: true, message: msg, type: "success" });
+        createdWebcasts.forEach(w => addDailyNotif({ type: "webcast_created", icon: "📡", text: `${currentUser.name} created webcast ${w.id}`, ticketId: w.id, by: currentUser.name }));
       } catch (e) {
         setCustomAlert({ show: true, message: "Failed to create webcast: " + (e.response?.data?.error || e.message), type: "error" });
       }
