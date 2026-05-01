@@ -6843,7 +6843,12 @@ const WebcastFields = ({ f, setF, isProject = false }) => {
                 const closeEvent = (row.timeline || []).slice().reverse().find(e => e.action?.includes("Status changed to Closed"));
                 return closeEvent?.date ? new Date(closeEvent.date).toLocaleDateString() : "—";
               }
-              if (key === "closedBy") return row.closedBy || "—";
+              if (key === "closedBy") {
+                if (row.closedBy) return row.closedBy;
+                const closeEvent = (row.timeline || []).slice().reverse().find(e => e.action?.includes("Status changed to Closed"));
+                const match = closeEvent?.note?.match(/Closed by:\s*([^·\n]+)/);
+                return match ? match[1].trim() : "—";
+              }
               if (key === "progress") return row[key] != null ? `${row[key]}%` : "—";
               return row[key] || "—";
             };
