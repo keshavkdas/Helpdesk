@@ -2230,9 +2230,7 @@ export default function HelpDesk() {
   // ✅ A ticket is a TRUE webcast only if isWebcast=true OR ID starts with WEB- or WC-
   // TKT- tickets with category "Webcast" are regular tickets that got migrated — NOT webcasts
   const isTrueWebcast = (t) =>
-    t.isWebcast === true ||
-    String(t.id).startsWith("WEB-") ||
-    String(t.id).startsWith("WC-");
+  (String(t.id).startsWith("WEB-") || String(t.id).startsWith("WC-"));
 
   const filtered = useMemo(() => tickets.filter(t => {
     if (!currentUser || !cvd.filter(t, currentUser)) return false;
