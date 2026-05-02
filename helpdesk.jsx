@@ -2622,12 +2622,14 @@ export default function HelpDesk() {
         }
 
         // ✅ Map to direct API endpoints
+        const IMPORT_TABLES = ["tickets", "webcasts", "projects"];
         const API_MAP = {
-          tickets: TICKETS_API,
+          tickets: `${BASE_URL}/import/tickets`,
+          webcasts: `${BASE_URL}/import/webcasts`,
+          projects: `${BASE_URL}/import/projects`,
           users: USERS_API,
           orgs: ORGS_API,
           categories: CATEGORIES_API,
-          projects: PROJECTS_API,
           departments: `${BASE_URL}/departments`
         };
 
@@ -2655,16 +2657,25 @@ export default function HelpDesk() {
         let successCount = 0;
         let failedCount = 0;
 
-        for (const item of payload) {
+        if (IMPORT_TABLES.includes(targetTable)) {
           try {
-            await axios.post(apiEndpoint, item);
-            successCount++;
-          } catch (itemErr) {
-            console.error(`Failed to import item:`, item, itemErr);
-            failedCount++;
+            await axios.post(apiEndpoint, payload);
+            successCount = payload.length;
+          } catch (err) {
+            console.error(`Failed to import:`, err);
+            failedCount = payload.length;
+          }
+        } else {
+          for (const item of payload) {
+            try {
+              await axios.post(apiEndpoint, item);
+              successCount++;
+            } catch (itemErr) {
+              console.error(`Failed to import item:`, item, itemErr);
+              failedCount++;
+            }
           }
         }
-
         setCustomAlert({
           show: true,
           message: `✅ ${successCount}/${payload.length} ${targetTable} imported successfully!${failedCount > 0 ? ` (${failedCount} failed)` : ""}`,

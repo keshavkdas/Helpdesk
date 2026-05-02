@@ -1137,7 +1137,7 @@ app.post("/api/webcasts", async (req, res) => {
         // Generate WEB-XXXX id
         const allWebcasts = await Webcast.findAll({
             where: { id: { [Op.like]: "WEB-%" } },
-            order: [["createdAt", "DESC"]]
+            order: [["id", "DESC"]]
         });
         const sequential = allWebcasts.filter(w => {
             const parts = w.id.split("-");
@@ -1145,8 +1145,8 @@ app.post("/api/webcasts", async (req, res) => {
         });
         let nextIdNum = 1001;
         if (sequential.length > 0) {
-            const lastNum = parseInt(sequential[0].id.split("-")[1], 10);
-            if (!isNaN(lastNum)) nextIdNum = lastNum + 1;
+            const nums = sequential.map(w => parseInt(w.id.split("-")[1], 10)).filter(n => !isNaN(n));
+            if (nums.length > 0) nextIdNum = Math.max(...nums) + 1;
         }
         const webcastId = `WEB-${String(nextIdNum).padStart(4, "0")}`;
 
@@ -1347,7 +1347,7 @@ app.post("/api/import/:table", async (req, res) => {
                 // 2. Strict Filter: Keep ONLY valid columns. Strip empty strings and old IDs.
                 const cleanItem = {};
                 for (const key in item) {
-                    if (validColumns.includes(key) && !['id', 'createdAt', 'updatedAt'].includes(key)) {
+                    if (validColumns.includes(key) && key !== 'id') {
                         cleanItem[key] = item[key];
                     }
                 }
@@ -1373,6 +1373,14 @@ app.post("/api/import/:table", async (req, res) => {
 
                 // 6. Create the record! Missing fields get ignored.
                 await Model.create(cleanItem);
+                await sequelize.query(
+                    `UPDATE \`${Model.getTableName()}\` SET createdAt=?, updatedAt=? WHERE id=?`,
+                    { replacements: [
+                        item.createdAt ? new Date(item.createdAt) : new Date(),
+                        item.updatedAt ? new Date(item.updatedAt) : new Date(),
+                        cleanItem.id
+                    ]}
+                );
             }
         }
         // ─── IMPORT LOGIC FOR USERS, ORGS, CATEGORIES, SATSANGS, DEPARTMENTS, LOCATIONS ────────────
