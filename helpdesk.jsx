@@ -672,6 +672,8 @@ const PieChart = ({ data, donut = false }) => {
     return seg;
   });
   const arcPath = (s) => {
+    if (s.end - s.start >= Math.PI * 2 - 0.001)
+      return `M ${cx} ${cy} m -${r} 0 a ${r} ${r} 0 1 1 ${r * 2} 0 a ${r} ${r} 0 1 1 -${r * 2} 0`;
     const large = s.end - s.start > Math.PI ? 1 : 0;
     const x1 = cx + r * Math.sin(s.start), y1 = cy - r * Math.cos(s.start);
     const x2 = cx + r * Math.sin(s.end), y2 = cy - r * Math.cos(s.end);
@@ -1260,6 +1262,11 @@ export default function HelpDesk() {
   const [statusF, setStatusF] = useState("All");
   const [priorityF, setPriorityF] = useState("All");
   const [search, setSearch] = useState("");
+  const [debouncedSearch, setDebouncedSearch] = useState("");
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedSearch(search), 300);
+    return () => clearTimeout(t);
+  }, [search]);
   const [selectedIds, setSelectedIds] = useState(new Set());
   const [showExport, setShowExport] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
@@ -1746,45 +1753,7 @@ export default function HelpDesk() {
       try { const r = await axios.get(LOCATIONS_API); setLocations(r.data || []); } catch (_) { }
       try { const r = await axios.get(VENDORS_API); setVendors(r.data || []); } catch (_) { }
 
-      const allRaw = [...(data.webcasts || []), ...(data.tickets || [])];
-
-      const seenIds = new Set();
-      const parsedTickets = allRaw
-        .filter(t => { if (seenIds.has(t.id)) return false; seenIds.add(t.id); return true; })
-        .map(t => ({
-          ...t,
-          created: new Date(t.createdAt || t.created),
-          updated: new Date(t.updatedAt || t.updated),
-
-          satsangType: t.satsangType || "",
-          location: t.location || ""
-        })).sort((a, b) => b.created - a.created);
-
-      setTickets(parsedTickets);
       setSatsangs(data.satsangs || []);
-
-      const parsedProjects = (data.projects || []).map(p => ({
-        ...p,
-        created: new Date(p.createdAt || p.created),
-        updated: new Date(p.updatedAt || p.updated),
-        dueDate: p.dueDate ? new Date(p.dueDate) : null,
-
-        progress: p.progress || 0,
-        org: p.org || "",
-        department: p.department || "",
-        reportedBy: p.reportedBy || "",
-        category: p.category || "",
-        location: p.location || "",
-        priority: p.priority || "Medium",
-        status: p.status || "Open",
-        assignees: Array.isArray(p.assignees) ? p.assignees : [],
-        cc: Array.isArray(p.cc) ? p.cc : [],
-        customAttrs: p.customAttrs || {},
-        webcastId: p.webcastId || null,
-        satsangType: p.satsangType || "",
-      })).sort((a, b) => b.created - a.created);
-
-      setProjects(parsedProjects);
     } catch (e) {
       console.error("Silent refresh failed:", e);
     }
@@ -1800,9 +1769,8 @@ export default function HelpDesk() {
     if (!currentUser) return;
     const checkUserStatus = async () => {
       try {
-        const response = await axios.get(DB_API);
-        const users = response.data.users || [];
-        const user = users.find(u => u.id === currentUser.id);
+        const response = await axios.get(`${USERS_API}/${currentUser.id}/status`);
+        const user = response.data;
 
         if (!user) {
           clearSession();
@@ -2146,7 +2114,7 @@ export default function HelpDesk() {
     if (currentUser?.role === "Admin" || currentUser?.role === "Manager") {
       inRange = inRange;
     } else {
-      inRange = inRange.filter(t => t.reportedBy === currentUser?.name || t.assignees?.some(a => a.id === currentUser?.id));
+      inRange = inRange.filter(t => t.reportedBy === currentUser?.name || t.assignees?.some(a => a.id === currentUser?.id || a.name === currentUser?.name));
     }
     return inRange;
   }, [tickets, range, rangeMs, now, currentUser, customDateFrom, customDateTo, view]);
@@ -2235,7 +2203,7 @@ export default function HelpDesk() {
   const filtered = useMemo(() => tickets.filter(t => {
     if (!currentUser || !cvd.filter(t, currentUser)) return false;
     if (cvd.id !== "bin" && t.status === "Bin") return false;
-    if (currentUser.role !== "Admin" && currentUser.role !== "Manager" && t.reportedBy !== currentUser.name && !t.assignees?.some(a => a.id === currentUser.id)) return false;
+    if (currentUser.role !== "Admin" && currentUser.role !== "Manager" && t.reportedBy !== currentUser.name && !t.assignees?.some(a => a.id === currentUser.id || a.name === currentUser.name)) return false;
     if (statusF !== "All" && t.status !== statusF) return false;
     if (priorityF !== "All" && t.priority !== priorityF) return false;
     if (orgFilter !== "all" && t.org !== orgFilter) return false;
@@ -2282,15 +2250,15 @@ export default function HelpDesk() {
     if (filterCategory.trim()) {
       if (!t.category?.toLowerCase().includes(filterCategory.toLowerCase())) return false;
     }
-    if (search) {
-      if (search.startsWith("event:")) {
-        const id = search.split(":")[1];
+    if (debouncedSearch) {
+      if (debouncedSearch.startsWith("event:")) {
+        const id = debouncedSearch.split(":")[1];
         return String(t.satsangId) === id;
       }
-      if (!t.summary.toLowerCase().includes(search.toLowerCase()) && !t.id.toLowerCase().includes(search.toLowerCase()) && !t.org.toLowerCase().includes(search.toLowerCase())) return false;
+      if (!t.summary.toLowerCase().includes(debouncedSearch.toLowerCase()) && !t.id.toLowerCase().includes(debouncedSearch.toLowerCase()) && !t.org.toLowerCase().includes(debouncedSearch.toLowerCase())) return false;
     }
     return true;
-  }), [tickets, cvd, currentUser, statusF, priorityF, search, orgFilter, deptFilter, categoryFilter, filterStatus, filterAssignment, filterAssignee, filterCategory, dashboardTimePeriod]);
+  }), [tickets, cvd, currentUser, statusF, priorityF, debouncedSearch, orgFilter, deptFilter, categoryFilter, filterStatus, filterAssignment, filterAssignee, filterCategory, dashboardTimePeriod]);
 
   // ✅ NEW: Filter for webcast tickets only
   const webcastFiltered = useMemo(() => tickets.filter(t => {
@@ -2299,7 +2267,7 @@ export default function HelpDesk() {
 
     if (!currentUser || !cvd.filter(t, currentUser)) return false;
     // Non-admins/managers only see tickets assigned to them or reported by them
-    if (currentUser.role !== "Admin" && currentUser.role !== "Manager" && t.reportedBy !== currentUser.name && !t.assignees?.some(a => a.id === currentUser.id)) return false;
+    if (currentUser.role !== "Admin" && currentUser.role !== "Manager" && t.reportedBy !== currentUser.name && !t.assignees?.some(a => a.id === currentUser.id || a.name === currentUser.name)) return false;
     if (statusF !== "All" && t.status !== statusF) return false;
     if (priorityF !== "All" && t.priority !== priorityF) return false;
     if (orgFilter !== "all" && t.org !== orgFilter) return false;
@@ -2317,7 +2285,7 @@ export default function HelpDesk() {
   const totalPages = Math.ceil(filtered.length / TICKETS_PER_PAGE);
 
   // Filter tickets by column filters
-  const allSortedTickets = applySort(filtered, ticketSort);
+  const allSortedTickets = useMemo(() => applySort(filtered, ticketSort), [filtered, ticketSort]);
 
   // Paginate the sorted list
   const currentTickets = allSortedTickets.slice((currentPage - 1) * TICKETS_PER_PAGE,
@@ -2364,7 +2332,7 @@ export default function HelpDesk() {
   const dashboardStats = useMemo(() => {
   const isAgent = currentUser?.role === "Agent" || currentUser?.role === "Viewer";
   let base = dashboardData;
-  if (isAgent) base = base.filter(t => t.assignees?.some(a => a.id === currentUser?.id));
+  if (isAgent) base = base.filter(t => t.assignees?.some(a => a.id === currentUser?.id || a.name === currentUser?.name));
   return {
     total: base.filter(x => x.status !== "Bin").length,
     open: base.filter(x => x.status === "Open").length,
@@ -2383,16 +2351,20 @@ export default function HelpDesk() {
   }, [prbr, currentUser]);
 
   const projStats = useMemo(() => ({ total: dashboardProjects.length, open: dashboardProjects.filter(x => x.status === "Open").length, closed: dashboardProjects.filter(x => x.status === "Closed").length, critical: dashboardProjects.filter(x => x.priority === "Critical" && x.status !== "Closed").length }), [dashboardProjects]);
+  const [agentStatsMap, setAgentStatsMap] = useState({ assigned: {}, closed: {} });
+  useEffect(() => {
+    axios.get(`${BASE_URL}/stats/agents`).then(r => setAgentStatsMap(r.data)).catch(() => {});
+  }, [tickets]);
+
   const agentStats = useMemo(() => {
-    const orgTickets = dashboardOrg === "all" ? tickets : tickets.filter(t => t.org === dashboardOrg);
     const orgProjects = dashboardOrg === "all" ? prbr : prbr.filter(p => p.org === dashboardOrg);
     return (Array.isArray(users) ? users : []).map(u => ({
       ...u,
-      assigned: orgTickets.filter(t => t.assignees?.some(a => a.id === u.id) && t.status !== "Bin").length,
-      closed: orgTickets.filter(t => t.assignees?.some(a => a.id === u.id) && t.status === "Closed").length,
+      assigned: agentStatsMap.assigned[u.name] || 0,
+      closed: agentStatsMap.closed[u.name] || 0,
       projAssigned: orgProjects.filter(p => p.assignees?.some(a => a.id === u.id)).length
     }));
-  }, [tickets, prbr, users, dashboardOrg]);
+  }, [agentStatsMap, prbr, users, dashboardOrg]);
   const dailyData = useMemo(() => { const days = parseInt(range) <= 7 ? parseInt(range) : 7; return Array.from({ length: days }, (_, i) => { const d = new Date(now - (days - 1 - i) * dayMs); return { label: d.toLocaleDateString("en", { weekday: "short" }), value: fbr.filter(t => {
   const dateField = t.status === "Closed" && t.closedAt
     ? new Date(t.closedAt)
@@ -2402,19 +2374,19 @@ export default function HelpDesk() {
   const priorityDist = useMemo(() => {
   const isAgent = currentUser?.role === "Agent" || currentUser?.role === "Viewer";
   let base = dashboardData;
-  if (isAgent) base = base.filter(t => t.assignees?.some(a => a.id === currentUser?.id));
+  if (isAgent) base = base.filter(t => t.assignees?.some(a => a.id === currentUser?.id || a.name === currentUser?.name));
   return PRIORITIES.map(p => ({ label: p, value: base.filter(t => t.priority === p && t.status !== "Bin").length, color: PRIORITY_COLOR[p] }));
 }, [dashboardData, currentUser]);
-  const categoryDist = useMemo(() => categories.slice(0, 6).map(c => ({ label: c.name, value: dashboardData.filter(t => t.category === c.name).length, color: c.color })), [dashboardData, categories]);
+  const categoryCountMap = useMemo(() => {
+    const map = {};
+    dashboardData.forEach(t => { if (t.status !== "Bin") map[t.category] = (map[t.category] || 0) + 1; });
+    return map;
+  }, [dashboardData]);
+
+  const categoryDist = useMemo(() => categories.slice(0, 6).map(c => ({ label: c.name, value: categoryCountMap[c.name] || 0, color: c.color })), [categoryCountMap, categories]);
   const categoryDistFull = useMemo(() => {
-    const base = dashboardData.filter(t => t.status !== "Bin");
-    const rows = [...categories].sort((a, b) => {
-      const av = base.filter(t => t.category === a.name).length;
-      const bv = base.filter(t => t.category === b.name).length;
-      return bv - av;
-    }).map(c => ({ label: c.name, value: base.filter(t => t.category === c.name).length, color: c.color }));
-    return rows;
-  }, [dashboardData, categories]);
+    return [...categories].map(c => ({ label: c.name, value: categoryCountMap[c.name] || 0, color: c.color })).sort((a, b) => b.value - a.value);
+  }, [categoryCountMap, categories]);
 
   // ✅ NEW: Dashboard-specific chart data (with org filter)
   const dashboardDailyData = useMemo(() => {
@@ -2466,20 +2438,20 @@ export default function HelpDesk() {
 }, [dashboardData]);
 
   const dashboardClosingUsers = useMemo(() => {
-  return users.map((u, i) => ({
-    label: u.name,
-    value: dashboardData.filter(t => t.assignees?.some(a => a.id === u.id) && t.status === "Closed").length,
-    color: PIE_COLORS[i % PIE_COLORS.length]
-  })).sort((a, b) => b.value - a.value).slice(0, 6);
-}, [dashboardData, users]);
+    return users.map((u, i) => ({
+      label: u.name,
+      value: agentStatsMap.closed[u.name] || 0,
+      color: PIE_COLORS[i % PIE_COLORS.length]
+    })).sort((a, b) => b.value - a.value).slice(0, 6);
+  }, [agentStatsMap, users]);
 
   const dashboardClosingUsersFull = useMemo(() => {
-  return users.map((u, i) => ({
-    label: u.name,
-    value: dashboardData.filter(t => t.assignees?.some(a => a.id === u.id) && t.status === "Closed").length,
-    color: PIE_COLORS[i % PIE_COLORS.length]
-  })).sort((a, b) => b.value - a.value);
-}, [dashboardData, users]);
+    return users.map((u, i) => ({
+      label: u.name,
+      value: agentStatsMap.closed[u.name] || 0,
+      color: PIE_COLORS[i % PIE_COLORS.length]
+    })).sort((a, b) => b.value - a.value);
+  }, [agentStatsMap, users]);
 
   // ✅ NEW: Yearly data for reports (30+ days)
   const yearlyData = useMemo(() => {
@@ -3063,6 +3035,16 @@ export default function HelpDesk() {
     }
     setSelectedIds(s);
   };
+  const clearAllTickets = async () => {
+    if (!window.confirm("Are you sure you want to permanently delete ALL tickets? This cannot be undone.")) return;
+    try {
+      await axios.delete(TICKETS_API);
+      setTickets([]);
+    } catch (err) {
+      alert("Failed to clear tickets: " + (err.response?.data?.error || err.message));
+    }
+  };
+
   // Toggle all tickets in the current filtered/classified view (across all pages)
   const toggleAllFiltered = () => selectedIds.size === allSortedTickets.length && allSortedTickets.length > 0
     ? setSelectedIds(new Set())
@@ -5261,6 +5243,7 @@ const WebcastFields = ({ f, setF, isProject = false }) => {
 
         {/* New Ticket / Project buttons */}
         <div style={{ padding: "8px 8px 10px", display: "flex", flexDirection: "column", gap: 5 }}>
+          <button onClick={clearAllTickets} style={{ padding: "6px 12px", borderRadius: 7, border: "1px solid #ef4444", background: "#fef2f2", color: "#ef4444", fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: "'DM Sans',sans-serif" }}>🗑 Clear All Tickets</button>
           <button onClick={() => { setForm({ ...emptyForm(), org: dashboardOrg !== "all" ? dashboardOrg : "" }); setShowNewTicket(true); }} style={{ width: "100%", padding: "8px", borderRadius: 9, border: "none", background: "linear-gradient(135deg,#3b82f6,#6366f1)", color: "#fff", fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: "'DM Sans',sans-serif" }}>+ New Ticket</button>
           <button onClick={() => { setProjForm({ ...emptyProjectForm, org: dashboardOrg !== "all" ? dashboardOrg : "" }); setShowNewProject(true); }} style={{ width: "100%", padding: "8px", borderRadius: 9, border: "1.5px solid #1e40af", background: "transparent", color: "#60a5fa", fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: "'DM Sans',sans-serif", display: (currentUser?.role === "Admin" || currentUser?.role === "Manager") ? "block" : "none" }}>+ New Project</button>
         </div>
@@ -7720,10 +7703,10 @@ const WebcastFields = ({ f, setF, isProject = false }) => {
                         return <span style={{ fontSize: 12, color: sStyle?.c || "#f59e0b" }}>{sStyle?.l || "Off Duty"}</span>;
                       })()}</td>
                       <td style={tdStyle}><span style={{ fontSize: 12, color: u.active ? "#15803d" : "#ef4444", fontWeight: 500 }}>{u.active ? "Activated" : "Deactivated"}</span></td>
-                      <td style={{ ...tdStyle, textAlign: "center", fontSize: 13 }}>{tickets.filter(t => t.assignees?.some(a => a.id === u.id) && t.status !== "Bin" && (dashboardOrg === "all" || t.org === dashboardOrg)).length}</td>
-                      <td style={{ ...tdStyle, textAlign: "center", fontSize: 13 }}>{tickets.filter(t => t.assignees?.some(a => a.id === u.id) && t.status === "Closed" && (dashboardOrg === "all" || t.org === dashboardOrg)).length}</td>
-                      <td style={{ ...tdStyle, textAlign: "center", fontSize: 13 }}>{tickets.filter(t => t.assignees?.some(a => a.id === u.id) && t.status === "Open" && (dashboardOrg === "all" || t.org === dashboardOrg)).length}</td>
-                      {(() => { const assigned = tickets.filter(t => t.assignees?.some(a => a.id === u.id) && t.status !== "Bin" && (dashboardOrg === "all" || t.org === dashboardOrg)).length; const closed = tickets.filter(t => t.assignees?.some(a => a.id === u.id) && t.status === "Closed").length; const rate = assigned ? Math.round(closed / assigned * 100) : 0; return <td style={{ ...tdStyle, fontSize: 12, color: rate > 70 ? "#15803d" : rate > 40 ? "#b45309" : "#b91c1c" }}>{rate}%</td>; })()}
+                      <td style={{ ...tdStyle, textAlign: "center", fontSize: 13 }}>{tickets.filter(t => t.assignees?.some(a => a.id === u.id || a.name === u.name) && t.status !== "Bin" && (dashboardOrg === "all" || t.org === dashboardOrg)).length}</td>
+                      <td style={{ ...tdStyle, textAlign: "center", fontSize: 13 }}>{tickets.filter(t => t.assignees?.some(a => a.id === u.id || a.name === u.name) && t.status === "Closed" && (dashboardOrg === "all" || t.org === dashboardOrg)).length}</td>
+                      <td style={{ ...tdStyle, textAlign: "center", fontSize: 13 }}>{tickets.filter(t => t.assignees?.some(a => a.id === u.id || a.name === u.name) && t.status === "Open" && (dashboardOrg === "all" || t.org === dashboardOrg)).length}</td>
+                      {(() => { const assigned = tickets.filter(t => t.assignees?.some(a => a.id === u.id || a.name === u.name) && t.status !== "Bin" && (dashboardOrg === "all" || t.org === dashboardOrg)).length; const closed = tickets.filter(t => t.assignees?.some(a => a.id === u.id || a.name === u.name) && t.status === "Closed").length; const rate = assigned ? Math.round(closed / assigned * 100) : 0; return <td style={{ ...tdStyle, fontSize: 12, color: rate > 70 ? "#15803d" : rate > 40 ? "#b45309" : "#b91c1c" }}>{rate}%</td>; })()}
                       {(currentUser?.role === "Admin") && (
                         <div style={{ display: "flex", gap: 6 }}>
                           <button onClick={() => { setUserEditModal({ show: true, user: u, newRole: u.role, editName: u.name || "", editEmail: u.email || "", editPhone: u.phone || "", editPassword: "" }); }} style={{ border: "none", background: "#dbeafe", color: "#1e40af", borderRadius: 6, padding: "6px 14px", cursor: "pointer", fontSize: 12, fontWeight: 600 }}>Manage</button>

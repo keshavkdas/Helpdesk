@@ -289,6 +289,15 @@ app.post("/api/auth/login", async (req, res) => {
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+app.get("/api/users/:id/status", async (req, res) => {
+    try {
+        const user = await User.findByPk(req.params.id, {
+            attributes: ["id", "active", "role", "status", "forceLogout"]
+        });
+        res.json(user ? user.get({ plain: true }) : null);
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 app.post("/api/auth/signup", async (req, res) => {
     try {
         const { email, password, ...rest } = req.body;
@@ -977,26 +986,12 @@ app.post("/api/tickets", async (req, res) => {
         }
 
         // Generate next TKT-XXXX id
-        const allTickets = await Ticket.findAll({
-            where: { id: { [Op.like]: "TKT-%" } },
-            order: [['createdAt', 'DESC']]
-        });
-        const sequentialTickets = allTickets.filter(t => {
-            const parts = t.id.split("-");
-            return parts.length === 2 && parts[1].length === 4 && /^\d{4}$/.test(parts[1]);
-        });
-        let nextIdNum = 1001;
-        if (sequentialTickets.length > 0) {
-            const nums = sequentialTickets.map(t => parseInt(t.id.split("-")[1], 10)).filter(n => !isNaN(n)).sort((a, b) => b - a);
-            if (nums.length > 0) nextIdNum = nums[0] + 1;
-        }
+        const [maxRow] = await sequelize.query(
+            `SELECT MAX(CAST(SUBSTRING(id, 5) AS UNSIGNED)) as maxNum FROM Tickets WHERE id LIKE 'TKT-%'`,
+            { type: sequelize.QueryTypes.SELECT }
+        );
+        let nextIdNum = (maxRow?.maxNum || 1000) + 1;
         let ticketId = `TKT-${String(nextIdNum).padStart(4, "0")}`;
-        let idExists = await Ticket.findByPk(ticketId);
-        while (idExists) {
-            nextIdNum++;
-            ticketId = `TKT-${String(nextIdNum).padStart(4, "0")}`;
-            idExists = await Ticket.findByPk(ticketId);
-        }
 
         // ✅ STRICT WHITELIST — only pass fields the Ticket model actually has.
         const ticketData = {
@@ -1064,17 +1059,11 @@ app.post("/api/tickets", async (req, res) => {
 
         // Multiple assignees — one ticket per assignee
         // Re-fetch latest ticket ID to avoid collision with parallel requests
-        const allTickets2 = await Ticket.findAll({
-            where: { id: { [Op.like]: "TKT-%" } },
-            order: [['createdAt', 'DESC']]
-        });
-        const seqTickets2 = allTickets2.filter(t => {
-            const p = t.id.split("-");
-            return p.length === 2 && /^\d{4}$/.test(p[1]);
-        });
-        let counter = seqTickets2.length > 0
-            ? Math.max(...seqTickets2.map(t => parseInt(t.id.split("-")[1], 10))) + 1
-            : nextIdNum;
+        const [maxRow2] = await sequelize.query(
+            `SELECT MAX(CAST(SUBSTRING(id, 5) AS UNSIGNED)) as maxNum FROM Tickets WHERE id LIKE 'TKT-%'`,
+            { type: sequelize.QueryTypes.SELECT }
+        );
+        let counter = (maxRow2?.maxNum || 1000) + 1;
 
         const createdTickets = [];
         for (const assignee of assignees) {
@@ -1120,6 +1109,77 @@ app.delete("/api/tickets/:id", async (req, res) => {
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+app.delete("/api/tickets", async (req, res) => {
+    try {
+        const count = await Ticket.destroy({ where: {}, truncate: false });
+        await Webcast.destroy({ where: {}, truncate: false });
+        res.json({ success: true, deleted: count });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.get("/api/stats/agents", async (req, res) => {
+    try {
+        const [assigned, closed] = await Promise.all([
+            sequelize.query(
+                `SELECT JSON_UNQUOTE(JSON_EXTRACT(a.val, '$.name')) as name, COUNT(*) as cnt
+                 FROM Tickets t
+                 JOIN JSON_TABLE(t.assignees, '$[*]' COLUMNS(val JSON PATH '$')) a ON TRUE
+                 WHERE t.status != 'Bin' GROUP BY name`,
+                { type: sequelize.QueryTypes.SELECT }
+            ),
+            sequelize.query(
+                `SELECT JSON_UNQUOTE(JSON_EXTRACT(a.val, '$.name')) as name, COUNT(*) as cnt
+                 FROM Tickets t
+                 JOIN JSON_TABLE(t.assignees, '$[*]' COLUMNS(val JSON PATH '$')) a ON TRUE
+                 WHERE t.status = 'Closed' GROUP BY name`,
+                { type: sequelize.QueryTypes.SELECT }
+            )
+        ]);
+        const assignedMap = Object.fromEntries(assigned.map(r => [r.name, Number(r.cnt)]));
+        const closedMap = Object.fromEntries(closed.map(r => [r.name, Number(r.cnt)]));
+        res.json({ assigned: assignedMap, closed: closedMap });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.get("/api/tickets/paginated", async (req, res) => {
+    try {
+        const page = parseInt(req.query.page) || 1;
+        const limit = parseInt(req.query.limit) || 50;
+        const offset = (page - 1) * limit;
+        const search = req.query.search || "";
+        const status = req.query.status || "";
+        const priority = req.query.priority || "";
+        const org = req.query.org || "";
+
+        const where = {};
+        if (status) where.status = status;
+        if (priority) where.priority = priority;
+        if (org) where.org = org;
+        if (search) {
+            where[Op.or] = [
+                { summary: { [Op.like]: `%${search}%` } },
+                { id: { [Op.like]: `%${search}%` } },
+                { org: { [Op.like]: `%${search}%` } },
+            ];
+        }
+
+        const { count, rows } = await Ticket.findAndCountAll({
+            where,
+            attributes: { exclude: ["image", "timeline", "comments", "description"] },
+            order: [["createdAt", "DESC"]],
+            limit,
+            offset,
+        });
+
+        res.json({
+            tickets: rows.map(fmt),
+            total: count,
+            page,
+            totalPages: Math.ceil(count / limit),
+        });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 // ✅ NEW: Webcast Endpoints
 app.get("/api/webcasts", async (req, res) => {
     try {
@@ -1136,17 +1196,21 @@ app.post("/api/webcasts", async (req, res) => {
 
         // Generate WEB-XXXX id
         const allWebcasts = await Webcast.findAll({
-            where: { id: { [Op.like]: "WEB-%" } },
-            order: [["id", "DESC"]]
+            where: { id: { [Op.like]: "WEB-%" } }
         });
         const sequential = allWebcasts.filter(w => {
             const parts = w.id.split("-");
-            return parts.length === 2 && parts[1].length === 4 && /^\d{4}$/.test(parts[1]);
+            return parts.length === 2 && /^\d+$/.test(parts[1]);
         });
         let nextIdNum = 1001;
         if (sequential.length > 0) {
             const nums = sequential.map(w => parseInt(w.id.split("-")[1], 10)).filter(n => !isNaN(n));
             if (nums.length > 0) nextIdNum = Math.max(...nums) + 1;
+        }
+        let webcastIdCheck = `WEB-${String(nextIdNum).padStart(4, "0")}`;
+        while (await Webcast.findByPk(webcastIdCheck)) {
+            nextIdNum++;
+            webcastIdCheck = `WEB-${String(nextIdNum).padStart(4, "0")}`;
         }
         const webcastId = `WEB-${String(nextIdNum).padStart(4, "0")}`;
 
@@ -1272,15 +1336,16 @@ app.delete("/api/projects/:id", async (req, res) => {
 app.get("/api/all-data", async (req, res) => {
     try {
         const [users, orgs, categories, customAttrs, tickets, webcasts, satsangs, projects, departments, locations, vendors] = await Promise.all([
-            User.findAll(), Org.findAll(), Category.findAll(), CustomAttr.findAll(), Ticket.findAll(), Webcast.findAll(), Satsang.findAll(), Project.findAll(), Department.findAll(), Location.findAll(), Vendor.findAll()
+            User.findAll(), Org.findAll(), Category.findAll(), CustomAttr.findAll(), Ticket.findAll({ attributes: { exclude: ["image", "timeline", "comments"] } }),
+            Webcast.findAll({ attributes: { exclude: ["image", "timeline", "comments"] } }), Satsang.findAll(), Project.findAll(), Department.findAll(), Location.findAll(), Vendor.findAll()
         ]);
         res.json({
             users: users.map(fmt),
             orgs: orgs.map(fmt),
             categories: categories.map(fmt),
             customAttrs: customAttrs.map(fmt),
-            tickets: tickets.map(fmt),
-            webcasts: webcasts.map(fmt),
+            tickets: tickets.map(t => { const o = fmt(t); delete o.image; delete o.timeline; delete o.comments; return o; }),
+            webcasts: webcasts.map(t => { const o = fmt(t); delete o.image; delete o.timeline; delete o.comments; return o; }),
             satsangs: satsangs.map(fmt),
             projects: projects.map(fmt),
             departments: departments.map(fmt),
@@ -1348,7 +1413,7 @@ app.post("/api/import/:table", async (req, res) => {
                 const cleanItem = {};
                 for (const key in item) {
                     if (validColumns.includes(key) && key !== 'id') {
-                        cleanItem[key] = item[key];
+                        cleanItem[key] = item[key] ?? null;
                     }
                 }
 
@@ -1356,7 +1421,7 @@ app.post("/api/import/:table", async (req, res) => {
                 if (Object.keys(cleanItem).length === 0) continue;
 
                 // 3. Force Organization to VVMVP (overrides whatever the CSV says)
-                cleanItem.org = "VVMVP";
+                //cleanItem.org = "VVMVP";
 
                 // 4. Clean up JSON fields if they come in as strings from CSV
                 const jsonFields = ['assignees', 'cc', 'customAttrs', 'timeline', 'comments', 'vendor'];
